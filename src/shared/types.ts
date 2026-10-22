@@ -220,7 +220,16 @@ export interface OperationProgress {
   total?: number;
   message: string;
 }
+export type WindowMode = 'full' | 'sticky';
+export interface WindowModeState {
+  mode: WindowMode;
+  pinned: boolean;
+}
 export interface DesktopAPI {
+  getWindowMode(): Promise<WindowModeState>;
+  setWindowMode(mode: WindowMode): Promise<WindowModeState>;
+  setStickyPinned(pinned: boolean): Promise<WindowModeState>;
+  onWindowModeChanged(callback: (state: WindowModeState) => void): () => void;
   setWindowTheme(theme: { background: string; foreground: string }): Promise<void>;
   bootstrap(): Promise<Bootstrap>;
   saveSettings(settings: Settings): Promise<Settings>;

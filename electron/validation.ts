@@ -119,6 +119,9 @@ export const windowThemeSchema = z
   .strict();
 
 export const argumentSchemas = {
+  getWindowMode: z.tuple([]),
+  setWindowMode: z.tuple([z.enum(['full', 'sticky'])]),
+  setStickyPinned: z.tuple([z.boolean()]),
   bootstrap: z.tuple([]),
   setWindowTheme: z.tuple([windowThemeSchema]),
   saveSettings: z.tuple([settingsSchema]),

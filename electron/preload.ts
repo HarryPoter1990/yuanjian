@@ -4,6 +4,15 @@ import type { DesktopAPI } from '../src/shared/types';
 // Fixed methods, never expose arbitrary ipcRenderer.send/invoke to rendered Markdown.
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
+  getWindowMode: () => ipcRenderer.invoke('notes:getWindowMode'),
+  setWindowMode: (mode) => ipcRenderer.invoke('notes:setWindowMode', mode),
+  setStickyPinned: (pinned) => ipcRenderer.invoke('notes:setStickyPinned', pinned),
+  onWindowModeChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]) =>
+      callback(state);
+    ipcRenderer.on('notes:window-mode-changed', listener);
+    return () => ipcRenderer.removeListener('notes:window-mode-changed', listener);
+  },
   bootstrap: () => ipcRenderer.invoke('notes:bootstrap'),
   setWindowTheme: (theme) => ipcRenderer.invoke('notes:setWindowTheme', theme),
   saveSettings: (value) => ipcRenderer.invoke('notes:saveSettings', value),
