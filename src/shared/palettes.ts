@@ -90,6 +90,7 @@ export function paletteAppearance(
   return {
     ...appearance,
     palette: id,
+    paletteOverrides: undefined,
     background: palette.light.bg,
     foreground: palette.light.fg,
     accent: palette.light.accent,

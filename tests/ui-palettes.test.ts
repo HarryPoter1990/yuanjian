@@ -39,6 +39,22 @@ describe('approved visual palettes', () => {
       expect(appearanceColors({ ...next, mode: 'light' }, true).background).toBe(palette.light.bg);
     }
   });
+  it('keeps mode pairs after a color edit and stores edits for the active mode', () => {
+    const appearance = {
+      ...defaultAppearance,
+      paletteOverrides: { light: { accent: '#bb3366', background: '#191919' } },
+    };
+    expect(appearanceColors(appearance, false)).toMatchObject({
+      accent: '#bb3366',
+      background: '#191919',
+    });
+    expect(appearanceColors({ ...appearance, mode: 'dark' }, false)).toMatchObject({
+      background: '#191919',
+      foreground: '#EEEEEE',
+      accent: '#9FB59E',
+    });
+    expect(paletteAppearance(appearance, 'paper').paletteOverrides).toBeUndefined();
+  });
   it('retains custom and legacy colors', () => {
     const custom = {
       ...defaultAppearance,

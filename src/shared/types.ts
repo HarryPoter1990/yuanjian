@@ -52,6 +52,10 @@ export interface Snippet {
 }
 export interface Appearance {
   palette?: 'ink' | 'moss' | 'paper';
+  paletteOverrides?: {
+    light?: Partial<Record<'background' | 'foreground' | 'accent', string>>;
+    dark?: Partial<Record<'background' | 'foreground' | 'accent', string>>;
+  };
   mode: 'light' | 'dark' | 'system';
   accent: string;
   background: string;

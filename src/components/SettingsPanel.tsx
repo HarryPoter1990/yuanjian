@@ -287,15 +287,22 @@ export function SettingsPanel({
                       aria-label={label}
                       type="color"
                       value={colors[key]}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        if (!appearance.palette) {
+                          look({ [key]: e.target.value });
+                          return;
+                        }
+                        const mode = colors.dark ? 'dark' : 'light';
                         look({
-                          palette: undefined,
-                          background: colors.background,
-                          foreground: colors.foreground,
-                          accent: colors.accent,
-                          [key]: e.target.value,
-                        })
-                      }
+                          paletteOverrides: {
+                            ...appearance.paletteOverrides,
+                            [mode]: {
+                              ...appearance.paletteOverrides?.[mode],
+                              [key]: e.target.value,
+                            },
+                          },
+                        });
+                      }}
                     />
                   </label>
                 ))}

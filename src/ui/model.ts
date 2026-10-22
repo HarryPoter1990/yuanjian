@@ -6,6 +6,7 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const palette = builtinPalettes.find((item) => item.id === appearance.palette);
   if (palette) {
     const colors = palette[dark ? 'dark' : 'light'];
+    const overrides = appearance.paletteOverrides?.[dark ? 'dark' : 'light'];
     const resolve = (key: 'bg' | 'fg' | 'accent', value: string) =>
       [palette.light[key], palette.dark[key]].some(
         (color) => color.toLowerCase() === value.toLowerCase(),
@@ -14,9 +15,9 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
         : value;
     return {
       dark,
-      background: resolve('bg', appearance.background),
-      foreground: resolve('fg', appearance.foreground),
-      accent: resolve('accent', appearance.accent),
+      background: overrides?.background ?? resolve('bg', appearance.background),
+      foreground: overrides?.foreground ?? resolve('fg', appearance.foreground),
+      accent: overrides?.accent ?? resolve('accent', appearance.accent),
       sidebar: colors.sidebar,
       surface: colors.surface,
       muted: colors.muted,

@@ -13,6 +13,24 @@ const template = z.object({
 const appearance = z.object({
   mode: z.enum(['light', 'dark', 'system']),
   palette: z.enum(['ink', 'moss', 'paper']).optional(),
+  paletteOverrides: z
+    .object({
+      light: z
+        .object({
+          background: short.optional(),
+          foreground: short.optional(),
+          accent: short.optional(),
+        })
+        .optional(),
+      dark: z
+        .object({
+          background: short.optional(),
+          foreground: short.optional(),
+          accent: short.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   accent: short,
   background: short,
   foreground: short,
