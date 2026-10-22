@@ -129,7 +129,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             })
           : [],
         current.settings.codeFold ? foldGutter() : [],
-        current.settings.codeWrap ? EditorView.lineWrapping : [],
+        current.mode === 'live' || current.settings.codeWrap ? EditorView.lineWrapping : [],
         mathCompletion(current.settings.snippets),
         EditorView.theme({
           '&': {

@@ -36,6 +36,19 @@
   font: var(--code-font-size, 16px)/var(--code-line-height, 1.6)
     var(--code-font, 'JetBrains Mono', monospace);
 }
+.markdown-editor .cm-code-source-block {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.markdown-editor .cm-code-source-block > .cm-line {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .markdown-editor .cm-line {
   padding: 0;
 }

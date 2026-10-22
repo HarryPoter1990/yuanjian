@@ -1,5 +1,12 @@
-import { Facet, StateField, type EditorState, type Range } from '@codemirror/state';
-import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
+import { Facet, StateField, type EditorState, type Range, type RangeSet } from '@codemirror/state';
+import {
+  BlockWrapper,
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  WidgetType,
+  type DecorationSet,
+} from '@codemirror/view';
 import { createMarkdownParser, hydrateMarkdown, renderMarkdown } from './renderer';
 import { TableWidget } from './table-widget';
 import type { RenderOptions } from './types';
@@ -156,9 +163,10 @@ class PreviewWidget extends WidgetType {
   }
 }
 
-function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): DecorationSet {
+function buildDecorations(state: EditorState, blocks: MarkdownBlock[]) {
   const config = state.facet(previewConfig);
   const ranges: Range<Decoration>[] = [];
+  const wrappers: Range<BlockWrapper>[] = [];
   if (config.mode === 'live')
     for (const block of blocks) {
       if (block.from >= block.to) continue;
@@ -173,7 +181,14 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): Decorati
               class: `cm-heading-source cm-heading-source-${block.headingLevel}`,
             }).range(block.from),
           );
-        if (block.type === 'fence')
+        if (block.type === 'fence') {
+          if (config.codeWrap === false)
+            wrappers.push(
+              BlockWrapper.create({
+                tagName: 'div',
+                attributes: { class: 'cm-code-source-block' },
+              }).range(block.from, block.to),
+            );
           for (
             let line = state.doc.lineAt(block.from).number;
             line <= state.doc.lineAt(block.to).number;
@@ -183,6 +198,7 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): Decorati
               Decoration.line({ class: 'cm-code-source' }).range(state.doc.line(line).from),
             );
           }
+        }
         continue;
       }
       // Block replacements include their edges so CodeMirror does not add empty text lines on both sides.
@@ -204,23 +220,55 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): Decorati
         widget: new MathPreviewWidget(formula.source),
       }).range(state.doc.lineAt(formula.to).to),
     );
-  return Decoration.set(ranges, true);
+  return { decorations: Decoration.set(ranges, true), wrappers: BlockWrapper.set(wrappers, true) };
 }
+
+const codeScrollMeasurements = ViewPlugin.define((view) => {
+  // CodeMirror watches the outer scroller. Nested code scrolling must also refresh cursor geometry.
+  const scroll = (event: Event) => {
+    if (event.target instanceof Element && event.target.classList.contains('cm-code-source-block'))
+      view.requestMeasure();
+  };
+  view.contentDOM.addEventListener('scroll', scroll, true);
+  return { destroy: () => view.contentDOM.removeEventListener('scroll', scroll, true) };
+});
+
+const codeCursorScrolling = EditorView.scrollHandler.of((view, range) => {
+  const at = view.domAtPos(range.head);
+  const element = at.node instanceof Element ? at.node : at.node.parentElement;
+  const block = element?.closest<HTMLElement>('.cm-code-source-block');
+  const cursor = block && view.coordsAtPos(range.head, range.assoc || 1);
+  if (block && cursor) {
+    const bounds = block.getBoundingClientRect();
+    const margin = Math.min(24, block.clientWidth / 4);
+    if (cursor.left < bounds.left + margin) block.scrollLeft += cursor.left - bounds.left - margin;
+    else if (cursor.right > bounds.left + block.clientWidth - margin)
+      block.scrollLeft += cursor.right - bounds.left - block.clientWidth + margin;
+  }
+  // Retain the standard vertical scroll behavior after revealing the cursor within its code block.
+  return false;
+});
 
 /** Multiline replacements are supplied directly from a StateField, before viewport layout. */
 export const livePreviewField = StateField.define<{
   blocks: MarkdownBlock[];
   decorations: DecorationSet;
+  wrappers: RangeSet<BlockWrapper>;
 }>({
   create(state) {
     const blocks = markdownBlocks(state);
-    return { blocks, decorations: buildDecorations(state, blocks) };
+    return { blocks, ...buildDecorations(state, blocks) };
   },
   update(value, transaction) {
     if (!transaction.docChanged && !transaction.selection && !transaction.reconfigured)
       return value;
     const blocks = transaction.docChanged ? markdownBlocks(transaction.state) : value.blocks;
-    return { blocks, decorations: buildDecorations(transaction.state, blocks) };
+    return { blocks, ...buildDecorations(transaction.state, blocks) };
   },
-  provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+  provide: (field) => [
+    EditorView.decorations.from(field, (value) => value.decorations),
+    EditorView.blockWrappers.from(field, (value) => value.wrappers),
+    codeScrollMeasurements,
+    codeCursorScrolling,
+  ],
 });

@@ -11,6 +11,7 @@ import { defaultSettings } from '../src/shared/defaults';
 
 let root: Root;
 let host: HTMLDivElement;
+let styles: HTMLStyleElement;
 let reference = createRef<MarkdownEditorHandle>();
 
 beforeEach(() => {
@@ -24,6 +25,9 @@ beforeEach(() => {
     value: () => new DOMRect(0, 0, 1, 20),
   });
   host = document.createElement('div');
+  styles = document.createElement('style');
+  styles.textContent = readFileSync('src/editor/editor.css', 'utf8');
+  document.head.append(styles);
   document.body.append(host);
   root = createRoot(host);
   reference = createRef<MarkdownEditorHandle>();
@@ -31,6 +35,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  styles.remove();
   vi.restoreAllMocks();
 });
 
@@ -56,35 +61,88 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it('keeps live prose wrapped and scrolls only the active code block when code wrapping is disabled', async () => {
+    const paragraph = '这是应始终换行的正文。'.repeat(50);
+    const longCode = `const text = "${'abcdef'.repeat(100)}";`;
+    const source = `${paragraph}\n\n\`\`\`javascript\n${longCode}\nsecondLine();\n\`\`\`\n\n结尾`;
+    const settings = structuredClone(defaultSettings);
+    settings.codeWrap = false;
+    const { props, onChange } = await mount({ value: source, settings });
+    expect(editor().contentDOM.classList.contains('cm-lineWrapping')).toBe(true);
+    expect(host.querySelector('.code-body.code-wrap')).toBeNull();
+    expect(host.querySelector('.code-body')).not.toBeNull();
+    const head = source.indexOf(longCode) + longCode.length;
+    await act(async () => editor().dispatch({ selection: { anchor: head } }));
+    const block = host.querySelector<HTMLElement>('.cm-code-source-block');
+    expect(block).not.toBeNull();
+    expect(block?.querySelectorAll('.cm-code-source')).toHaveLength(4);
+    expect(block?.textContent).toContain(longCode);
+    expect(host.querySelector('.cm-lineWrapping')).not.toBeNull();
+    if (!block) throw new Error('Missing code block scroller');
+    expect(getComputedStyle(block).overflowX).toBe('auto');
+    expect(getComputedStyle(block).maxWidth).toBe('100%');
+    const codeLine = block.querySelector('.cm-line');
+    expect(codeLine && getComputedStyle(codeLine).whiteSpace).toBe('pre');
+    const measure = vi.spyOn(editor(), 'requestMeasure');
+    block.dispatchEvent(new Event('scroll'));
+    expect(measure).toHaveBeenCalled();
+    Object.defineProperty(block, 'clientWidth', { configurable: true, value: 300 });
+    vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 50, 300, 80));
+    vi.spyOn(editor(), 'coordsAtPos').mockReturnValue(new DOMRect(700, 65, 1, 20));
+    for (const handler of editor().state.facet(EditorView.scrollHandler))
+      handler(editor(), editor().state.selection.main, {
+        x: 'nearest',
+        y: 'nearest',
+        xMargin: 5,
+        yMargin: 5,
+      });
+    expect(block.scrollLeft).toBeGreaterThan(0);
+    expect(editor().scrollDOM.scrollLeft).toBe(0);
+    expect(editor().state.selection.main.head).toBe(head);
+    expect(editor().state.doc.toString()).toBe(source);
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () => reference.current?.insert(' // edited'));
+    const edited = source.slice(0, head) + ' // edited' + source.slice(head);
+    expect(editor().state.doc.toString()).toBe(edited);
+    await act(async () =>
+      root.render(
+        <MarkdownEditor
+          {...props}
+          value={edited}
+          settings={{ ...settings, codeWrap: true }}
+          ref={reference}
+        />,
+      ),
+    );
+    expect(host.querySelector('.cm-code-source-block')).toBeNull();
+    expect(editor().contentDOM.classList.contains('cm-lineWrapping')).toBe(true);
+    await act(async () =>
+      root.render(<MarkdownEditor {...props} value={edited} mode="source" ref={reference} />),
+    );
+    expect(host.querySelector('.cm-code-source-block')).toBeNull();
+    expect(editor().contentDOM.classList.contains('cm-lineWrapping')).toBe(false);
+    expect(editor().state.doc.toString()).toBe(edited);
+  });
   it('keeps live heading typography while revealing editable markers and restores plain source typography', async () => {
     const source = '# 一级标题\n\n## 二级标题\n\n正文';
-    const style = document.createElement('style');
-    style.textContent = readFileSync('src/editor/editor.css', 'utf8');
-    document.head.append(style);
-    try {
-      const { props, onChange } = await mount({ value: source });
-      const activeHeading = host.querySelector('.cm-line.cm-heading-source-1');
-      const renderedHeading = host.querySelector('h2');
-      const renderedSize = renderedHeading && getComputedStyle(renderedHeading).fontSize;
-      expect(activeHeading?.textContent).toBe('# 一级标题');
-      expect(activeHeading && getComputedStyle(activeHeading).fontSize).toBe('2em');
-      expect(activeHeading && getComputedStyle(activeHeading).fontWeight).toBe('650');
-      expect(activeHeading && getComputedStyle(activeHeading).lineHeight).toBe('1.45');
-      await act(async () => editor().dispatch({ selection: { anchor: source.indexOf('二级') } }));
-      const nextHeading = host.querySelector('.cm-line.cm-heading-source-2');
-      expect(nextHeading?.textContent).toBe('## 二级标题');
-      expect(nextHeading && getComputedStyle(nextHeading).fontSize).toBe(renderedSize);
-      expect(editor().state.doc.toString()).toBe(source);
-      expect(onChange).not.toHaveBeenCalled();
-      await act(async () =>
-        root.render(<MarkdownEditor {...props} mode="source" ref={reference} />),
-      );
-      expect(host.querySelector('[class*="cm-heading-source"]')).toBeNull();
-      expect(host.querySelectorAll('.cm-line')[0]?.textContent).toBe('# 一级标题');
-      expect(editor().state.doc.toString()).toBe(source);
-    } finally {
-      style.remove();
-    }
+    const { props, onChange } = await mount({ value: source });
+    const activeHeading = host.querySelector('.cm-line.cm-heading-source-1');
+    const renderedHeading = host.querySelector('h2');
+    const renderedSize = renderedHeading && getComputedStyle(renderedHeading).fontSize;
+    expect(activeHeading?.textContent).toBe('# 一级标题');
+    expect(activeHeading && getComputedStyle(activeHeading).fontSize).toBe('2em');
+    expect(activeHeading && getComputedStyle(activeHeading).fontWeight).toBe('650');
+    expect(activeHeading && getComputedStyle(activeHeading).lineHeight).toBe('1.45');
+    await act(async () => editor().dispatch({ selection: { anchor: source.indexOf('二级') } }));
+    const nextHeading = host.querySelector('.cm-line.cm-heading-source-2');
+    expect(nextHeading?.textContent).toBe('## 二级标题');
+    expect(nextHeading && getComputedStyle(nextHeading).fontSize).toBe(renderedSize);
+    expect(editor().state.doc.toString()).toBe(source);
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () => root.render(<MarkdownEditor {...props} mode="source" ref={reference} />));
+    expect(host.querySelector('[class*="cm-heading-source"]')).toBeNull();
+    expect(host.querySelectorAll('.cm-line')[0]?.textContent).toBe('# 一级标题');
+    expect(editor().state.doc.toString()).toBe(source);
   });
   it('copies exact code whitespace while keeping the Fluent copy affordance intact', async () => {
     const writeText = vi.fn(async () => undefined);
