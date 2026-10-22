@@ -3,6 +3,17 @@ import { argumentSchemas, sessionSchema, settingsSchema } from '../electron/vali
 import { defaultSettings } from '../src/shared/defaults';
 
 describe('desktop boundary validation', () => {
+  it('limits window control to explicit modes and boolean pin values', () => {
+    expect(argumentSchemas.getWindowMode.parse([])).toEqual([]);
+    expect(argumentSchemas.setWindowMode.parse(['sticky'])).toEqual(['sticky']);
+    expect(argumentSchemas.setWindowMode.parse(['full'])).toEqual(['full']);
+    for (const args of [[], ['fullscreen'], [{ mode: 'sticky' }], ['sticky', true]]) {
+      expect(argumentSchemas.setWindowMode.safeParse(args).success).toBe(false);
+    }
+    expect(argumentSchemas.setStickyPinned.parse([false])).toEqual([false]);
+    expect(argumentSchemas.setStickyPinned.safeParse(['false']).success).toBe(false);
+    expect(argumentSchemas.getWindowMode.safeParse(['extra']).success).toBe(false);
+  });
   it('accepts the real default settings but rejects invalid ranges and corrupted types', () => {
     expect(settingsSchema.parse(defaultSettings)).toEqual(defaultSettings);
     expect(settingsSchema.safeParse({ ...defaultSettings, historyDays: -1 }).success).toBe(false);
