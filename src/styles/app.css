@@ -1916,7 +1916,7 @@ button.danger {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.cm-cursorLayer),
   *:before,
   *:after {
     animation-duration: 0.01ms !important;
