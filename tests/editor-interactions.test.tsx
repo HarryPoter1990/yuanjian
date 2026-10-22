@@ -55,6 +55,26 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it('does not reconfigure CodeMirror or rebuild previews while only sidebar width changes', async () => {
+    const { props } = await mount();
+    const view = editor();
+    const preview = host.querySelector('.markdown-preview-block');
+    const update = vi.spyOn(view, 'update');
+    for (let index = 0; index < 56; index++) {
+      const settings = structuredClone(defaultSettings);
+      settings.leftWidth = 200 + index;
+      settings.rightWidth = 300 - index;
+      await act(async () => root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />));
+    }
+    expect(update.mock.calls.flatMap(([transactions]) => transactions).filter(transaction => transaction.reconfigured)).toHaveLength(0);
+    expect(host.querySelector('.markdown-preview-block')).toBe(preview);
+    expect(editor()).toBe(view);
+    expect(editor().state.doc.toString()).toBe(props.value);
+    const settings = structuredClone(defaultSettings);
+    settings.codeWrap = !settings.codeWrap;
+    await act(async () => root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />));
+    expect(update.mock.calls.flatMap(([transactions]) => transactions).some(transaction => transaction.reconfigured)).toBe(true);
+  });
   it('reveals a clicked paragraph, edits Chinese source and supports undo and mode switches', async () => {
     const { props, onChange } = await mount();
     expect(host.querySelectorAll('.markdown-preview-block')).toHaveLength(2);

@@ -397,13 +397,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }, [props.value]);
 
     useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: [
-          config.current.reconfigure(configuration()),
-          features.current.reconfigure(featureExtensions()),
-        ],
-      });
-    }, [props.mode, props.settings, props.notePath]);
+      viewRef.current?.dispatch({ effects: config.current.reconfigure(configuration()) });
+    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, props.notePath]);
+
+    const snippetKey = JSON.stringify(props.settings.snippets);
+    useEffect(() => {
+      viewRef.current?.dispatch({ effects: features.current.reconfigure(featureExtensions()) });
+    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, snippetKey,
+      props.settings.appearance.fontSize, props.settings.appearance.lineHeight, props.settings.appearance.contentWidth,
+      props.settings.appearance.bodyFont, props.settings.appearance.codeFont]);
 
     return (
       <div className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}>
