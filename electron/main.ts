@@ -20,15 +20,13 @@ import { within } from './storage/access';
 import { bundledFonts, FontManager, fontCatalog } from './resources/fonts';
 import { ExportManager } from './resources/export';
 import { argumentSchemas, windowThemeSchema, type InvokeMethod } from './validation';
-import type { Bootstrap, OperationProgress } from '../src/shared/types';
+import type { Bootstrap, OperationProgress, WindowMode } from '../src/shared/types';
 import { appearanceColors } from '../src/ui/model';
+import { WindowModeController } from './window-mode';
 import {
   applyWindowTheme,
-  captureWindowState,
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
-  restoreWindowBounds,
-  restoreWindowState,
   TITLE_BAR_HEIGHT,
   WindowStateStore,
   type WindowTheme,
@@ -61,6 +59,11 @@ if (testMode && dataFlag) {
   app.setPath('userData', candidate);
 }
 let window: BrowserWindow | null = null;
+let windowModes: WindowModeController | null = null;
+const requireWindowModes = () => {
+  if (!windowModes || !window || window.isDestroyed()) throw new Error('主窗口尚未就绪或已关闭');
+  return windowModes;
+};
 let store: NoteStore;
 let watcher: FSWatcher | null = null;
 let watchedKey = '';
@@ -286,6 +289,9 @@ async function boot() {
     }
   });
   const handlers = {
+    getWindowMode: async () => requireWindowModes().getMode(),
+    setWindowMode: (mode: WindowMode) => requireWindowModes().setMode(mode),
+    setStickyPinned: (pinned: boolean) => requireWindowModes().setPinned(pinned),
     setWindowTheme: async (theme: WindowTheme): Promise<void> => {
       if (!window || window.isDestroyed()) throw new Error('主窗口已关闭');
       applyWindowTheme(window, theme);
@@ -390,8 +396,7 @@ async function boot() {
       .map((display) => display.workArea);
   };
   const windowStateStore = new WindowStateStore(dataDirectory);
-  let lastWindowState = await windowStateStore.load(workAreas());
-  const shouldStartMaximized = lastWindowState.maximized;
+  const lastWindowState = await windowStateStore.load(workAreas());
   const colors = appearanceColors(store.getSettings().appearance, nativeTheme.shouldUseDarkColors);
   const checkedTheme = windowThemeSchema.safeParse({
     background: colors.background,
@@ -433,67 +438,34 @@ async function boot() {
   });
   window = mainWindow;
   applyWindowTheme(mainWindow, initialTheme);
-  let restoringWindowBounds = true;
-  let windowStateTimer: ReturnType<typeof setTimeout> | undefined;
   const reportWindowStateFailure = (error: unknown) =>
     progress({
       id: 'window-state',
       kind: 'error',
       completed: 0,
-      message: `窗口位置保存失败：${error instanceof Error ? error.message : String(error)}`,
+      message: `窗口状态更新或保存失败：${error instanceof Error ? error.message : String(error)}`,
     });
-  persistWindowState = async () => {
-    clearTimeout(windowStateTimer);
-    if (!mainWindow.isDestroyed())
-      lastWindowState = captureWindowState(mainWindow, lastWindowState, false);
-    await windowStateStore.save(lastWindowState);
-  };
-  const recordWindowChange = (captureBounds = false) => {
-    if (mainWindow.isDestroyed() || restoringWindowBounds) return;
-    lastWindowState = captureWindowState(mainWindow, lastWindowState, captureBounds);
-    clearTimeout(windowStateTimer);
-    windowStateTimer = setTimeout(() => {
-      void windowStateStore.save(lastWindowState).catch(reportWindowStateFailure);
-    }, 250);
-  };
-  const recordGeometryChange = () =>
-    recordWindowChange(
-      !lastWindowState.maximized && !mainWindow.isMaximized() && !mainWindow.isMinimized(),
-    );
-  mainWindow.on('move', recordGeometryChange);
-  mainWindow.on('resize', recordGeometryChange);
-  mainWindow.on('maximize', () => recordWindowChange());
-  mainWindow.on('unmaximize', () => recordWindowChange());
-  mainWindow.on('minimize', () => recordWindowChange());
-  mainWindow.on('restore', () => recordWindowChange());
-  const fitCurrentDisplays = () => {
-    if (mainWindow.isDestroyed()) return;
-    const current = captureWindowState(mainWindow, lastWindowState, false);
-    const fitted = restoreWindowState(current, workAreas());
-    const minimized = mainWindow.isMinimized();
-    if (
-      Object.keys(fitted.bounds).some(
-        (key) => Reflect.get(fitted.bounds, key) !== Reflect.get(current.bounds, key),
-      )
-    ) {
-      restoringWindowBounds = true;
-      if (current.maximized && !minimized) mainWindow.unmaximize();
-      mainWindow.setMinimumSize(
-        Math.min(MIN_WINDOW_WIDTH, fitted.bounds.width),
-        Math.min(MIN_WINDOW_HEIGHT, fitted.bounds.height),
-      );
-      mainWindow.setBounds(fitted.bounds);
-      if (!minimized) restoreWindowBounds(mainWindow, fitted.bounds);
-      if (current.maximized && !minimized) mainWindow.maximize();
-      lastWindowState = fitted;
-      restoringWindowBounds = false;
-    }
-    recordWindowChange();
-  };
+  const modes = new WindowModeController(mainWindow, lastWindowState, {
+    workAreas,
+    currentWorkArea: () => screen.getDisplayMatching(mainWindow.getBounds()).workArea,
+    save: (state) => windowStateStore.save(state),
+    changed: (state) => send('notes:window-mode-changed', state),
+    failed: reportWindowStateFailure,
+  });
+  windowModes = modes;
+  persistWindowState = () => modes.persist();
+  mainWindow.on('move', () => modes.recordGeometry());
+  mainWindow.on('resize', () => modes.recordGeometry());
+  mainWindow.on('maximize', () => modes.recordNativeState());
+  mainWindow.on('unmaximize', () => modes.recordNativeState());
+  mainWindow.on('minimize', () => modes.recordNativeState());
+  mainWindow.on('restore', () => modes.recordNativeState());
+  const fitCurrentDisplays = () => modes.fitDisplays();
   screen.on('display-removed', fitCurrentDisplays);
   screen.on('display-metrics-changed', fitCurrentDisplays);
   mainWindow.once('closed', () => {
-    clearTimeout(windowStateTimer);
+    modes.dispose();
+    windowModes = null;
     screen.removeListener('display-removed', fitCurrentDisplays);
     screen.removeListener('display-metrics-changed', fitCurrentDisplays);
   });
@@ -503,10 +475,7 @@ async function boot() {
   });
   window.once('ready-to-show', () => {
     mainWindow.show();
-    restoreWindowBounds(mainWindow, lastWindowState.bounds);
-    if (shouldStartMaximized) mainWindow.maximize();
-    restoringWindowBounds = false;
-    recordWindowChange();
+    modes.start();
   });
   window.on('close', (event) => {
     if (mayClose) return;
@@ -536,10 +505,17 @@ const lock = testMode || app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', async (_event, argv) => {
+    const file = argv.find((value) => /\.(md|markdown|mdown|mkd)$/i.test(value));
+    if (file && windowModes) {
+      try {
+        await windowModes.setMode('full');
+      } catch {
+        return;
+      } // The controller reports persistence errors to the existing renderer.
+    }
     window?.show();
     if (window?.isMinimized()) window.restore();
     window?.focus();
-    const file = argv.find((value) => /\.(md|markdown|mdown|mkd)$/i.test(value));
     if (file && store) {
       await store.approveFile(path.resolve(file));
       requestOpen(path.resolve(file));
