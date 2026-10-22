@@ -12,6 +12,7 @@ import { TableWidget } from './table-widget';
 import type { RenderOptions } from './types';
 import { activeMathRange } from './completion';
 import { MathPreviewWidget } from './math-preview';
+import { previewSourcePosition } from './preview-source-position';
 
 export interface PreviewConfig extends RenderOptions {
   mode: 'live' | 'source';
@@ -145,14 +146,13 @@ class PreviewWidget extends WidgetType {
       const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
       const range = !caret ? document.caretRangeFromPoint?.(event.clientX, event.clientY) : null;
       const node = caret?.offsetNode ?? range?.startContainer;
-      const textNode = node?.nodeType === Node.TEXT_NODE && root.contains(node) ? node : null;
-      const text = textNode?.textContent ?? target?.textContent ?? '';
-      let offset = text ? this.block.source.indexOf(text) : -1;
-      if (offset < 0) offset = text ? this.block.source.indexOf(text.slice(0, 8)) : -1;
-      const within = textNode ? (caret?.offset ?? range?.startOffset ?? 0) : 0;
-      const position =
-        Number(root.dataset.sourceFrom) +
-        Math.min(this.block.source.length, Math.max(0, offset) + within);
+      const offset = previewSourcePosition(
+        root,
+        this.block.source,
+        node,
+        caret?.offset ?? range?.startOffset ?? 0,
+      );
+      const position = Number(root.dataset.sourceFrom) + (offset ?? 0);
       view.dispatch({ selection: { anchor: position }, scrollIntoView: false });
       view.focus();
     });
