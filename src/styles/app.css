@@ -1075,11 +1075,14 @@ button.danger {
   display: grid;
   grid-template-columns: 205px 1fr;
   height: min(710px, calc(100vh - 135px));
-  min-height: 350px;
+  min-height: 0;
+  overflow: hidden;
 }
 .settings-nav {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: auto;
   background: var(--surface);
   border-right: 1px solid var(--border);
   padding: 16px 10px 10px;
@@ -1136,6 +1139,7 @@ button.danger {
   margin: 4px 0;
 }
 .settings-content {
+  min-height: 0;
   overflow: auto;
   padding: 27px 34px 20px;
 }
@@ -2431,13 +2435,14 @@ button.danger {
     max-height: calc(100dvh - 24px);
   }
   .settings-layout {
-    display: block;
+    display: flex;
+    flex-direction: column;
     height: calc(100dvh - 120px);
-    min-height: 260px;
     position: relative;
   }
   .settings-categories-toggle {
     display: inline-flex;
+    flex-shrink: 0;
     align-self: flex-start;
     margin: 10px 16px 0;
     font-size: 12px;
@@ -2455,7 +2460,7 @@ button.danger {
     display: flex;
   }
   .settings-content {
-    height: 100%;
+    flex: 1;
     padding: 20px;
   }
   .setting-field {
@@ -2488,4 +2493,124 @@ button.danger {
   .reading-preview {
     padding: 24px;
   }
+}
+
+/* Sticky window mode: preserve the mounted workspace and full-window preferences. */
+.app[data-window-mode] > .sticky-header-host[hidden] {
+  display: none !important;
+}
+.app[data-window-mode] .sticky-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 24px 24px 138px;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 0 0 8px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.app[data-window-mode] .sticky-header .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.app[data-window-mode] .sticky-header button,
+.app[data-window-mode] .sticky-header .menu-anchor {
+  -webkit-app-region: no-drag;
+}
+.app[data-window-mode] .sticky-title-anchor {
+  min-width: 0;
+}
+.app[data-window-mode] .sticky-title {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 5px 4px;
+  justify-content: flex-start;
+  gap: 4px;
+  font-size: 12px;
+}
+.app[data-window-mode] .sticky-title > span {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.app[data-window-mode] .sticky-title > i {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.app[data-window-mode] .sticky-native-controls {
+  height: 44px;
+  width: 138px;
+  -webkit-app-region: no-drag;
+}
+.app[data-window-mode] .sticky-title-anchor .dropdown-menu {
+  left: 0;
+  right: auto;
+}
+.app[data-window-mode] .sticky-header .dropdown-menu {
+  width: min(280px, calc(100vw - 24px));
+  min-width: 0;
+  max-height: calc(100dvh - 60px);
+  overflow: auto;
+}
+.app[data-window-mode] .sticky-more-anchor .dropdown-menu {
+  right: -138px;
+}
+.app[data-window-mode] .sticky-header .dropdown-menu strong,
+.app[data-window-mode] .sticky-header .dropdown-menu small {
+  display: block;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.app[data-window-mode] .sticky-header .dropdown-menu strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.app[data-window-mode] .sticky-header .dropdown-menu small {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.app[data-window-mode='sticky'] .document-heading,
+.app[data-window-mode='sticky'] .editor-toolbar,
+.app[data-window-mode='sticky'] .status-bar {
+  display: none;
+}
+.app[data-window-mode='sticky'] .editor-column {
+  width: 100%;
+}
+.app[data-window-mode='sticky'] .editor-surface {
+  min-width: 0;
+  min-height: 0;
+}
+.app[data-window-mode='sticky'] .markdown-editor .cm-content {
+  padding: 18px 20px 80px;
+}
+.app[data-window-mode='sticky'] .toast-region {
+  right: 10px;
+  bottom: 12px;
+  max-width: calc(100vw - 20px);
+}
+.app[data-window-mode='sticky'] .toast-region.at-top {
+  top: 52px;
+  bottom: auto;
+}
+.app[data-window-mode] .window-mode-feedback {
+  position: fixed;
+  z-index: 30;
+  top: 48px;
+  right: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
 }
