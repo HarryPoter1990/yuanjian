@@ -86,8 +86,8 @@ export function inMath(state: EditorState, position: number): boolean {
   if (blocks % 2) return true;
   const line = state.doc.lineAt(position);
   const lineBefore = line.text.slice(0, position - line.from);
-  const inline = Array.from(lineBefore.matchAll(/\$\$|\$/g)).filter(
-    (match) => match[0] === '$' && !isEscaped(lineBefore, match.index),
+  const inline = Array.from(lineBefore.matchAll(/\$/g)).filter(
+    (match) => !isEscaped(lineBefore, match.index),
   );
   return inline.length % 2 === 1;
 }
@@ -149,13 +149,13 @@ export function activeMathRange(state: EditorState): MathRange | null {
   }
   const line = state.doc.lineAt(position);
   const offset = position - line.from;
-  const inline = Array.from(line.text.matchAll(/\$\$|\$/g)).filter(
-    (match) => match[0] === '$' && !isEscaped(line.text, match.index),
+  const inline = Array.from(line.text.matchAll(/\$/g)).filter(
+    (match) => !isEscaped(line.text, match.index),
   );
   for (let index = 0; index + 1 < inline.length; index += 2) {
     const from = inline[index].index;
     const end = inline[index + 1].index;
-    if (offset >= from && offset <= end + 1)
+    if (end > from + 1 && offset >= from && offset <= end + 1)
       return {
         source: line.text.slice(from + 1, end),
         from: line.from + from,

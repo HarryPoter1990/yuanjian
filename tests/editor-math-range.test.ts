@@ -12,6 +12,33 @@ function at(source: string, position: number) {
 }
 
 describe('active formula delimiter escaping', () => {
+  it.each([
+    { position: 2, source: 'a', from: 0, to: 3 },
+    { position: 5, source: 'b', from: 3, to: 6 },
+  ])('keeps adjacent inline formulas separate at position $position', ({ position, ...range }) => {
+    const state = at('$a$$b$', position);
+    expect(activeMathRange(state)).toEqual(range);
+  });
+
+  it('recognizes a closing dollar immediately after an escaped literal dollar', () => {
+    const source = '$x\\$$';
+    expect(activeMathRange(at(source, 2))).toEqual({
+      source: 'x\\$',
+      from: 0,
+      to: source.length,
+    });
+  });
+
+  it('leaves math after the closing dollar following an escaped literal dollar', () => {
+    const source = '$x\\$$';
+    expect(inMath(at(source, 4), 4)).toBe(true);
+    expect(inMath(at(source, source.length), source.length)).toBe(false);
+  });
+
+  it('does not return an empty inline pair for an unfinished block delimiter', () => {
+    expect(activeMathRange(at('$$', 1))).toBeNull();
+  });
+
   it.each([0, 1, 2, 3, 4])(
     'uses the parity of %i backslashes before an inline opening delimiter',
     (count) => {
