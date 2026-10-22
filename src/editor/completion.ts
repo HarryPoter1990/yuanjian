@@ -138,8 +138,8 @@ export function activeMathRange(state: EditorState): MathRange | null {
   const position = state.selection.main.head;
   if (inCode(state, position)) return null;
   const text = state.doc.toString();
-  const delimiters = Array.from(text.matchAll(/(?<!\\)\$\$/g)).filter(
-    (match) => !inCode(state, match.index),
+  const delimiters = Array.from(text.matchAll(/\$\$/g)).filter(
+    (match) => !isEscaped(text, match.index) && !inCode(state, match.index),
   );
   for (let index = 0; index + 1 < delimiters.length; index += 2) {
     const from = delimiters[index].index;
@@ -149,16 +149,17 @@ export function activeMathRange(state: EditorState): MathRange | null {
   }
   const line = state.doc.lineAt(position);
   const offset = position - line.from;
-  for (const match of line.text.matchAll(/(?<!\\)\$([^$\n]+)\$/g)) {
-    if (
-      match.index !== undefined &&
-      offset >= match.index &&
-      offset <= match.index + match[0].length
-    )
+  const inline = Array.from(line.text.matchAll(/\$\$|\$/g)).filter(
+    (match) => match[0] === '$' && !isEscaped(line.text, match.index),
+  );
+  for (let index = 0; index + 1 < inline.length; index += 2) {
+    const from = inline[index].index;
+    const end = inline[index + 1].index;
+    if (offset >= from && offset <= end + 1)
       return {
-        source: match[1],
-        from: line.from + match.index,
-        to: line.from + match.index + match[0].length,
+        source: line.text.slice(from + 1, end),
+        from: line.from + from,
+        to: line.from + end + 1,
       };
   }
   return null;
