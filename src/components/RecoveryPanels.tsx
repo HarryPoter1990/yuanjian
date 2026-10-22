@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pin, RotateCcw } from 'lucide-react';
+import { Pin, RotateCcw } from '../ui/icons';
 import type { AttachmentCandidate, HistoryEntry, TabState } from '../shared/types';
 import { bytesLabel, errorText, fileName } from '../ui/model';
 import { Empty, Modal } from './Controls';

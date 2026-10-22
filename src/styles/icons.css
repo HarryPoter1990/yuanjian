@@ -1,0 +1,17 @@
+.fluent-icon {
+  flex: none;
+  vertical-align: middle;
+}
+.fluent-icon-filled {
+  display: none;
+}
+:is([aria-pressed='true'], [aria-selected='true'], [aria-current='page'], .active, .selected)
+  > .fluent-icon
+  .fluent-icon-regular {
+  display: none;
+}
+:is([aria-pressed='true'], [aria-selected='true'], [aria-current='page'], .active, .selected)
+  > .fluent-icon
+  .fluent-icon-filled {
+  display: inline;
+}

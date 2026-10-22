@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { FileText, Search } from '../ui/icons';
 import type { NoteMeta } from '../shared/types';
 import { relativeNoteTarget } from '../ui/model';
 import { Modal } from './Controls';

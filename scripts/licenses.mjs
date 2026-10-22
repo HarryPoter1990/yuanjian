@@ -6,6 +6,7 @@ const notices = [
   '鸢笺 / Yuanjian — third-party software and font notices',
   'Bundled runtime components retain their respective licenses. Electron/Chromium licenses are also distributed beside the executable.',
 ];
+notices.push(`Fluent System Icons — https://github.com/microsoft/fluentui-system-icons\n${await readFile('public/icons/LICENSE.txt', 'utf8')}`);
 for (const [location, metadata] of Object.entries(lock.packages)) {
   if (!location || metadata.dev) continue;
   let names;

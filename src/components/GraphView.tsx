@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import cytoscape, { type Core, type ElementDefinition, type Layouts } from 'cytoscape';
-import { Maximize, RefreshCw, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { Maximize, RefreshCw, Search, ZoomIn, ZoomOut } from '../ui/icons';
 import type { GraphPreferences, NoteMeta, Settings } from '../shared/types';
 import { appearanceColors, errorText, fileName } from '../ui/model';
 import { IconButton } from './Controls';
