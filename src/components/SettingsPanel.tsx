@@ -10,7 +10,7 @@ import {
   Settings2,
   Type,
   Undo2,
-} from 'lucide-react';
+} from '../ui/icons';
 import type {
   Appearance,
   FontCatalogEntry,
@@ -20,7 +20,8 @@ import type {
   Template,
 } from '../shared/types';
 import { defaultAppearance, defaultSettings } from '../shared/defaults';
-import { bytesLabel, errorText } from '../ui/model';
+import { builtinPalettes, paletteAppearance } from '../shared/palettes';
+import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
 
 const groups = [
@@ -74,6 +75,7 @@ export function SettingsPanel({
 }: Props) {
   const [section, setSection] = useState('appearance');
   const [query, setQuery] = useState('');
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [fontQuery, setFontQuery] = useState('');
   const [original] = useState(() => structuredClone(settings.appearance));
   const [themeName, setThemeName] = useState('我的主题');
@@ -91,6 +93,10 @@ export function SettingsPanel({
       : filtered[0]?.id
     : section;
   const appearance = settings.appearance;
+  const colors = appearanceColors(
+    appearance,
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
+  );
   const template = settings.templates.find((item) => item.id === templateId);
   const displayedFonts = useMemo(
     () => fonts.filter((font) => font.name.toLowerCase().includes(fontQuery.toLowerCase())),
@@ -136,11 +142,14 @@ export function SettingsPanel({
     key:
       | 'fontSize'
       | 'lineHeight'
+      | 'codeFontSize'
+      | 'codeLineHeight'
       | 'contentWidth'
       | 'wallpaperOpacity'
       | 'wallpaperBlur'
       | 'wallpaperBrightness'
-      | 'editorOpacity',
+      | 'editorOpacity'
+      | 'sidebarOpacity',
     min: number,
     max: number,
     step: number,
@@ -153,19 +162,38 @@ export function SettingsPanel({
         min={min}
         max={max}
         step={step}
-        value={appearance[key]}
+        value={appearance[key] ?? (key === 'codeFontSize' ? 16 : 1.6)}
         onChange={(e) => look({ [key]: Number(e.target.value) })}
       />
       <output>
-        {appearance[key]}
+        {appearance[key] ?? (key === 'codeFontSize' ? 16 : 1.6)}
         {suffix}
       </output>
     </label>
   );
   return (
-    <Modal title="设置" onClose={onClose} wide>
+    <Modal
+      title="设置"
+      onClose={onClose}
+      busy={Boolean(busy)}
+      pending={themeName !== '我的主题' && Boolean(themeName.trim())}
+      wide
+    >
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="设置分组">
+        <button
+          className="settings-categories-toggle"
+          aria-expanded={categoriesOpen}
+          aria-controls="settings-categories"
+          onClick={() => setCategoriesOpen(!categoriesOpen)}
+        >
+          {groups.find((group) => group.id === visible)?.label || '设置分类'}
+          <ChevronRight size={16} />
+        </button>
+        <nav
+          id="settings-categories"
+          className={`settings-nav ${categoriesOpen ? 'settings-nav-open' : ''}`}
+          aria-label="设置分组"
+        >
           <div className="input-with-icon">
             <Search size={14} />
             <input
@@ -179,7 +207,10 @@ export function SettingsPanel({
             <button
               key={group.id}
               className={visible === group.id ? 'active' : ''}
-              onClick={() => setSection(group.id)}
+              onClick={() => {
+                setSection(group.id);
+                setCategoriesOpen(false);
+              }}
             >
               {group.label}
               <ChevronRight size={13} />
@@ -209,6 +240,28 @@ export function SettingsPanel({
                 外观与主题
               </h3>
               <p className="section-description">修改会立即显示，并保存在所有目录共用的设置中。</p>
+              <Field
+                label="内置配色"
+                description="配色包含浅色和深色两版，保留字体、壁纸与布局设置。"
+              >
+                <div className="theme-list builtin-palettes">
+                  {builtinPalettes.map((palette) => (
+                    <button
+                      key={palette.id}
+                      aria-pressed={appearance.palette === palette.id}
+                      onClick={() =>
+                        patch({ appearance: paletteAppearance(appearance, palette.id) })
+                      }
+                    >
+                      <span
+                        className="theme-dot"
+                        style={{ background: palette.light.bg, borderColor: palette.light.accent }}
+                      />
+                      {palette.name}
+                    </button>
+                  ))}
+                </div>
+              </Field>
               <Field label="明暗模式">
                 <select
                   aria-label="明暗模式"
@@ -233,8 +286,16 @@ export function SettingsPanel({
                     <input
                       aria-label={label}
                       type="color"
-                      value={appearance[key]}
-                      onChange={(e) => look({ [key]: e.target.value })}
+                      value={colors[key]}
+                      onChange={(e) =>
+                        look({
+                          palette: undefined,
+                          background: colors.background,
+                          foreground: colors.foreground,
+                          accent: colors.accent,
+                          [key]: e.target.value,
+                        })
+                      }
                     />
                   </label>
                 ))}
@@ -309,10 +370,14 @@ export function SettingsPanel({
                 </>
               )}
               <Field label="正文底色透明度">{number('editorOpacity', 0, 1, 0.05)}</Field>
+              <Field label="侧栏底色透明度">{number('sidebarOpacity', 0, 1, 0.05)}</Field>
               <h4>已保存的主题</h4>
               <div className="theme-list">
                 {settings.themes.map((theme) => (
-                  <button key={theme.id} onClick={() => look({ ...theme.appearance })}>
+                  <button
+                    key={theme.id}
+                    onClick={() => look({ ...theme.appearance, palette: theme.appearance.palette })}
+                  >
                     <span
                       className="theme-dot"
                       style={{
@@ -343,6 +408,7 @@ export function SettingsPanel({
                         },
                       ],
                     });
+                    setThemeName('我的主题');
                     setMessage('已保存当前外观为独立主题');
                   }}
                 >
@@ -519,6 +585,8 @@ export function SettingsPanel({
                   onChange={(autoSave) => patch({ autoSave })}
                 />
               </Field>
+              <Field label="代码字号">{number('codeFontSize', 10, 28, 1, ' px')}</Field>
+              <Field label="代码行距">{number('codeLineHeight', 1.2, 2.4, 0.05)}</Field>
               {(
                 [
                   ['codeLineNumbers', '代码行号'],
