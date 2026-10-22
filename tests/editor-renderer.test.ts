@@ -28,6 +28,9 @@ describe('safe Markdown rendering', () => {
     expect(root.querySelector('.hljs-keyword')).not.toBeNull();
     expect(root.querySelector('.hljs-string')).not.toBeNull();
     expect(root.querySelector('.code-line-number')).not.toBeNull();
+    for (const selector of ['.code-copy svg path', '.code-fold-icon svg path']) {
+      expect(root.querySelector(selector)?.getAttribute('d')).toMatch(/^M[\d.]/);
+    }
     root.innerHTML = renderMarkdown('```text\nlong line\n```', {
       codeFold: false,
       codeWrap: false,

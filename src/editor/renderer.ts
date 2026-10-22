@@ -222,7 +222,7 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
     USE_PROFILES: { html: true, svg: true, mathMl: true },
     ADD_ATTR: ['data-code', 'data-mermaid', 'data-asset-src', 'loading'],
     ALLOWED_URI_REGEXP:
-      /^(?:(?:https?|mailto|tel|blob|note-asset):|data:image\/(?:png|jpe?g|gif|webp|avif);|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+      /^(?:(?:https?|mailto|tel|blob|note-asset):|data:image\/(?:png|jpe?g|gif|webp|avif);|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   });
 }
 
