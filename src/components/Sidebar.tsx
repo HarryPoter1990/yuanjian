@@ -18,6 +18,7 @@ import { Empty, IconButton } from './Controls';
 
 type View = 'files' | 'search' | 'tags' | 'calendar';
 interface Props {
+  hidden?: boolean;
   settings: Settings;
   trees: Record<string, FileEntry[]>;
   index: NoteMeta[];
@@ -34,6 +35,7 @@ interface Props {
   onError(message: string): void;
 }
 export function Sidebar({
+  hidden = false,
   settings,
   trees,
   index,
@@ -98,7 +100,7 @@ export function Sidebar({
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const selectedNotes = index.filter((note) => fileName(note.path).includes(selected));
   return (
-    <aside className="sidebar left-sidebar" aria-label="笔记导航">
+    <aside className="sidebar left-sidebar" aria-label="笔记导航" hidden={hidden}>
       <div className="sidebar-switch" role="tablist" aria-label="导航类型">
         {(
           [
@@ -138,8 +140,8 @@ export function Sidebar({
         </div>
       </div>
       <div className="sidebar-body">
-        {view === 'files' && (
-          <>
+        {
+          <div hidden={view !== 'files'}>
             {settings.roots.length === 0 && (
               <div className="sidebar-welcome">
                 <FolderPlus size={25} />
@@ -180,8 +182,8 @@ export function Sidebar({
                 )}
               </section>
             ))}
-          </>
-        )}
+          </div>
+        }
         {view === 'search' && (
           <>
             <div className="input-with-icon">

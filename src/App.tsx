@@ -55,6 +55,7 @@ import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { useWorkspace } from './ui/useWorkspace';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
+import { frameValue, panelWidth, visiblePanels } from './ui/layout';
 import {
   appearanceColors,
   dateKey,
@@ -95,6 +96,8 @@ export default function App() {
   const { settings, tabs, activeId, notify, updateTab } = workspace;
   const active = tabs.find((tab) => tab.id === activeId) || null;
   const [panel, setPanel] = useState<Panel>(null);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [forcedPanels, setForcedPanels] = useState<{ left?: boolean; right?: boolean }>({});
   const [menu, setMenu] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   const [graphActive, setGraphActive] = useState(false);
@@ -128,12 +131,26 @@ export default function App() {
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
   const editor = useRef<MarkdownEditorHandle>(null);
+  const appElement = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const resizeDispose = useRef<(() => void) | null>(null);
   const preview = useRef<HTMLDivElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const loadedFonts = useRef(new Map<string, FontFace | null>());
   const activeRef = useRef(active);
   activeRef.current = active;
   const error = useCallback((message: string) => notify(message, true), [notify]);
+  useEffect(() => {
+    const frames = frameValue(setWindowWidth, requestAnimationFrame, cancelAnimationFrame);
+    const update = () => frames.push(window.innerWidth);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      frames.cancel();
+      resizeDispose.current?.();
+    };
+  }, []);
   const headings = useMemo(() => extractHeadings(active?.content || ''), [active?.content]);
   const tags = useMemo(() => extractTags(active?.content || ''), [active?.content]);
   const remoteImages = useMemo(
@@ -266,7 +283,10 @@ export default function App() {
     }
     return true;
   }
-  const changeSettings = (value: AppSettings) => workspace.setSettings(value);
+  const changeSettings = (value: AppSettings) => {
+    settingsRef.current = value;
+    workspace.setSettings(value);
+  };
   function beginLink() {
     const view = editor.current?.getView();
     if (!active || !view) {
@@ -646,20 +666,38 @@ export default function App() {
     event.preventDefault();
     const start = event.clientX;
     const width = side === 'left' ? settings.leftWidth : settings.rightWidth;
-    const move = (pointer: PointerEvent) =>
-      changeSettings({
-        ...settings,
-        [side === 'left' ? 'leftWidth' : 'rightWidth']: Math.max(
-          175,
-          Math.min(440, width + (pointer.clientX - start) * (side === 'left' ? 1 : -1)),
-        ),
-      });
-    const stop = () => {
+    resizeDispose.current?.();
+    let latest = width;
+    const frames = frameValue(
+      (value) => appElement.current?.style.setProperty(`--${side}-width`, `${value}px`),
+      requestAnimationFrame,
+      cancelAnimationFrame,
+    );
+    appElement.current?.classList.add('is-resizing');
+    const move = (pointer: PointerEvent) => {
+      latest = panelWidth(width + (pointer.clientX - start) * (side === 'left' ? 1 : -1));
+      frames.push(latest);
+    };
+    const cleanup = (commit: boolean) => {
+      frames.flush();
+      appElement.current?.classList.remove('is-resizing');
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      resizeDispose.current = null;
+      if (commit && settingsRef.current && latest !== width)
+        changeSettings({
+          ...settingsRef.current,
+          [side === 'left' ? 'leftWidth' : 'rightWidth']: latest,
+        });
     };
+    const stop = () => cleanup(true);
+    resizeDispose.current = () => cleanup(false);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointercancel', stop, { once: true });
+    window.addEventListener('blur', stop, { once: true });
   }
   if (workspace.loadError)
     return (
@@ -678,6 +716,12 @@ export default function App() {
       </main>
     );
   const appearance = settings.appearance;
+  const panels = visiblePanels(settings, windowWidth, forcedPanels);
+  const togglePanel = (side: 'left' | 'right') => {
+    const visible = panels[side];
+    setForcedPanels((current) => ({ ...current, [side]: !visible }));
+    changeSettings({ ...settings, [side === 'left' ? 'leftVisible' : 'rightVisible']: !visible });
+  };
   const { dark, foreground, background, accent } = appearanceColors(appearance, systemDark);
   const style = {
     '--accent': accent,
@@ -697,7 +741,7 @@ export default function App() {
   const line = active ? active.content.slice(0, active.cursor).split('\n').length : 1;
   return (
     <OperationContext.Provider value={{ busy, notice: workspace.notices.at(-1) || null }}>
-      <div className="app" data-theme={dark ? 'dark' : 'light'} style={style}>
+      <div ref={appElement} className="app" data-theme={dark ? 'dark' : 'light'} style={style}>
         {wallpaperUrl && (
           <div
             className="wallpaper"
@@ -721,10 +765,10 @@ export default function App() {
           </div>
           <div className="header-actions">
             <IconButton
-              label={settings.leftVisible ? '收起左侧导航' : '显示左侧导航'}
-              onClick={() => changeSettings({ ...settings, leftVisible: !settings.leftVisible })}
+              label={panels.left ? '收起左侧导航' : '显示左侧导航'}
+              onClick={() => togglePanel('left')}
             >
-              {settings.leftVisible ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+              {panels.left ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
             </IconButton>
             <IconButton label="打开 Markdown 文件" onClick={() => void open()}>
               <FolderOpen size={17} />
@@ -743,10 +787,10 @@ export default function App() {
             </IconButton>
             <span className="toolbar-separator" />
             <IconButton
-              label={settings.rightVisible ? '收起右侧大纲' : '显示右侧大纲'}
-              onClick={() => changeSettings({ ...settings, rightVisible: !settings.rightVisible })}
+              label={panels.right ? '收起右侧大纲' : '显示右侧大纲'}
+              onClick={() => togglePanel('right')}
             >
-              {settings.rightVisible ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+              {panels.right ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
             </IconButton>
             <IconButton label="打开设置" onClick={() => setPanel('settings')}>
               <Settings size={17} />
@@ -754,9 +798,10 @@ export default function App() {
           </div>
         </header>
         <main className="workspace">
-          {settings.leftVisible && (
+          {
             <>
               <Sidebar
+                hidden={!panels.left}
                 settings={settings}
                 trees={workspace.trees}
                 index={workspace.index}
@@ -775,6 +820,7 @@ export default function App() {
                 aria-orientation="vertical"
                 tabIndex={0}
                 className="panel-resizer"
+                hidden={!panels.left}
                 onPointerDown={(event) => resize('left', event)}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
@@ -788,7 +834,7 @@ export default function App() {
                 }}
               />
             </>
-          )}
+          }
           <section className="editor-column" aria-label="笔记编辑区">
             <div className="tabs-bar" role="tablist" aria-label="打开的笔记">
               {tabs.map((tab) => (
@@ -1069,7 +1115,7 @@ export default function App() {
               </footer>
             )}
           </section>
-          {settings.rightVisible && (
+          {
             <>
               <div
                 role="separator"
@@ -1077,6 +1123,7 @@ export default function App() {
                 aria-orientation="vertical"
                 tabIndex={0}
                 className="panel-resizer"
+                hidden={!panels.right}
                 onPointerDown={(event) => resize('right', event)}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
@@ -1089,7 +1136,11 @@ export default function App() {
                     });
                 }}
               />
-              <aside className="sidebar right-sidebar" aria-label="大纲与反向引用">
+              <aside
+                className="sidebar right-sidebar"
+                aria-label="大纲与反向引用"
+                hidden={!panels.right}
+              >
                 <div className="right-section">
                   <h2>
                     <AlignLeft size={15} />
@@ -1175,7 +1226,7 @@ export default function App() {
                 </button>
               </aside>
             </>
-          )}
+          }
         </main>
         <input
           ref={imageInput}

@@ -2015,3 +2015,33 @@ button.danger {
   overflow-wrap: anywhere;
   margin-top: 4px;
 }
+.sidebar[hidden],
+.panel-resizer[hidden],
+.sidebar-body > [hidden] {
+  display: none !important;
+}
+.panel-resizer {
+  width: 8px;
+  border: 0;
+  touch-action: none;
+}
+.panel-resizer::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.panel-resizer:hover::before,
+.panel-resizer:focus-visible::before,
+.is-resizing .panel-resizer::before {
+  background: var(--accent);
+  width: 2px;
+}
+.is-resizing,
+.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
