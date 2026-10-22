@@ -100,6 +100,7 @@ function makeAPI(session: SessionState): DesktopAPI {
       version: 'test',
     })),
     saveSettings: vi.fn(async (next) => next),
+    setWindowTheme: vi.fn(async () => undefined),
     saveSession: vi.fn(async () => undefined),
     openFile: vi.fn(async () => note),
     saveFile: vi.fn(async (request: SaveRequest): Promise<SaveOutcome> => ({
