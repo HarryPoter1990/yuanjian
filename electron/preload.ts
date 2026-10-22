@@ -5,6 +5,7 @@ import type { DesktopAPI } from '../src/shared/types';
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
   bootstrap: () => ipcRenderer.invoke('notes:bootstrap'),
+  setWindowTheme: (theme) => ipcRenderer.invoke('notes:setWindowTheme', theme),
   saveSettings: (value) => ipcRenderer.invoke('notes:saveSettings', value),
   saveSession: (value) => ipcRenderer.invoke('notes:saveSession', value),
   openFile: (value) => ipcRenderer.invoke('notes:openFile', value),

@@ -1,4 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  net,
+  protocol,
+  screen,
+  session,
+  shell,
+} from 'electron';
 import { randomUUID } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,8 +19,19 @@ import { NoteStore } from './storage/store';
 import { within } from './storage/access';
 import { bundledFonts, FontManager, fontCatalog } from './resources/fonts';
 import { ExportManager } from './resources/export';
-import { argumentSchemas, type InvokeMethod } from './validation';
+import { argumentSchemas, windowThemeSchema, type InvokeMethod } from './validation';
 import type { Bootstrap, OperationProgress } from '../src/shared/types';
+import { appearanceColors } from '../src/ui/model';
+import {
+  applyWindowTheme,
+  captureWindowState,
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  restoreWindowState,
+  TITLE_BAR_HEIGHT,
+  WindowStateStore,
+  type WindowTheme,
+} from './window-state';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -43,6 +65,7 @@ let watcher: FSWatcher | null = null;
 let watchedKey = '';
 let mayClose = false;
 let uiReady = false;
+let persistWindowState: () => Promise<void> = async () => {};
 const pendingOpenPaths: string[] = [];
 function requestOpen(file: string) {
   if (uiReady) send('notes:open-requested', file);
@@ -262,6 +285,10 @@ async function boot() {
     }
   });
   const handlers = {
+    setWindowTheme: async (theme: WindowTheme): Promise<void> => {
+      if (!window || window.isDestroyed()) throw new Error('主窗口已关闭');
+      applyWindowTheme(window, theme);
+    },
     bootstrap: async (): Promise<Bootstrap> => {
       let availableFonts = bundledFonts;
       const warnings: string[] = [];
@@ -312,6 +339,7 @@ async function boot() {
       shell.showItemInFolder(allowed);
     },
     closeReady: async () => {
+      await persistWindowState();
       await store.dispose();
       mayClose = true;
       window?.close();
@@ -353,15 +381,46 @@ async function boot() {
     uiReady = true;
     for (const file of pendingOpenPaths.splice(0)) send('notes:open-requested', file);
   });
-  window = new BrowserWindow({
-    width: 1440,
-    height: 940,
-    minWidth: 880,
-    minHeight: 600,
+  const workAreas = () => {
+    const primary = screen.getPrimaryDisplay().id;
+    return screen
+      .getAllDisplays()
+      .sort((left, right) => Number(left.id !== primary) - Number(right.id !== primary))
+      .map((display) => display.workArea);
+  };
+  const windowStateStore = new WindowStateStore(dataDirectory);
+  let lastWindowState = await windowStateStore.load(workAreas());
+  const shouldStartMaximized = lastWindowState.maximized;
+  const colors = appearanceColors(store.getSettings().appearance, nativeTheme.shouldUseDarkColors);
+  const checkedTheme = windowThemeSchema.safeParse({
+    background: colors.background,
+    foreground: colors.foreground,
+  });
+  const initialTheme: WindowTheme = checkedTheme.success
+    ? checkedTheme.data
+    : { background: '#f8f9f8', foreground: '#252925' };
+  const mainWindow = new BrowserWindow({
+    ...lastWindowState.bounds,
+    minWidth: Math.min(MIN_WINDOW_WIDTH, lastWindowState.bounds.width),
+    minHeight: Math.min(MIN_WINDOW_HEIGHT, lastWindowState.bounds.height),
     show: false,
-    backgroundColor: '#f6f5f1',
+    backgroundColor: initialTheme.background,
+    titleBarStyle: process.platform === 'win32' ? 'hidden' : 'default',
+    titleBarOverlay:
+      process.platform === 'win32'
+        ? {
+            color: initialTheme.background,
+            symbolColor: initialTheme.foreground,
+            height: TITLE_BAR_HEIGHT,
+          }
+        : false,
+    thickFrame: true,
+    resizable: true,
+    maximizable: true,
+    minimizable: true,
+    closable: true,
     title: '鸢笺 · Yuanjian',
-    icon: path.join(buildDirectory, 'app-icon.png'),
+    icon: path.join(buildDirectory, 'yuanjian.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -371,15 +430,83 @@ async function boot() {
       spellcheck: false,
     },
   });
+  window = mainWindow;
+  applyWindowTheme(mainWindow, initialTheme);
+  let windowStateTimer: ReturnType<typeof setTimeout> | undefined;
+  const reportWindowStateFailure = (error: unknown) =>
+    progress({
+      id: 'window-state',
+      kind: 'error',
+      completed: 0,
+      message: `窗口位置保存失败：${error instanceof Error ? error.message : String(error)}`,
+    });
+  persistWindowState = async () => {
+    clearTimeout(windowStateTimer);
+    if (!mainWindow.isDestroyed())
+      lastWindowState = captureWindowState(mainWindow, lastWindowState);
+    await windowStateStore.save(lastWindowState);
+  };
+  const recordWindowChange = () => {
+    if (mainWindow.isDestroyed()) return;
+    lastWindowState = captureWindowState(mainWindow, lastWindowState);
+    clearTimeout(windowStateTimer);
+    windowStateTimer = setTimeout(() => {
+      void windowStateStore.save(lastWindowState).catch(reportWindowStateFailure);
+    }, 250);
+  };
+  mainWindow.on('move', recordWindowChange);
+  mainWindow.on('resize', recordWindowChange);
+  mainWindow.on('maximize', recordWindowChange);
+  mainWindow.on('unmaximize', recordWindowChange);
+  mainWindow.on('minimize', recordWindowChange);
+  mainWindow.on('restore', recordWindowChange);
+  const fitCurrentDisplays = () => {
+    if (mainWindow.isDestroyed()) return;
+    const current = captureWindowState(mainWindow, lastWindowState);
+    const fitted = restoreWindowState(current, workAreas());
+    const minimized = mainWindow.isMinimized();
+    if (
+      Object.keys(fitted.bounds).some(
+        (key) => Reflect.get(fitted.bounds, key) !== Reflect.get(current.bounds, key),
+      )
+    ) {
+      if (current.maximized && !minimized) mainWindow.unmaximize();
+      mainWindow.setMinimumSize(
+        Math.min(MIN_WINDOW_WIDTH, fitted.bounds.width),
+        Math.min(MIN_WINDOW_HEIGHT, fitted.bounds.height),
+      );
+      mainWindow.setBounds(fitted.bounds);
+      if (current.maximized && !minimized) mainWindow.maximize();
+    }
+    recordWindowChange();
+  };
+  screen.on('display-removed', fitCurrentDisplays);
+  screen.on('display-metrics-changed', fitCurrentDisplays);
+  mainWindow.once('closed', () => {
+    clearTimeout(windowStateTimer);
+    screen.removeListener('display-removed', fitCurrentDisplays);
+    screen.removeListener('display-metrics-changed', fitCurrentDisplays);
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
     if (url.split('#')[0] !== mainUrl) event.preventDefault();
   });
-  window.once('ready-to-show', () => window?.show());
+  window.once('ready-to-show', () => {
+    if (shouldStartMaximized) mainWindow.maximize();
+    mainWindow.show();
+  });
   window.on('close', (event) => {
-    if (mayClose || !uiReady) return;
+    if (mayClose) return;
     event.preventDefault();
-    send('notes:close-requested');
+    if (uiReady) send('notes:close-requested');
+    else
+      void persistWindowState()
+        .then(() => store.dispose())
+        .then(() => {
+          mayClose = true;
+          mainWindow.close();
+        })
+        .catch(reportWindowStateFailure);
   });
   await window.loadURL(mainUrl);
   await refreshWatcher();

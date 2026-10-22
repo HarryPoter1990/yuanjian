@@ -12,6 +12,7 @@ const template = z.object({
 });
 const appearance = z.object({
   mode: z.enum(['light', 'dark', 'system']),
+  palette: z.enum(['ink', 'moss', 'paper']).optional(),
   accent: short,
   background: short,
   foreground: short,
@@ -20,6 +21,8 @@ const appearance = z.object({
   codeFont: short,
   headingFont: short,
   fontSize: number.min(8).max(72),
+  codeFontSize: number.min(8).max(72).optional(),
+  codeLineHeight: number.min(1).max(4).optional(),
   lineHeight: number.min(1).max(4),
   contentWidth: number.min(300).max(4000),
   wallpaper: z.string().max(32768),
@@ -39,6 +42,7 @@ export const settingsSchema = z.object({
   rightVisible: z.boolean(),
   leftWidth: number.min(120).max(1000),
   rightWidth: number.min(120).max(1000),
+  rightGroups: z.record(short, z.boolean()).optional(),
   toolbarVisible: z.boolean(),
   toolbarButtons: z.array(short).max(100),
   statusVisible: z.boolean(),
@@ -90,8 +94,14 @@ const tab = z.object({
 });
 export const sessionSchema = z.object({ tabs: z.array(tab).max(200), activeId: file.nullable() });
 
+const opaqueHexColor = z.string().regex(/^#[\da-f]{6}$/i);
+export const windowThemeSchema = z
+  .object({ background: opaqueHexColor, foreground: opaqueHexColor })
+  .strict();
+
 export const argumentSchemas = {
   bootstrap: z.tuple([]),
+  setWindowTheme: z.tuple([windowThemeSchema]),
   saveSettings: z.tuple([settingsSchema]),
   saveSession: z.tuple([sessionSchema]),
   openFile: z.tuple([file.optional()]),
