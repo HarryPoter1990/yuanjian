@@ -233,20 +233,47 @@ const codeScrollMeasurements = ViewPlugin.define((view) => {
   return { destroy: () => view.contentDOM.removeEventListener('scroll', scroll, true) };
 });
 
-const codeCursorScrolling = EditorView.scrollHandler.of((view, range) => {
+const codeScrollMeasureKey = {};
+const codeCursorScrolling = EditorView.scrollHandler.of((view, range, options) => {
   const at = view.domAtPos(range.head);
   const element = at.node instanceof Element ? at.node : at.node.parentElement;
   const block = element?.closest<HTMLElement>('.cm-code-source-block');
-  const cursor = block && view.coordsAtPos(range.head, range.assoc || 1);
-  if (block && cursor) {
-    const bounds = block.getBoundingClientRect();
-    const margin = Math.min(24, block.clientWidth / 4);
-    if (cursor.left < bounds.left + margin) block.scrollLeft += cursor.left - bounds.left - margin;
-    else if (cursor.right > bounds.left + block.clientWidth - margin)
-      block.scrollLeft += cursor.right - bounds.left - block.clientWidth + margin;
-  }
-  // Retain the standard vertical scroll behavior after revealing the cursor within its code block.
-  return false;
+  if (!block) return false;
+  // Scroll handlers run during CodeMirror's write phase. Read geometry in the next read phase,
+  // and suppress the default outer horizontal scrolling while the cursor belongs to this block.
+  view.requestMeasure({
+    key: codeScrollMeasureKey,
+    read: () => {
+      if (!block.isConnected || range.head > view.state.doc.length) return null;
+      const cursor = view.coordsAtPos(range.head, range.assoc || 1);
+      if (!cursor) return null;
+      return {
+        cursor,
+        bounds: block.getBoundingClientRect(),
+        width: block.clientWidth,
+        outer: view.scrollDOM.getBoundingClientRect(),
+        height: view.scrollDOM.clientHeight,
+      };
+    },
+    write: (measured) => {
+      if (!measured || !block.isConnected) return;
+      const { cursor, bounds, width, outer, height } = measured;
+      const margin = Math.min(24, width / 4);
+      if (cursor.left < bounds.left + margin)
+        block.scrollLeft += cursor.left - bounds.left - margin;
+      else if (cursor.right > bounds.left + width - margin)
+        block.scrollLeft += cursor.right - bounds.left - width + margin;
+      const yMargin = Math.min(options.yMargin, height / 4);
+      const top = cursor.top - outer.top;
+      const bottom = cursor.bottom - outer.top;
+      if (options.y === 'center') view.scrollDOM.scrollTop += (top + bottom - height) / 2;
+      else if (options.y === 'start') view.scrollDOM.scrollTop += top - yMargin;
+      else if (options.y === 'end') view.scrollDOM.scrollTop += bottom - height + yMargin;
+      else if (top < yMargin) view.scrollDOM.scrollTop += top - yMargin;
+      else if (bottom > height - yMargin) view.scrollDOM.scrollTop += bottom - height + yMargin;
+    },
+  });
+  return true;
 });
 
 /** Multiline replacements are supplied directly from a StateField, before viewport layout. */

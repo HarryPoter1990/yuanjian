@@ -32,6 +32,9 @@
   min-height: 100%;
   box-sizing: border-box;
 }
+.markdown-editor.is-live .cm-content {
+  min-width: 0;
+}
 .markdown-editor .cm-code-source {
   font: var(--code-font-size, 16px)/var(--code-line-height, 1.6)
     var(--code-font, 'JetBrains Mono', monospace);

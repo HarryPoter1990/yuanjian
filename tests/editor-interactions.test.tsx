@@ -69,6 +69,7 @@ describe('mounted CodeMirror editor', () => {
     settings.codeWrap = false;
     const { props, onChange } = await mount({ value: source, settings });
     expect(editor().contentDOM.classList.contains('cm-lineWrapping')).toBe(true);
+    expect(getComputedStyle(editor().contentDOM).minWidth).toBe('0px');
     expect(host.querySelector('.code-body.code-wrap')).toBeNull();
     expect(host.querySelector('.code-body')).not.toBeNull();
     const head = source.indexOf(longCode) + longCode.length;
@@ -78,6 +79,22 @@ describe('mounted CodeMirror editor', () => {
     expect(block?.querySelectorAll('.cm-code-source')).toHaveLength(4);
     expect(block?.textContent).toContain(longCode);
     expect(host.querySelector('.cm-lineWrapping')).not.toBeNull();
+    await act(async () => {
+      editor().dispatch({ selection: { anchor: source.indexOf(longCode) + 3 } });
+      editor().contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
+      );
+    });
+    expect(editor().state.selection.main.head).toBe(head);
+    await act(async () => {
+      editor().contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Home', shiftKey: true, bubbles: true }),
+      );
+    });
+    expect(
+      editor().state.sliceDoc(editor().state.selection.main.from, editor().state.selection.main.to),
+    ).toBe(longCode);
+    await act(async () => editor().dispatch({ selection: { anchor: head } }));
     if (!block) throw new Error('Missing code block scroller');
     expect(getComputedStyle(block).overflowX).toBe('auto');
     expect(getComputedStyle(block).maxWidth).toBe('100%');
@@ -88,7 +105,7 @@ describe('mounted CodeMirror editor', () => {
     expect(measure).toHaveBeenCalled();
     Object.defineProperty(block, 'clientWidth', { configurable: true, value: 300 });
     vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 50, 300, 80));
-    vi.spyOn(editor(), 'coordsAtPos').mockReturnValue(new DOMRect(700, 65, 1, 20));
+    const cursor = vi.spyOn(editor(), 'coordsAtPos').mockReturnValue(new DOMRect(700, 65, 1, 20));
     for (const handler of editor().state.facet(EditorView.scrollHandler))
       handler(editor(), editor().state.selection.main, {
         x: 'nearest',
@@ -96,6 +113,11 @@ describe('mounted CodeMirror editor', () => {
         xMargin: 5,
         yMargin: 5,
       });
+    expect(cursor).not.toHaveBeenCalled();
+    const request = measure.mock.calls.at(-1)?.[0];
+    if (!request?.read || !request.write) throw new Error('Missing code cursor measure');
+    const measured = request.read(editor());
+    request.write(measured, editor());
     expect(block.scrollLeft).toBeGreaterThan(0);
     expect(editor().scrollDOM.scrollLeft).toBe(0);
     expect(editor().state.selection.main.head).toBe(head);

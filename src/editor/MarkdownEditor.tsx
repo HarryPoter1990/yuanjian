@@ -110,6 +110,31 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       });
     }
 
+    function codeLineBoundary(view: EditorView, end: boolean, extend = false): boolean {
+      const current = propsRef.current;
+      if (current.mode !== 'live' || current.settings.codeWrap) return false;
+      const blocks = view.state.field(livePreviewField).blocks;
+      if (
+        !view.state.selection.ranges.every((range) =>
+          blocks.some(
+            (block) => block.type === 'fence' && range.head >= block.from && range.head <= block.to,
+          ),
+        )
+      )
+        return false;
+      const ranges = view.state.selection.ranges.map((range) => {
+        const line = view.state.doc.lineAt(range.head);
+        const head = end ? line.to : line.from;
+        return extend ? EditorSelection.range(range.anchor, head) : EditorSelection.cursor(head);
+      });
+      view.dispatch({
+        selection: EditorSelection.create(ranges, view.state.selection.mainIndex),
+        scrollIntoView: true,
+        userEvent: 'select',
+      });
+      return true;
+    }
+
     function featureExtensions(): Extension {
       const current = propsRef.current;
       return [
@@ -285,6 +310,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             search({ top: true }),
             highlightSelectionMatches(),
             keymap.of([
+              {
+                key: 'Home',
+                run: (view) => codeLineBoundary(view, false),
+                shift: (view) => codeLineBoundary(view, false, true),
+              },
+              {
+                key: 'End',
+                run: (view) => codeLineBoundary(view, true),
+                shift: (view) => codeLineBoundary(view, true, true),
+              },
               { key: 'Mod-b', run: () => runCommand('bold') },
               { key: 'Mod-i', run: () => runCommand('italic') },
               {
