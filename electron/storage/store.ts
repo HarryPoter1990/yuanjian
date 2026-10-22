@@ -40,6 +40,25 @@ interface SavedFormat {
   bom: boolean;
   newline: '\r\n' | '\n';
 }
+
+function normalizedLocalLink(target: string): { file: string; heading: string; key: string } {
+  const raw = target
+    .trim()
+    .replace(/^\[\[|\]\]$/g, '')
+    .split('|')[0]
+    .trim();
+  const separator = raw.indexOf('#');
+  let file: string;
+  let heading: string;
+  try {
+    file = decodeURIComponent(separator < 0 ? raw : raw.slice(0, separator));
+    heading = decodeURIComponent(separator < 0 ? '' : raw.slice(separator + 1));
+  } catch {
+    throw new Error('链接地址编码无效');
+  }
+  const key = `${file.replace(/\\/g, '/')}#${heading}`;
+  return { file, heading, key: process.platform === 'win32' ? key.toLocaleLowerCase() : key };
+}
 export class NoteStore {
   readonly access = new PathAccess();
   readonly queue = new OperationQueue();
@@ -228,14 +247,40 @@ export class NoteStore {
   private encode(file: string, content: string, reference?: string): string {
     const format = this.formats.get(file);
     let normalized = content;
-    if (reference !== undefined) {
+    if (reference !== undefined && !reference.includes('\r\n')) {
+      normalized = content.replace(/\r\n/g, '\n');
+    } else if (reference !== undefined && !/(^|[^\r])\n/.test(reference)) {
+      normalized = content.replace(/\r?\n/g, '\r\n');
+    } else if (reference !== undefined) {
       const oldLines = reference.split(/\r?\n/);
       const oldEndings = reference.match(/\r\n|\n/g) ?? [];
       const newLines = content.split(/\r?\n/);
       const endings = new Map<number, string>();
       let oldIndex = 0;
       let newIndex = 0;
-      for (const region of diffComm(oldLines, newLines)) {
+      // Trim unchanged edges before LCS. Repeated prose otherwise creates a quadratic
+      // matching problem even when the user only appends a few characters at the end.
+      while (
+        oldIndex < oldLines.length &&
+        newIndex < newLines.length &&
+        oldLines[oldIndex] === newLines[newIndex]
+      ) {
+        if (oldEndings[oldIndex]) endings.set(newIndex, oldEndings[oldIndex]);
+        oldIndex++;
+        newIndex++;
+      }
+      let suffix = 0;
+      while (
+        oldLines.length - suffix > oldIndex &&
+        newLines.length - suffix > newIndex &&
+        oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]
+      ) {
+        suffix++;
+      }
+      for (const region of diffComm(
+        oldLines.slice(oldIndex, oldLines.length - suffix),
+        newLines.slice(newIndex, newLines.length - suffix),
+      )) {
         if (region.common) {
           for (let index = 0; index < region.common.length; index++)
             if (oldEndings[oldIndex + index])
@@ -253,6 +298,10 @@ export class NoteStore {
           oldIndex += region.buffer1.length;
           newIndex += region.buffer2.length;
         }
+      }
+      for (let index = 0; index < suffix; index++) {
+        if (oldEndings[oldIndex + index])
+          endings.set(newIndex + index, oldEndings[oldIndex + index]);
       }
       normalized = newLines
         .map(
@@ -492,6 +541,41 @@ export class NoteStore {
       exists: matches.length === 1,
       candidates: matches,
     };
+  }
+
+  /** An explicit user navigation grants only the Markdown file actually linked in its source. */
+  async openLinkedFile(fromPath: string, target: string): Promise<NoteDocument | null> {
+    const source = await this.readNote(await this.authorize(fromPath));
+    const requested = normalizedLocalLink(target);
+    const matched = extractLinks(source.content).find(
+      (link) => !link.image && normalizedLocalLink(link.target).key === requested.key,
+    );
+    if (!matched) throw new Error('目标不是源笔记中的有效链接');
+    if (!requested.file) return source;
+    if (/^[a-z][a-z\d+.-]*:/i.test(requested.file) && !path.isAbsolute(requested.file))
+      throw new Error('此操作只支持本地 Markdown 链接');
+    const extension = path.extname(requested.file).toLowerCase();
+    if (extension && !noteExtensions.has(extension))
+      throw new Error('此操作只能打开 Markdown 链接');
+    const direct = path.resolve(path.dirname(fromPath), requested.file);
+    const candidates = extension ? [direct] : [`${direct}.md`, `${direct}.markdown`];
+    for (const candidate of candidates) {
+      try {
+        const resolved = await canonical(candidate);
+        if (!(await stat(resolved)).isFile()) continue;
+        if (!noteExtensions.has(path.extname(resolved).toLowerCase()))
+          throw new Error('链接实际目标不是 Markdown 文件');
+        await this.approveFile(resolved);
+        return this.readNote(resolved);
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+    }
+    const indexed = await this.resolveLink(fromPath, matched.target);
+    if (!indexed.path || !indexed.exists) return null;
+    if (!noteExtensions.has(path.extname(indexed.path).toLowerCase()))
+      throw new Error('链接实际目标不是 Markdown 文件');
+    return this.readNote(indexed.path);
   }
   async resolveAssetPath(target: string, fromPath?: string): Promise<string> {
     let file = target;

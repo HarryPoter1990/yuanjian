@@ -177,18 +177,36 @@ export function useWorkspace() {
     let alive = true;
     void window.notes
       .bootstrap()
-      .then((value) => {
+      .then(async (value) => {
+        const failures: string[] = [];
+        const restored = value.session.tabs.length
+          ? await Promise.all(
+              value.session.tabs.map(async (tab) => {
+                if (!tab.path || tab.dirty) return tab;
+                try {
+                  const note = await window.notes.openFile(tab.path);
+                  if (!note) throw new Error('文件未能读取');
+                  return { ...tab, ...note, id: tab.id, baseContent: note.content, dirty: false };
+                } catch (error) {
+                  failures.push(
+                    `恢复时未能刷新「${tab.title}」，已保留会话原文：${errorText(error)}`,
+                  );
+                  return tab;
+                }
+              }),
+            )
+          : [makeDraft()];
         if (!alive) return;
-        setBootstrap(value);
         setSettings(value.settings);
         savedSettings.current = JSON.stringify(value.settings);
-        const restored = value.session.tabs.length ? value.session.tabs : [makeDraft()];
         setTabs(restored);
         setActiveId(
           restored.some((tab) => tab.id === value.session.activeId)
             ? value.session.activeId
             : restored[0].id,
         );
+        setBootstrap({ ...value, session: { ...value.session, tabs: restored } });
+        for (const failure of failures) notify(failure, true);
       })
       .catch((error) => {
         if (alive) setLoadError(errorText(error));

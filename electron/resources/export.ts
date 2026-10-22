@@ -6,7 +6,7 @@ import { extractLinks } from '../../src/shared/markdown';
 import type { NoteStore } from '../storage/store';
 import { atomicWrite, hash } from '../storage/io';
 import { canonical, within } from '../storage/access';
-import { linkTargetRanges } from '../storage/markdown-ranges';
+import { replaceImageTargets } from '../storage/markdown-ranges';
 
 interface ExportAdapters {
   chooseSave: (suggested: string, format: 'html' | 'pdf' | 'zip') => Promise<string | null>;
@@ -369,12 +369,7 @@ export class ExportManager {
       }
       references.set(link.target, name.split('/').map(encodeURIComponent).join('/'));
     }
-    let exported = content;
-    for (const range of linkTargetRanges(content).reverse()) {
-      const reference = references.get(range.target);
-      if (reference)
-        exported = exported.slice(0, range.from) + reference + exported.slice(range.to);
-    }
+    const exported = replaceImageTargets(content, references);
     archive[path.basename(notePath)] = strToU8(exported);
     await atomicWrite(target, zipSync(archive, { level: 6 }));
     return target;

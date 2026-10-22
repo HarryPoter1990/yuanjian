@@ -216,6 +216,7 @@ export interface DesktopAPI {
   saveSettings(settings: Settings): Promise<Settings>;
   saveSession(session: SessionState): Promise<void>;
   openFile(path?: string): Promise<NoteDocument | null>;
+  openLinkedFile(fromPath: string, target: string): Promise<NoteDocument | null>;
   saveFile(request: SaveRequest): Promise<SaveOutcome>;
   selectDirectory(): Promise<string | null>;
   getTree(root: string): Promise<FileEntry[]>;

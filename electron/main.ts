@@ -329,7 +329,14 @@ async function boot() {
       if (typeof handler !== 'function') throw new Error(`桌面功能未注册：${method}`);
       const result: unknown = await Reflect.apply(handler, own ? handlers : store, args);
       if (
-        ['openFile', 'selectDirectory', 'saveSettings', 'saveFile', 'periodicNote'].includes(method)
+        [
+          'openFile',
+          'openLinkedFile',
+          'selectDirectory',
+          'saveSettings',
+          'saveFile',
+          'periodicNote',
+        ].includes(method)
       )
         await refreshWatcher();
       return result;

@@ -65,3 +65,66 @@ export function linkTargetRanges(content: string): LinkTargetRange[] {
   }
   return ranges.sort((a, b) => a.from - b.from);
 }
+
+/** Rewrite image usages only. Shared reference definitions stay intact for ordinary links. */
+export function replaceImageTargets(
+  content: string,
+  replacements: ReadonlyMap<string, string>,
+): string {
+  const lookup = (target: string): string | undefined =>
+    replacements.get(target) ??
+    replacements.get(markdown.normalizeLink(markdown.utils.unescapeAll(target)));
+  const edits: { from: number; to: number; value: string }[] = [];
+  for (const range of linkTargetRanges(content)) {
+    if (!range.image) continue;
+    const value = lookup(range.target);
+    if (value) edits.push({ from: range.from, to: range.to, value });
+  }
+
+  const tree = parser.parse(content);
+  const prose = maskLiteralRegions(content);
+  const definitions = new Map<string, { target: string; title: string }>();
+  tree.iterate({
+    enter(node) {
+      if (node.name !== 'LinkReference') return;
+      const label = node.node.getChild('LinkLabel');
+      const url = node.node.getChild('URL');
+      if (!label || !url || content.slice(url.from, url.to) !== prose.slice(url.from, url.to))
+        return;
+      const key = markdown.utils.normalizeReference(content.slice(label.from + 1, label.to - 1));
+      if (definitions.has(key)) return;
+      definitions.set(key, {
+        target: content.slice(url.from, url.to).replace(/^<|>$/g, ''),
+        title: content.slice(url.to, node.to).trim(),
+      });
+    },
+  });
+  tree.iterate({
+    enter(node) {
+      if (node.name !== 'Image' || node.node.getChild('URL')) return;
+      if (content[node.from] !== prose[node.from]) return;
+      const marks = node.node.getChildren('LinkMark');
+      if (marks.length < 2) return;
+      const alt = content.slice(marks[0].to, marks[1].from);
+      const label = node.node.getChild('LinkLabel');
+      const explicitLabel = label ? content.slice(label.from + 1, label.to - 1) : '';
+      const definition = definitions.get(markdown.utils.normalizeReference(explicitLabel || alt));
+      if (!definition) return;
+      const reference = lookup(definition.target);
+      if (!reference) return;
+      edits.push({
+        from: node.from,
+        to: node.to,
+        value: `![${alt}](${reference}${definition.title ? ` ${definition.title}` : ''})`,
+      });
+    },
+  });
+  let output = content;
+  let lastStart = content.length;
+  for (const edit of edits.sort((left, right) => right.from - left.from)) {
+    if (edit.to > lastStart) continue;
+    output = output.slice(0, edit.from) + edit.value + output.slice(edit.to);
+    lastStart = edit.from;
+  }
+  return output;
+}

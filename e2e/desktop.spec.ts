@@ -110,9 +110,12 @@ test('real window opens arbitrary Chinese files, saves source and restores a ses
   const exited = application.waitForEvent('close');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   await exited;
+  const updatedWhileClosed = sample + '追加中文验收。\n关闭期间外部更新。\n';
+  await writeFile(file, updatedWhileClosed);
   await launch();
   await expect(page.getByRole('tab', { name: '中文学习', exact: true })).toBeVisible();
-  expect(await readFile(file, 'utf8')).toBe(sample + '追加中文验收。\n');
+  await expect(page.locator('.cm-content')).toContainText('关闭期间外部更新。');
+  expect(await readFile(file, 'utf8')).toBe(updatedWhileClosed);
   expect(errors).toEqual([]);
 });
 
@@ -255,14 +258,22 @@ test('fonts and wallpaper stay app-local, diary and graph persist through restar
   await expect(page.locator('.graph-legend')).toContainText('2 个节点');
   await expect(page.locator('.graph-canvas canvas').first()).toBeVisible();
   await expect(page.getByText('正在整理笔记关系…', { exact: true })).toBeHidden({ timeout: 20000 });
-  await page.getByRole('button', { name: '放大图谱', exact: true }).click();
-  await page.screenshot({ path: path.join(project, '.test-data', 'desktop-graph.png') });
-  await page.getByRole('button', { name: '关闭关系图谱', exact: true }).click();
   await expect
     .poll(async () =>
       Object.keys((await page.evaluate(() => window.notes.bootstrap())).settings.graph.positions),
     )
     .toContain(path.join(fixture, '笔记/中文学习.md'));
+  const zoomBefore = (await page.evaluate(() => window.notes.bootstrap())).settings.graph.zoom;
+  await page.screenshot({ path: path.join(project, '.test-data', 'desktop-graph.png') });
+  await page.getByRole('button', { name: '放大图谱', exact: true }).click();
+  const graphExited = application.waitForEvent('close');
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await graphExited;
+  await launch();
+  expect((await page.evaluate(() => window.notes.bootstrap())).settings.graph.zoom).toBeCloseTo(
+    Math.min(4, zoomBefore * 1.2),
+    5,
+  );
   await page.getByRole('tab', { name: '日历', exact: true }).click();
   await page.getByRole('button', { name: '打开 / 新建日记', exact: true }).click();
   await expect(page.locator('.document-breadcrumb')).toContainText('.md');
@@ -286,12 +297,58 @@ test('fonts and wallpaper stay app-local, diary and graph persist through restar
   expect(errors).toEqual([]);
 });
 
+test('the link panel inserts relative Markdown, cancellation preserves source and undo works', async () => {
+  const file = path.join(fixture, '笔记', '中文学习.md');
+  await selectOpen(file);
+  await page.getByRole('button', { name: '即时排版', exact: true }).click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+End');
+  await page.getByRole('button', { name: '链接', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: '插入链接', exact: true });
+  await expect(panel).toBeVisible();
+  await panel.locator('.link-target-list button').filter({ hasText: '另一篇' }).click();
+  await expect(panel.getByRole('textbox', { name: '链接目标', exact: true })).toHaveValue(
+    '另一篇.md',
+  );
+  await panel.getByRole('textbox', { name: '链接显示文字', exact: true }).fill('转到另一篇');
+  await panel.getByRole('button', { name: '插入链接', exact: true }).click();
+  const linked = sample + '[转到另一篇](另一篇.md)';
+  await expect.poll(() => readFile(file, 'utf8')).toBe(linked);
+  await page.getByRole('button', { name: '链接', exact: true }).click();
+  await panel.getByRole('textbox', { name: '链接目标', exact: true }).fill('不会插入.md');
+  await panel.getByRole('button', { name: '取消', exact: true }).click();
+  expect(await readFile(file, 'utf8')).toBe(linked);
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => readFile(file, 'utf8')).toBe(sample);
+  expect(errors).toEqual([]);
+});
+
 test('command-line file opening waits for startup and IPC rejects unapproved local paths', async () => {
   const exited = application.waitForEvent('close');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   await exited;
+  profile = path.join(fixture, 'standalone-profile');
+  await mkdir(profile);
+  await writeFile(path.join(profile, 'settings.json'), JSON.stringify(defaultSettings));
   await launch(path.join(fixture, '笔记', '中文学习.md'));
   await expect(page.getByRole('tab', { name: '中文学习', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '相关内容', exact: true }).click();
+  await page.getByRole('link', { name: '另一篇#目标', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '另一篇', exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      async (file) => {
+        try {
+          await window.notes.getTree(file);
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      path.join(fixture, '笔记'),
+    ),
+  ).toBe(true);
   const secret = path.join(fixture, '未授权.md');
   await writeFile(secret, '不可读取的测试内容');
   const denied = await page.evaluate(async (file) => {
@@ -314,5 +371,44 @@ test('command-line file opening waits for startup and IPC rejects unapproved loc
       }
     }),
   ).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('a long Chinese article stays editable and source-identical across rendering modes', async () => {
+  const paragraph =
+    '这是用于实际编辑验收的长文段落，包含中文、English、标点和 `inlineCode`。正文保存原样，阅读和源码模式可以切换。\n\n';
+  const article = Array.from(
+    { length: 60 },
+    (_, index) => `## 第 ${index + 1} 节\n\n${paragraph.repeat(40)}`,
+  ).join('');
+  const file = path.join(fixture, '笔记/长文验收.md');
+  await writeFile(file, article);
+  const started = Date.now();
+  await selectOpen(file);
+  await page.getByRole('button', { name: '即时排版', exact: true }).click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.insertText('长文追加完成。');
+  await expect
+    .poll(() => readFile(file, 'utf8'), { timeout: 20000 })
+    .toBe(article + '长文追加完成。');
+  await page.getByRole('button', { name: '源码', exact: true }).click();
+  await page.getByRole('button', { name: '第 1 节', exact: true }).click();
+  await expect(page.locator('.cm-editor')).toBeVisible();
+  expect(await readFile(file, 'utf8')).toBe(article + '长文追加完成。');
+  await writeFile(
+    path.join(project, 'artifacts/long-article-verification.json'),
+    JSON.stringify(
+      {
+        utf8Bytes: Buffer.byteLength(article),
+        sourceCharacters: article.length,
+        headings: 60,
+        editSaveAndModeSwitch: true,
+        elapsedWithAutomationMs: Date.now() - started,
+      },
+      null,
+      2,
+    ),
+  );
   expect(errors).toEqual([]);
 });

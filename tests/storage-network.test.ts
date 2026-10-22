@@ -23,6 +23,27 @@ async function fixture(fetchImage: typeof fetch) {
   return { store, file, content };
 }
 describe('explicit image downloads', () => {
+  it('preserves ordinary links and shared reference definitions while localizing image usages only', async () => {
+    const { store, file } = await fixture(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    );
+    const url = 'https://example.invalid/shared.png';
+    const definition = `[shared]: ${url} "保留标题"`;
+    const content = `![行内图片](${url})\n[普通链接](${url})\n\n![引用图片][shared]\n![shared][]\n![shared]\n[普通引用][shared]\n\n${definition}\n\n网址：${url}\n\n\`![代码图片](${url})\``;
+    const result = await store.localizeImages(file, content);
+    expect(result.results).toHaveLength(1);
+    expect(result.content).toContain(`[普通链接](${url})`);
+    expect(result.content).toContain('[普通引用][shared]');
+    expect(result.content).toContain(definition);
+    expect(result.content).toContain(`网址：${url}`);
+    expect(result.content).toContain(`\`![代码图片](${url})\``);
+    expect(result.content).toMatch(/!\[行内图片\]\(assets\//);
+    expect(result.content).toMatch(/!\[引用图片\]\(assets\/[^)]+ "保留标题"\)/);
+    expect(result.content).toMatch(/!\[shared\]\(assets\/[^)]+\)/);
+    expect(result.content).not.toContain('![shared][]');
+    await store.dispose();
+  });
   it('localizes only selected URLs that already occur as images in the current Markdown', async () => {
     const { store, file } = await fixture(
       async () =>

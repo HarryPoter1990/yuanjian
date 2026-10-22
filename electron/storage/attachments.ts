@@ -13,7 +13,7 @@ import { canonical, within } from './access';
 import { imageExtensions, noteExtensions } from './adapters';
 import { hash, isMissing, readOptional } from './io';
 import type { NoteStore } from './store';
-import { linkTargetRanges } from './markdown-ranges';
+import { replaceImageTargets } from './markdown-ranges';
 
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const contentExtensions: Record<string, string> = {
@@ -178,14 +178,7 @@ export class AttachmentStore {
         message: results.at(-1)?.error ? '图片失败，已保留原始网址' : '图片已本地化',
       });
     }
-    // Rewrite only image tokens, preserving ordinary occurrences of the same URL in prose.
-    let nextContent = content;
-    for (const range of linkTargetRanges(content).reverse()) {
-      const reference = references.get(range.target);
-      if (reference && (range.image || !range.wiki))
-        nextContent = nextContent.slice(0, range.from) + reference + nextContent.slice(range.to);
-    }
-    return { content: nextContent, results };
+    return { content: replaceImageTargets(content, references), results };
   }
   async scan(): Promise<AttachmentCandidate[]> {
     const candidates = new Map<string, AttachmentCandidate>();

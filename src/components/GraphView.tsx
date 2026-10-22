@@ -4,6 +4,7 @@ import { Maximize, RefreshCw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import type { GraphPreferences, NoteMeta, Settings } from '../shared/types';
 import { appearanceColors, errorText, fileName } from '../ui/model';
 import { IconButton } from './Controls';
+import { runInitialGraphLayout } from '../ui/graphLayout';
 
 export function GraphView({
   index,
@@ -42,6 +43,7 @@ export function GraphView({
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let saveViewport: (() => void) | undefined;
+    let disposeClose: (() => void) | undefined;
     setBusy(true);
     async function build() {
       const filtered = index.filter(
@@ -190,24 +192,15 @@ export function GraphView({
       };
       instance.on('dragfree zoom pan layoutstop', persist);
       instance.on('tap', 'node[kind="note"]', (event) => onOpen(String(event.target.data('path'))));
+      disposeClose = window.notes.onCloseRequested(() => saveViewport?.());
       setCount(nodeIds.size);
       if (hasPositions || !nodeIds.size) {
         setBusy(false);
         persist();
       } else {
-        layout.current = instance.layout({
-          name: 'cose',
-          animate: true,
-          animationDuration: 300,
-          refresh: 20,
-          numIter: 600,
-          nodeRepulsion: () => 8500,
-          idealEdgeLength: () => 110,
-        });
-        instance.one('layoutstop', () => {
+        layout.current = runInitialGraphLayout(instance, () => {
           if (alive) setBusy(false);
         });
-        layout.current.run();
       }
     }
     void build().catch((error) => {
@@ -218,8 +211,10 @@ export function GraphView({
     });
     return () => {
       alive = false;
+      disposeClose?.();
       clearTimeout(timer);
       layout.current?.stop();
+      clearTimeout(timer);
       layout.current = null;
       if (!resetRequested.current) saveViewport?.();
       resetRequested.current = false;

@@ -6,6 +6,8 @@ import {
   dateKey,
   makeDraft,
   matchesShortcut,
+  relativeNoteTarget,
+  markdownLink,
 } from '../src/ui/model';
 import { defaultAppearance } from '../src/shared/defaults';
 import type { NoteDocument } from '../src/shared/types';
@@ -75,5 +77,27 @@ describe('UI document model', () => {
     expect(
       appearanceColors({ ...defaultAppearance, mode: 'dark', accent: '#abcdef' }, false).accent,
     ).toBe('#abcdef');
+  });
+  it('defaults to relative note paths within a drive, including Chinese folders and spaces', () => {
+    expect(relativeNoteTarget('D:\\资料\\日记\\今天.md', 'D:\\资料\\学习\\目标 笔记.md')).toBe(
+      '../学习/目标 笔记.md',
+    );
+    expect(relativeNoteTarget('D:\\资料\\今天.md', 'd:\\资料\\另一篇.md')).toBe('另一篇.md');
+  });
+  it('uses absolute paths across drives or UNC shares', () => {
+    expect(relativeNoteTarget('D:\\资料\\今天.md', 'E:\\学习\\目标.md')).toBe('E:/学习/目标.md');
+    expect(relativeNoteTarget('\\\\server\\share\\a\\源.md', '\\\\server\\share\\b\\目标.md')).toBe(
+      '../b/目标.md',
+    );
+    expect(relativeNoteTarget('\\\\server\\share\\源.md', '\\\\server\\other\\目标.md')).toBe(
+      '//server/other/目标.md',
+    );
+  });
+  it('escapes link labels, protects spaces, and encodes drive letters for the safe renderer', () => {
+    expect(markdownLink('目标[一]', '../学习/目标 笔记.md')).toBe(
+      '[目标\\[一\\]](<../学习/目标 笔记.md>)',
+    );
+    expect(markdownLink('目标', 'E:\\学习\\目标.md')).toBe('[目标](E%3A/学习/目标.md)');
+    expect(markdownLink('网站', 'https://example.test/a')).toBe('[网站](https://example.test/a)');
   });
 });

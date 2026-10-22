@@ -8,6 +8,7 @@ const api: DesktopAPI = {
   saveSettings: (value) => ipcRenderer.invoke('notes:saveSettings', value),
   saveSession: (value) => ipcRenderer.invoke('notes:saveSession', value),
   openFile: (value) => ipcRenderer.invoke('notes:openFile', value),
+  openLinkedFile: (from, target) => ipcRenderer.invoke('notes:openLinkedFile', from, target),
   saveFile: (value) => ipcRenderer.invoke('notes:saveFile', value),
   selectDirectory: () => ipcRenderer.invoke('notes:selectDirectory'),
   getTree: (value) => ipcRenderer.invoke('notes:getTree', value),

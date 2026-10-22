@@ -78,3 +78,40 @@ export function bytesLabel(bytes: number): string {
 export const fileName = (path: string) => path.split(/[\\/]/).at(-1) || path;
 export const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+export function relativeNoteTarget(fromPath: string, targetPath: string): string {
+  const normalize = (value: string) => value.replace(/\\/g, '/');
+  const root = (value: string) =>
+    value.startsWith('//')
+      ? value.split('/').slice(0, 4).join('/').toLowerCase()
+      : /^[a-z]:\//i.exec(value)?.[0].toLowerCase() || '/';
+  const from = normalize(fromPath);
+  const target = normalize(targetPath);
+  if (root(from) !== root(target)) return target;
+  const directory = from.split('/');
+  directory.pop();
+  const destination = target.split('/');
+  let shared = 0;
+  while (
+    shared < directory.length &&
+    shared < destination.length &&
+    directory[shared].toLowerCase() === destination[shared].toLowerCase()
+  )
+    shared++;
+  return (
+    [...Array(directory.length - shared).fill('..'), ...destination.slice(shared)].join('/') ||
+    fileName(target)
+  );
+}
+
+export function markdownLink(label: string, target: string): string {
+  const text = label.trim() ? label : '链接';
+  // Encoding a Windows drive keeps it readable by our resolver without introducing a custom URI scheme.
+  const raw = target.trim();
+  const fileTarget =
+    /^[a-z]:[\\/]/i.test(raw) || !/^[a-z][a-z\d+.-]*:/i.test(raw) ? raw.replace(/\\/g, '/') : raw;
+  const destination = fileTarget
+    .replace(/^([a-z]):\//i, '$1%3A/')
+    .replace(/[<>]/g, (value) => encodeURIComponent(value));
+  return `[${text.replace(/[\\[\]]/g, '\\$&')}](${/[\s()]/.test(destination) ? `<${destination}>` : destination})`;
+}

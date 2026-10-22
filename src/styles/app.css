@@ -1985,3 +1985,33 @@ button.danger {
   margin-left: auto;
   color: var(--muted);
 }
+.link-target-list {
+  max-height: 220px;
+  overflow: auto;
+  margin: 10px 0;
+}
+.link-target-list > button {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 9px 7px;
+  gap: 9px;
+}
+.link-target-list > button > span {
+  min-width: 0;
+}
+.link-target-list strong {
+  font-size: 11px;
+  font-weight: 500;
+  display: block;
+}
+.link-target-list small {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}

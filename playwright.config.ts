@@ -6,6 +6,6 @@ export default defineConfig({
   expect: { timeout: 10000 },
   fullyParallel: false,
   workers: 1,
-  reporter: 'list',
+  reporter: [['list'], ['json', { outputFile: 'artifacts/e2e-report.json' }]],
   outputDir: '.test-data/playwright-results',
 });

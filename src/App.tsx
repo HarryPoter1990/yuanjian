@@ -50,11 +50,19 @@ import { IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GraphView } from './components/GraphView';
+import { LinkPanel } from './components/LinkPanel';
 import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { useWorkspace } from './ui/useWorkspace';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
-import { appearanceColors, dateKey, errorText, fileName, matchesShortcut } from './ui/model';
+import {
+  appearanceColors,
+  dateKey,
+  errorText,
+  fileName,
+  markdownLink,
+  matchesShortcut,
+} from './ui/model';
 
 type Panel =
   | 'settings'
@@ -66,6 +74,7 @@ type Panel =
   | 'preview'
   | 'close'
   | 'localize'
+  | 'link'
   | null;
 const buttons: { id: EditorCommand | 'image'; title: string; icon: typeof Bold }[] = [
   { id: 'heading', title: '标题', icon: Hash },
@@ -95,6 +104,14 @@ export default function App() {
   const [exportTheme, setExportTheme] = useState(false);
   const [exportWallpaper, setExportWallpaper] = useState(false);
   const [localizeTarget, setLocalizeTarget] = useState('');
+  const [linkRequest, setLinkRequest] = useState<{
+    tabId: string;
+    sourcePath: string | null;
+    content: string;
+    from: number;
+    to: number;
+    label: string;
+  } | null>(null);
   const [movePath, setMovePath] = useState('');
   const [tagInput, setTagInput] = useState('');
   const [backlinks, setBacklinks] = useState<NoteMeta[]>([]);
@@ -250,6 +267,42 @@ export default function App() {
     return true;
   }
   const changeSettings = (value: AppSettings) => workspace.setSettings(value);
+  function beginLink() {
+    const view = editor.current?.getView();
+    if (!active || !view) {
+      error('编辑器尚未准备好，请稍后重试。');
+      return;
+    }
+    const { from, to } = view.state.selection.main;
+    setLinkRequest({
+      tabId: active.id,
+      sourcePath: active.path,
+      content: active.content,
+      from,
+      to,
+      label: view.state.sliceDoc(from, to),
+    });
+    setPanel('link');
+  }
+  function insertLink(label: string, target: string) {
+    const view = editor.current?.getView();
+    if (!linkRequest || !view || activeRef.current?.id !== linkRequest.tabId) {
+      error('原编辑标签已切换，正文未修改。请重新选择插入位置。');
+      return;
+    }
+    if (
+      workspace.getTab(linkRequest.tabId)?.content !== linkRequest.content ||
+      view.state.doc.toString() !== linkRequest.content
+    ) {
+      error('选择链接期间正文发生了变化，原文已保留。请重新选择插入位置。');
+      return;
+    }
+    view.dispatch({ selection: { anchor: linkRequest.from, head: linkRequest.to } });
+    editor.current?.insert(markdownLink(label, target));
+    setPanel(null);
+    setLinkRequest(null);
+    setTimeout(() => editor.current?.focus(), 0);
+  }
   async function image(file: File): Promise<string | null> {
     const note = activeRef.current;
     if (!note) return null;
@@ -281,6 +334,36 @@ export default function App() {
         return;
       }
       if (!resolved.path || !resolved.exists) {
+        if (!resolved.candidates.length) {
+          const readable = (value: string) => {
+            try {
+              return decodeURIComponent(value);
+            } catch {
+              return value;
+            }
+          };
+          const savedLink = extractLinks(active.baseContent).some(
+            (link) => !link.image && readable(link.target) === readable(target),
+          );
+          if (active.dirty && !savedLink) {
+            notify('这是尚未保存的新链接，请先保存笔记再打开。', true);
+            return;
+          }
+          const note = await window.notes.openLinkedFile(active.path!, target);
+          if (note) {
+            const id = workspace.openDocument(note);
+            setGraphActive(false);
+            const targetHeading = resolved.heading || target.split('#')[1]?.split('|')[0];
+            const heading =
+              targetHeading &&
+              extractHeadings(note.content).find(
+                (item) =>
+                  item.text === readable(targetHeading) || item.id === readable(targetHeading),
+              );
+            if (heading) setPendingLine({ id, line: heading.line });
+            return;
+          }
+        }
         notify(
           resolved.candidates.length > 1
             ? `存在多个同名目标：${resolved.candidates.join('、')}`
@@ -906,7 +989,9 @@ export default function App() {
                               onClick={() =>
                                 button.id === 'image'
                                   ? imageInput.current?.click()
-                                  : editor.current?.command(button.id)
+                                  : button.id === 'link'
+                                    ? beginLink()
+                                    : editor.current?.command(button.id)
                               }
                             >
                               <button.icon size={16} />
@@ -1157,6 +1242,18 @@ export default function App() {
             onClose={() => setPanel(null)}
             onError={error}
             saveState={workspace.settingsState}
+          />
+        )}
+        {panel === 'link' && linkRequest && (
+          <LinkPanel
+            sourcePath={linkRequest.sourcePath}
+            initialLabel={linkRequest.label}
+            index={workspace.index}
+            onInsert={insertLink}
+            onClose={() => {
+              setPanel(null);
+              setLinkRequest(null);
+            }}
           />
         )}
         {panel === 'new' && (

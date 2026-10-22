@@ -100,6 +100,34 @@ describe('standalone document and Markdown exports', () => {
     expect(markdown).toContain('https://example.invalid/a.png');
     expect(await readFile(file, 'utf8')).toBe(content);
   });
+  it('rewrites ZIP image usages without retargeting ordinary links or a shared image/link definition', async () => {
+    await mkdir(path.join(root, '原始图片'));
+    await writeFile(path.join(root, '原始图片', '图.png'), new Uint8Array([1, 2, 3]));
+    const targetImage = '原始图片/图.png';
+    const definition = `[shared]: ${targetImage} "图片标题"`;
+    const content = `![图片](${targetImage})\n[普通链接](${targetImage})\n\n![引用图片][shared]\n[普通引用][shared]\n\n${definition}\n\n\`![示例](${targetImage})\``;
+    const file = path.join(root, '共享引用.md');
+    await writeFile(file, content);
+    const output = path.join(root, '共享引用.zip');
+    const exporter = new ExportManager(store, {
+      buildDirectory: build,
+      chooseSave: async () => output,
+      renderPdf: async () => undefined,
+      assetData: async () => {
+        throw new Error('unused');
+      },
+    });
+    await exporter.exportBundle(file, content);
+    const archive = unzipSync(await readFile(output));
+    const result = strFromU8(archive['共享引用.md']);
+    expect(result).toContain(`[普通链接](${targetImage})`);
+    expect(result).toContain('[普通引用][shared]');
+    expect(result).toContain(definition);
+    expect(result).toContain(`\`![示例](${targetImage})\``);
+    expect(result).toMatch(/!\[图片\]\(assets\//);
+    expect(result).toMatch(/!\[引用图片\]\(assets\/[^)]+ "图片标题"\)/);
+    expect(await readFile(file, 'utf8')).toBe(content);
+  });
   it('refuses missing referenced images and does not create a deceptively incomplete ZIP', async () => {
     const file = path.join(root, '缺图.md');
     const content = '![缺图](不存在.png)';

@@ -56,7 +56,14 @@ test('packaged executable runs offline and preserves notes, history, fonts and d
     app = undefined;
   };
   try {
+    const started = Date.now();
     let page = await launch();
+    const startupMs = Date.now() - started;
+    const memory = await app!.evaluate(({ app }) =>
+      app
+        .getAppMetrics()
+        .map((process) => ({ type: process.type, workingSetKB: process.memory.workingSetSize })),
+    );
     await app!.evaluate(({ session }) =>
       session.defaultSession.enableNetworkEmulation({ offline: true }),
     );
@@ -134,6 +141,8 @@ test('packaged executable runs offline and preserves notes, history, fonts and d
           noteHistoryFontsUnchanged: true,
           draftRestored: true,
           installedIntoSystem: false,
+          startupWithAutomationMs: startupMs,
+          processMemory: memory,
         },
         null,
         2,

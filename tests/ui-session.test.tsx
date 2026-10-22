@@ -16,9 +16,53 @@ import { SettingsPanel } from '../src/components/SettingsPanel';
 import { Sidebar } from '../src/components/Sidebar';
 import App from '../src/App';
 
-vi.mock('../src/editor/MarkdownEditor', () => ({
-  MarkdownEditor: () => <div aria-label="测试正文编辑器" />,
+const editorCalls = vi.hoisted(() => ({
+  scrollToLine: vi.fn(),
+  insert: vi.fn(),
+  dispatch: vi.fn(),
+  from: 0,
+  to: 0,
 }));
+vi.mock('../src/editor/MarkdownEditor', async () => {
+  const { forwardRef, useImperativeHandle } = await import('react');
+  return {
+    MarkdownEditor: forwardRef(function TestEditor(
+      props: { value: string; onLink?(target: string): void },
+      ref,
+    ) {
+      useImperativeHandle(ref, () => ({
+        focus() {},
+        insert: editorCalls.insert,
+        wrap() {},
+        command() {
+          return true;
+        },
+        scrollToLine: editorCalls.scrollToLine,
+        getCursor() {
+          return 0;
+        },
+        getScroll() {
+          return 0;
+        },
+        getView() {
+          return {
+            state: {
+              selection: { main: { from: editorCalls.from, to: editorCalls.to } },
+              sliceDoc: (from: number, to: number) => props.value.slice(from, to),
+              doc: { toString: () => props.value },
+            },
+            dispatch: editorCalls.dispatch,
+          };
+        },
+      }));
+      return (
+        <div aria-label="测试正文编辑器">
+          <button onClick={() => props.onLink?.('另一篇.md#目标')}>打开测试相对链接</button>
+        </div>
+      );
+    }),
+  };
+});
 vi.mock('../src/editor/renderer', () => ({
   renderMarkdown: () => '',
   hydrateMarkdown: async () => undefined,
@@ -67,6 +111,7 @@ function makeAPI(session: SessionState): DesktopAPI {
     getIndex: vi.fn(async () => []),
     search: vi.fn(async () => []),
     resolveLink: vi.fn(async () => ({ path: null, exists: false, candidates: [] })),
+    openLinkedFile: vi.fn(async () => null),
     moveFile: vi.fn(async () => null),
     undoMove: vi.fn(async () => undefined),
     trashFile: vi.fn(async () => undefined),
@@ -105,8 +150,12 @@ function makeAPI(session: SessionState): DesktopAPI {
     onProgress: vi.fn(() => () => undefined),
   };
 }
-async function mount(session: SessionState = { tabs: [asTab(note)], activeId: note.id }) {
+async function mount(
+  session: SessionState = { tabs: [asTab(note)], activeId: note.id },
+  configure?: (api: DesktopAPI) => void,
+) {
   api = makeAPI(session);
+  configure?.(api);
   window.notes = api;
   host = document.createElement('div');
   document.body.append(host);
@@ -114,6 +163,11 @@ async function mount(session: SessionState = { tabs: [asTab(note)], activeId: no
   await act(async () => root.render(<Harness />));
 }
 beforeEach(() => {
+  editorCalls.scrollToLine.mockClear();
+  editorCalls.insert.mockClear();
+  editorCalls.dispatch.mockClear();
+  editorCalls.from = 0;
+  editorCalls.to = 0;
   vi.useFakeTimers();
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
@@ -140,6 +194,79 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe('desktop session and save lifecycle', () => {
+  it('refreshes clean named sessions from disk while preserving tab identity and reading position', async () => {
+    const saved = {
+      ...asTab(note),
+      id: 'stable-tab',
+      cursor: 4,
+      scrollTop: 230,
+      mode: 'source' as const,
+    };
+    await mount({ tabs: [saved], activeId: saved.id }, (api) => {
+      api.openFile = vi.fn(async () => ({
+        ...note,
+        id: 'disk-id',
+        content: '关闭期间的外部修改',
+        hash: 'external-hash',
+        modifiedAt: 99,
+      }));
+    });
+    expect(api.openFile).toHaveBeenCalledWith(note.path);
+    expect(value.tabs[0]).toMatchObject({
+      id: saved.id,
+      cursor: 4,
+      scrollTop: 230,
+      mode: 'source',
+      content: '关闭期间的外部修改',
+      baseContent: '关闭期间的外部修改',
+      hash: 'external-hash',
+      dirty: false,
+    });
+  });
+  it('keeps dirty named content and unnamed drafts without refreshing over them', async () => {
+    const dirty = { ...asTab(note), content: '尚未保存的现场', dirty: true };
+    const draft = {
+      ...asTab(note),
+      id: 'draft',
+      path: null,
+      content: '空白草稿的记录',
+      dirty: true,
+    };
+    await mount({ tabs: [dirty, draft], activeId: dirty.id });
+    expect(api.openFile).not.toHaveBeenCalled();
+    expect(value.tabs.map((tab) => tab.content)).toEqual(['尚未保存的现场', '空白草稿的记录']);
+  });
+  it('keeps the stored original and reports a failed startup refresh', async () => {
+    await mount(undefined, (api) => {
+      api.openFile = vi.fn(async () => {
+        throw new Error('文件暂时不可读');
+      });
+    });
+    expect(value.tabs[0].content).toBe(note.content);
+    expect(
+      value.notices.some(
+        (notice) =>
+          notice.message.includes('文件暂时不可读') && notice.message.includes('保留会话原文'),
+      ),
+    ).toBe(true);
+    expect(value.bootstrap).not.toBeNull();
+  });
+  it('subscribes to initial open requests only after clean-session disk reads finish', async () => {
+    let finish: ((note: NoteDocument) => void) | undefined;
+    await mount(undefined, (api) => {
+      api.openFile = vi.fn(
+        () =>
+          new Promise<NoteDocument>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    });
+    expect(value.bootstrap).toBeNull();
+    expect(api.onOpenRequested).not.toHaveBeenCalled();
+    await act(async () => finish?.(note));
+    expect(value.bootstrap).not.toBeNull();
+    expect(api.onOpenRequested).toHaveBeenCalledTimes(1);
+  });
   it('starts an empty recoverable draft without a pre-created library', async () => {
     await mount({ tabs: [], activeId: null });
     expect(value.tabs).toHaveLength(1);
@@ -456,5 +583,127 @@ describe('desktop session and save lifecycle', () => {
           tab.textContent?.includes('另写的日记') && tab.getAttribute('aria-selected') === 'true',
       ),
     ).toBe(true);
+  });
+  it('opens a saved standalone Markdown link without adding a directory and locates its heading', async () => {
+    await mount();
+    const source = { ...note, content: '[另一篇](另一篇.md#目标)' };
+    const settings = structuredClone(defaultSettings);
+    settings.autoSave = false;
+    api.bootstrap = vi.fn(async () => ({
+      settings,
+      session: { tabs: [asTab(source)], activeId: source.id },
+      fonts: [],
+      dataDirectory: 'D:\\data',
+      version: 'test',
+    }));
+    api.openLinkedFile = vi.fn(async () => ({
+      ...note,
+      id: 'linked',
+      path: 'D:\\notes\\另一篇.md',
+      title: '另一篇',
+      content: '# 另一篇\n\n## 目标\n目标内容',
+    }));
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '打开测试相对链接')
+        ?.click(),
+    );
+    expect(api.openLinkedFile).toHaveBeenCalledWith(source.path, '另一篇.md#目标');
+    expect(
+      [...host.querySelectorAll('[role="tab"]')].some(
+        (tab) =>
+          tab.textContent?.includes('另一篇') && tab.getAttribute('aria-selected') === 'true',
+      ),
+    ).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(editorCalls.scrollToLine).toHaveBeenCalledWith(3);
+    expect(api.saveFile).not.toHaveBeenCalled();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+  it('asks to save a newly written standalone link without saving or authorizing it automatically', async () => {
+    await mount();
+    const source = {
+      ...asTab(note),
+      content: `${note.content}\n[另一篇](另一篇.md#目标)`,
+      dirty: true,
+    };
+    const settings = structuredClone(defaultSettings);
+    settings.autoSave = false;
+    api.bootstrap = vi.fn(async () => ({
+      settings,
+      session: { tabs: [source], activeId: source.id },
+      fonts: [],
+      dataDirectory: 'D:\\data',
+      version: 'test',
+    }));
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '打开测试相对链接')
+        ?.click(),
+    );
+    expect(api.openLinkedFile).not.toHaveBeenCalled();
+    expect(api.saveFile).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('请先保存笔记再打开');
+  });
+  it('inserts a relative link into the original editor selection and leaves cancellation unchanged', async () => {
+    await mount();
+    const source = { ...note, content: '前文 选中文字 后文' };
+    const settings = structuredClone(defaultSettings);
+    settings.autoSave = false;
+    api.bootstrap = vi.fn(async () => ({
+      settings,
+      session: { tabs: [asTab(source)], activeId: source.id },
+      fonts: [],
+      dataDirectory: 'D:\\data',
+      version: 'test',
+    }));
+    api.openFile = vi.fn(async () => source);
+    api.getIndex = vi.fn(async () => [
+      {
+        path: 'D:\\notes\\sub\\目标.md',
+        title: '目标笔记',
+        tags: [],
+        headings: [],
+        links: [],
+        modifiedAt: 1,
+      },
+    ]);
+    editorCalls.from = 3;
+    editorCalls.to = 7;
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.click(),
+    );
+    expect(host.querySelector<HTMLInputElement>('[aria-label="链接显示文字"]')?.value).toBe(
+      '选中文字',
+    );
+    await act(async () =>
+      [...host.querySelectorAll('button')].find((button) => button.textContent === '取消')?.click(),
+    );
+    expect(editorCalls.insert).not.toHaveBeenCalled();
+    expect(editorCalls.dispatch).not.toHaveBeenCalled();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.click(),
+    );
+    await act(async () =>
+      [...host.querySelectorAll('.link-target-list button')]
+        .find((button) => button.textContent?.includes('目标笔记'))
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
+    expect(host.querySelector<HTMLInputElement>('[aria-label="链接目标"]')?.value).toBe(
+      'sub/目标.md',
+    );
+    await act(async () =>
+      host
+        .querySelector<HTMLFormElement>('dialog form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(editorCalls.dispatch).toHaveBeenCalledWith({ selection: { anchor: 3, head: 7 } });
+    expect(editorCalls.insert).toHaveBeenCalledWith('[选中文字](sub/目标.md)');
+    expect(api.saveFile).not.toHaveBeenCalled();
   });
 });

@@ -5,12 +5,14 @@ import { createServer, type ViteDevServer } from 'vite';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { longArticle } from '../src/editor/fixtures/long-article';
 
 const project = fileURLToPath(new URL('../', import.meta.url));
 let server: ViteDevServer;
 let app: ElectronApplication;
 let page: Page;
 const errors: string[] = [];
+const processEvents: string[] = [];
 beforeAll(async () => {
   await mkdir(path.join(project, '.test-data', 'editor-browser-profile'), { recursive: true });
   server = await createServer({
@@ -42,6 +44,16 @@ beforeAll(async () => {
     env: environment,
   });
   page = await app.firstWindow();
+  page.on('crash', () => processEvents.push('page-crash'));
+  app.process().on('exit', (code) => processEvents.push(`process-exit:${code}`));
+  await app.evaluate(({ BrowserWindow }) => {
+    const events: string[] = [];
+    Object.defineProperty(globalThis, 'editorRenderEvents', { value: events });
+    for (const window of BrowserWindow.getAllWindows())
+      window.webContents.on('render-process-gone', (_event, details) =>
+        events.push(JSON.stringify(details)),
+      );
+  });
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
@@ -153,4 +165,79 @@ describe('isolated real Electron editor', () => {
     expect(geometry.gap).toBeLessThanOrEqual(geometry.lineHeight * 1.75 + 8);
     await page.screenshot({ path: path.join(project, '.test-data', 'editor-spacing.png') });
   }, 30000);
+  it('keeps the full 4921-line Chinese article editable without an independent renderer stall', async () => {
+    const started = performance.now();
+    await page.goto(`${page.url().split('?')[0]}?long=1`);
+    const source = page.getByTestId('source-value');
+    await expect.poll(() => source.inputValue(), { timeout: 20000 }).toBe(longArticle);
+    const openedMs = performance.now() - started;
+    await page.getByRole('button', { name: '完整源码', exact: true }).click();
+    await page.locator('.cm-content').click();
+    const beforeEnd = performance.now();
+    await page.keyboard.press('Control+End');
+    const controlEndMs = performance.now() - beforeEnd;
+    const beforeState = await page.evaluate(() => {
+      const view = Reflect.get(window, 'editorVerify').getView();
+      return {
+        length: view.state.doc.length,
+        head: view.state.selection.main.head,
+        lines: view.state.doc.lines,
+        sourceMode: Boolean(document.querySelector('.markdown-editor.is-source')),
+      };
+    });
+    expect(beforeState).toEqual({
+      length: longArticle.length,
+      head: longArticle.length,
+      lines: 4921,
+      sourceMode: true,
+    });
+    const beforeInsert = performance.now();
+    await page.keyboard.insertText('长文追加完成。');
+    await expect
+      .poll(() => source.inputValue(), { timeout: 20000 })
+      .toBe(longArticle + '长文追加完成。');
+    const insertAndChangeMs = performance.now() - beforeInsert;
+    await page.getByRole('button', { name: '即时排版', exact: true }).click();
+    await expect
+      .poll(() => source.inputValue(), { timeout: 20000 })
+      .toBe(longArticle + '长文追加完成。');
+    const afterState = await page.evaluate(() => {
+      const view = Reflect.get(window, 'editorVerify').getView();
+      return {
+        length: view.state.doc.length,
+        head: view.state.selection.main.head,
+        lines: view.state.doc.lines,
+        liveMode: Boolean(document.querySelector('.markdown-editor.is-live')),
+        renderedNodes: document.querySelectorAll('.markdown-preview-block').length,
+      };
+    });
+    expect(afterState.length).toBe(longArticle.length + '长文追加完成。'.length);
+    expect(afterState.head).toBe(afterState.length);
+    expect(afterState.liveMode).toBe(true);
+    const rendererProcessGone: unknown = await app.evaluate(() =>
+      Reflect.get(globalThis, 'editorRenderEvents'),
+    );
+    await writeFile(
+      path.join(project, '.test-data', 'editor-long-article.json'),
+      JSON.stringify(
+        {
+          bytes: Buffer.byteLength(longArticle),
+          openedMs,
+          controlEndMs,
+          insertAndChangeMs,
+          totalMs: performance.now() - started,
+          beforeState,
+          afterState,
+          errors,
+          processEvents,
+          rendererProcessGone,
+        },
+        null,
+        2,
+      ),
+    );
+    expect(errors).toEqual([]);
+    expect(processEvents).toEqual([]);
+    expect(rendererProcessGone).toEqual([]);
+  }, 60000);
 });

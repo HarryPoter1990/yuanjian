@@ -5,8 +5,10 @@ import type { MarkdownEditorHandle } from '../types';
 import { defaultSettings } from '../../shared/defaults';
 import sample from './编辑器验收.md?raw';
 import '../../styles/app.css';
+import { longArticle } from './long-article';
 
 const reference = createRef<MarkdownEditorHandle>();
+Object.defineProperty(window, 'editorVerify', { get: () => reference.current });
 const pixel =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jvLsAAAAASUVORK5CYII=';
 Object.defineProperty(window, 'notes', {
@@ -15,7 +17,9 @@ Object.defineProperty(window, 'notes', {
 });
 
 function Verification() {
-  const [value, setValue] = useState(sample);
+  const [value, setValue] = useState(
+    new URLSearchParams(location.search).has('long') ? longArticle : sample,
+  );
   const [mode, setMode] = useState<'source' | 'live'>('live');
   const [target, setTarget] = useState('');
   const jump = (text: string, offset = 0): void =>
