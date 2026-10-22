@@ -665,7 +665,7 @@ export default function App() {
     return (
       <main className="startup-state">
         <FileText size={34} />
-        <h1>轻笺未能打开</h1>
+        <h1>鸢笺未能打开</h1>
         <p role="alert">{workspace.loadError}</p>
         <button onClick={() => window.location.reload()}>重新连接</button>
       </main>
@@ -673,7 +673,7 @@ export default function App() {
   if (!settings || !workspace.bootstrap)
     return (
       <main className="startup-state">
-        <span className="brand-mark">轻笺</span>
+        <span className="brand-mark">鸢笺</span>
         <p role="status">正在恢复你的笔记…</p>
       </main>
     );
@@ -715,9 +715,9 @@ export default function App() {
         <header className="app-header">
           <div className="app-brand">
             <span className="logo-glyph">笺</span>
-            <strong>轻笺</strong>
+            <strong>鸢笺</strong>
             <span className="brand-divider" />
-            <span className="header-context">让想法自然落笔</span>
+            <span className="header-context">Yuanjian · 让想法自然落笔</span>
           </div>
           <div className="header-actions">
             <IconButton

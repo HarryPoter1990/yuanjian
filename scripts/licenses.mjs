@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
 const notices = [
-  '轻笺 / Local Notes — third-party software and font notices',
+  '鸢笺 / Yuanjian — third-party software and font notices',
   'Bundled runtime components retain their respective licenses. Electron/Chromium licenses are also distributed beside the executable.',
 ];
 for (const [location, metadata] of Object.entries(lock.packages)) {

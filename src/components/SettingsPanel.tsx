@@ -186,7 +186,8 @@ export function SettingsPanel({
             </button>
           ))}
           <div className="settings-about">
-            <span className="brand-mark">轻笺</span>
+            <span className="brand-mark">鸢笺</span>
+            <span>Yuanjian</span>
             <span>版本 {version}</span>
             <button
               onClick={() => void run('打开数据目录', () => window.notes.revealPath(dataDirectory))}
@@ -367,7 +368,7 @@ export function SettingsPanel({
                 字体管理
               </h3>
               <p className="section-description">
-                直接预览系统字体；导入和下载的字体仅在轻笺内使用。
+                直接预览系统字体；导入和下载的字体仅在鸢笺内使用。
               </p>
               {(
                 [
@@ -443,7 +444,7 @@ export function SettingsPanel({
                         {font.bytes ? ` · ${bytesLabel(font.bytes)}` : ''}
                       </small>
                       <p style={{ fontFamily: `"${font.name}"` }}>
-                        轻笺，记录每一个想法。 Aa 0123 ∑
+                        鸢笺，记录每一个想法。 Aa 0123 ∑
                       </p>
                     </div>
                     {['downloaded', 'imported'].includes(font.source) && (

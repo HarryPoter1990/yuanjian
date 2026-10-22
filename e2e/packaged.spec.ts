@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { defaultSettings } from '../src/shared/defaults';
 
 const project = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
-const executable = path.join(project, 'release/win-unpacked/轻笺.exe');
+const executable = path.join(project, 'release/win-unpacked/Yuanjian.exe');
 test.skip(
   !existsSync(executable),
   'Build the Windows package before running the packaged binary check.',
@@ -59,6 +59,10 @@ test('packaged executable runs offline and preserves notes, history, fonts and d
     const started = Date.now();
     let page = await launch();
     const startupMs = Date.now() - started;
+    await expect(page).toHaveTitle('鸢笺 · Yuanjian');
+    await expect(page.locator('.app-brand')).toContainText('鸢笺');
+    await expect(page.locator('.app-brand')).toContainText('Yuanjian');
+    expect(await app!.evaluate(({ app }) => app.getName())).toBe('鸢笺');
     const memory = await app!.evaluate(({ app }) =>
       app
         .getAppMetrics()

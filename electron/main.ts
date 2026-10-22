@@ -23,6 +23,9 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+app.setName('鸢笺');
+// Preserve the original settings, history and drafts when changing the display name.
+app.setPath('userData', path.join(app.getPath('appData'), '轻笺'));
 const testMode = process.env.LOCAL_NOTES_TEST === '1';
 const dataFlag = process.argv.find((argument) => argument.startsWith('--data-dir='));
 if (testMode && dataFlag) {
@@ -34,7 +37,6 @@ if (testMode && dataFlag) {
   if (!within(testRoot, candidate)) throw new Error('测试数据目录必须在程序目录的 .test-data 内');
   app.setPath('userData', candidate);
 }
-app.setName('轻笺');
 let window: BrowserWindow | null = null;
 let store: NoteStore;
 let watcher: FSWatcher | null = null;
@@ -358,7 +360,7 @@ async function boot() {
     minHeight: 600,
     show: false,
     backgroundColor: '#f6f5f1',
-    title: '轻笺',
+    title: '鸢笺 · Yuanjian',
     icon: path.join(buildDirectory, 'app-icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -407,7 +409,7 @@ else {
     .whenReady()
     .then(boot)
     .catch((error) => {
-      dialog.showErrorBox('轻笺启动失败', error instanceof Error ? error.message : String(error));
+      dialog.showErrorBox('鸢笺启动失败', error instanceof Error ? error.message : String(error));
       app.exit(1);
     });
   app.on('window-all-closed', () => {

@@ -1,11 +1,11 @@
 {
   "name": "local-notes-desktop",
-  "productName": "轻笺",
+  "productName": "鸢笺",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "本地优先、自由打开文件的 Markdown 笔记软件",
-  "author": "Local Notes contributors",
+  "author": "Yuanjian contributors",
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -74,7 +74,7 @@
   },
   "build": {
     "appId": "local.qingjian.notes",
-    "productName": "轻笺",
+    "productName": "鸢笺",
     "directories": {
       "output": "release"
     },
@@ -86,8 +86,9 @@
     "asar": true,
     "win": {
       "target": "nsis",
+      "executableName": "Yuanjian",
       "icon": "build/icon.ico",
-      "artifactName": "Qingjian-Setup-${version}-${arch}.${ext}"
+      "artifactName": "Yuanjian-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

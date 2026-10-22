@@ -171,7 +171,7 @@ export function useWorkspace() {
   useEffect(() => {
     mounted.current = true;
     if (!window.notes) {
-      setLoadError('桌面连接不可用。请从轻笺桌面程序启动。');
+      setLoadError('桌面连接不可用。请从鸢笺桌面程序启动。');
       return;
     }
     let alive = true;
