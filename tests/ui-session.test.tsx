@@ -201,6 +201,63 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe('desktop session and save lifecycle', () => {
+  it('keeps the startup connection diagnostic visible when the preload bridge is missing', async () => {
+    await mount();
+    Reflect.deleteProperty(window, 'notes');
+    await act(async () => root.render(<App />));
+    expect(host.textContent).toContain('鸢笺未能打开');
+    expect(host.textContent).toContain('桌面连接不可用');
+    expect(host.querySelector('[aria-label="进入便笺模式"]')).toBeNull();
+  });
+  it.each(['read', 'subscription', 'async read'])(
+    'keeps sticky entry unavailable after a %s failure',
+    async (failure) => {
+      await mount(undefined, (api) => {
+        if (failure === 'read')
+          api.getWindowMode = vi.fn(() => {
+            throw new Error('同步读取失败');
+          });
+        else if (failure === 'async read')
+          api.getWindowMode = vi.fn(async () => {
+            throw new Error('异步读取失败');
+          });
+        else
+          api.onWindowModeChanged = vi.fn(() => {
+            throw new Error('同步订阅失败');
+          });
+      });
+      await act(async () => root.render(<App />));
+      expect(host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.disabled).toBe(
+        true,
+      );
+      expect(host.querySelector('.toast.error')?.textContent).toContain(
+        failure === 'read'
+          ? '同步读取失败'
+          : failure === 'async read'
+            ? '异步读取失败'
+            : '同步订阅失败',
+      );
+      expect(host.querySelector('[aria-label="测试正文编辑器"]')).not.toBeNull();
+    },
+  );
+  it('reports a synchronous pin failure and releases pending controls without changing the pin state', async () => {
+    await mount(undefined, (api) => {
+      api.setStickyPinned = vi.fn(() => {
+        throw new Error('同步置顶失败');
+      });
+    });
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.click(),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="便笺始终置顶"]')?.click(),
+    );
+    const pin = host.querySelector<HTMLButtonElement>('[aria-label="便笺始终置顶"]');
+    expect(pin?.getAttribute('aria-pressed')).toBe('true');
+    expect(pin?.disabled).toBe(false);
+    expect(host.querySelector('.toast.error')?.textContent).toContain('同步置顶失败');
+  });
   it('refreshes clean named sessions from disk while preserving tab identity and reading position', async () => {
     const saved = {
       ...asTab(note),

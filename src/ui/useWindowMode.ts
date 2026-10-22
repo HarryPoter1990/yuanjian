@@ -15,20 +15,39 @@ export function useWindowMode(onError: (message: string) => void) {
   }, []);
   useEffect(() => {
     alive.current = true;
+    setReady(false);
+    const api = window.notes;
+    if (
+      !api ||
+      typeof api.getWindowMode !== 'function' ||
+      typeof api.onWindowModeChanged !== 'function' ||
+      typeof api.setWindowMode !== 'function' ||
+      typeof api.setStickyPinned !== 'function'
+    )
+      return () => {
+        alive.current = false;
+      };
     let eventReceived = false;
-    const stop = window.notes.onWindowModeChanged((next) => {
-      eventReceived = true;
-      apply(next);
-    });
-    void window.notes
-      .getWindowMode()
-      .then((next) => {
-        if (!eventReceived) apply(next);
-      })
-      .catch((reason) => onError(`窗口模式读取失败：${errorText(reason)}`))
-      .finally(() => {
-        if (alive.current) setReady(true);
+    let stop = () => {};
+    const failed = (reason: unknown) => {
+      if (alive.current) onError(`窗口模式读取失败：${errorText(reason)}`);
+    };
+    try {
+      stop = api.onWindowModeChanged((next) => {
+        eventReceived = true;
+        apply(next);
       });
+      void Promise.resolve()
+        .then(() => api.getWindowMode())
+        .then((next) => {
+          if (!alive.current) return;
+          if (!eventReceived) apply(next);
+          setReady(true);
+        })
+        .catch(failed);
+    } catch (reason) {
+      failed(reason);
+    }
     return () => {
       alive.current = false;
       stop();
@@ -38,7 +57,8 @@ export function useWindowMode(onError: (message: string) => void) {
     async (action: () => Promise<WindowModeState>) => {
       if (inflight.current) await inflight.current;
       setPending(true);
-      const operation = action()
+      const operation = Promise.resolve()
+        .then(action)
         .then((next) => {
           apply(next);
           return true;
