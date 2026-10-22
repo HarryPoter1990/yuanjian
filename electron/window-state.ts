@@ -5,6 +5,8 @@ import { OperationQueue, readOptional, writeJson } from './storage/io';
 export const MIN_WINDOW_WIDTH = 600;
 export const MIN_WINDOW_HEIGHT = 480;
 export const TITLE_BAR_HEIGHT = 44;
+export const MIN_STICKY_WIDTH = 320;
+export const MIN_STICKY_HEIGHT = 280;
 export interface WindowBounds {
   x: number;
   y: number;
@@ -14,6 +16,7 @@ export interface WindowBounds {
 export interface WindowState {
   bounds: WindowBounds;
   maximized: boolean;
+  sticky?: { bounds: WindowBounds; pinned: boolean };
 }
 export interface WindowTheme {
   background: string;
@@ -21,17 +24,19 @@ export interface WindowTheme {
 }
 
 const coordinate = z.number().int().min(-10_000_000).max(10_000_000);
+const boundsSchema = z
+  .object({
+    x: coordinate,
+    y: coordinate,
+    width: z.number().int().min(1).max(100_000),
+    height: z.number().int().min(1).max(100_000),
+  })
+  .strict();
 const stateSchema = z
   .object({
-    bounds: z
-      .object({
-        x: coordinate,
-        y: coordinate,
-        width: z.number().int().min(1).max(100_000),
-        height: z.number().int().min(1).max(100_000),
-      })
-      .strict(),
+    bounds: boundsSchema,
     maximized: z.boolean(),
+    sticky: z.object({ bounds: boundsSchema, pinned: z.boolean() }).strict().optional(),
   })
   .strict();
 
@@ -42,51 +47,68 @@ function intersectionArea(left: WindowBounds, right: WindowBounds): number {
   );
 }
 
-export function restoreWindowState(raw: unknown, workAreas: readonly WindowBounds[]): WindowState {
+export function fitWindowBounds(
+  bounds: WindowBounds,
+  workAreas: readonly WindowBounds[],
+  minimumWidth = MIN_WINDOW_WIDTH,
+  minimumHeight = MIN_WINDOW_HEIGHT,
+): WindowBounds {
   const usable = workAreas.filter(
     (area) => Object.values(area).every(Number.isFinite) && area.width > 0 && area.height > 0,
   );
   const areas = usable.length ? usable : [{ x: 0, y: 0, width: 1920, height: 1080 }];
-  const parsed = stateSchema.safeParse(raw);
   const primary = areas[0];
-  const saved = parsed.success ? parsed.data : null;
-  const area = saved
-    ? areas.reduce(
-        (best, candidate) =>
-          intersectionArea(saved.bounds, candidate) > intersectionArea(saved.bounds, best)
-            ? candidate
-            : best,
-        primary,
-      )
-    : primary;
+  const area = areas.reduce(
+    (best, candidate) =>
+      intersectionArea(bounds, candidate) > intersectionArea(bounds, best) ? candidate : best,
+    primary,
+  );
   const width = Math.round(
-    Math.min(
-      area.width,
-      Math.max(Math.min(MIN_WINDOW_WIDTH, area.width), saved?.bounds.width ?? 1440),
-    ),
+    Math.min(area.width, Math.max(Math.min(minimumWidth, area.width), bounds.width)),
   );
   const height = Math.round(
-    Math.min(
-      area.height,
-      Math.max(Math.min(MIN_WINDOW_HEIGHT, area.height), saved?.bounds.height ?? 940),
-    ),
+    Math.min(area.height, Math.max(Math.min(minimumHeight, area.height), bounds.height)),
   );
-  const x = Math.round(
-    Math.max(
-      area.x,
-      Math.min(saved?.bounds.x ?? area.x + (area.width - width) / 2, area.x + area.width - width),
-    ),
-  );
-  const y = Math.round(
-    Math.max(
-      area.y,
-      Math.min(
-        saved?.bounds.y ?? area.y + (area.height - height) / 2,
-        area.y + area.height - height,
-      ),
-    ),
-  );
-  return { bounds: { x, y, width, height }, maximized: saved?.maximized ?? false };
+  const x = Math.round(Math.max(area.x, Math.min(bounds.x, area.x + area.width - width)));
+  const y = Math.round(Math.max(area.y, Math.min(bounds.y, area.y + area.height - height)));
+  return { x, y, width, height };
+}
+
+export function restoreWindowState(raw: unknown, workAreas: readonly WindowBounds[]): WindowState {
+  const parsed = stateSchema.safeParse(raw);
+  const primary = workAreas.find(
+    (area) => Object.values(area).every(Number.isFinite) && area.width > 0 && area.height > 0,
+  ) ?? { x: 0, y: 0, width: 1920, height: 1080 };
+  const width = Math.min(1440, primary.width);
+  const height = Math.min(940, primary.height);
+  const saved = parsed.success
+    ? parsed.data
+    : {
+        bounds: {
+          x: primary.x + (primary.width - width) / 2,
+          y: primary.y + (primary.height - height) / 2,
+          width,
+          height,
+        },
+        maximized: false,
+      };
+  return {
+    bounds: fitWindowBounds(saved.bounds, workAreas),
+    maximized: saved.maximized,
+    ...(saved.sticky
+      ? {
+          sticky: {
+            bounds: fitWindowBounds(
+              saved.sticky.bounds,
+              workAreas,
+              MIN_STICKY_WIDTH,
+              MIN_STICKY_HEIGHT,
+            ),
+            pinned: saved.sticky.pinned,
+          },
+        }
+      : {}),
+  };
 }
 
 export function captureWindowState(
@@ -95,6 +117,7 @@ export function captureWindowState(
   captureBounds = true,
 ): WindowState {
   return {
+    ...(previous?.sticky ? { sticky: structuredClone(previous.sticky) } : {}),
     bounds: { ...(captureBounds || !previous ? target.getNormalBounds() : previous.bounds) },
     maximized: target.isMinimized()
       ? (previous?.maximized ?? target.isMaximized())

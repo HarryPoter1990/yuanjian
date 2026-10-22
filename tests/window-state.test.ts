@@ -128,6 +128,24 @@ describe('native window state', () => {
     await writeFile(path.join(directory, 'window-state.json'), '{broken');
     expect((await store.load([workArea])).maximized).toBe(false);
   });
+  it('persists compact bounds and pin preference separately without replacing full bounds', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-sticky-state-'));
+    sandboxes.push(directory);
+    const store = new WindowStateStore(directory);
+    const saved = {
+      bounds: { x: 30, y: 40, width: 1200, height: 800 },
+      maximized: true,
+      sticky: { bounds: { x: 1480, y: 24, width: 420, height: 640 }, pinned: false },
+    };
+    await store.save(saved);
+    expect(await store.load([workArea])).toEqual(saved);
+    const fitted = await store.load([{ x: 0, y: 0, width: 800, height: 600 }]);
+    expect(fitted.bounds).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+    expect(fitted.sticky).toEqual({
+      bounds: { x: 380, y: 0, width: 420, height: 600 },
+      pinned: false,
+    });
+  });
 });
 
 describe('native title bar theme boundary', () => {
