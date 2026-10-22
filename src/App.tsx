@@ -34,7 +34,7 @@ import {
   Table2,
   Undo2,
   X,
-} from 'lucide-react';
+} from './ui/icons';
 import type {
   FontEntry,
   NoteMeta,
@@ -46,7 +46,7 @@ import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from '
 import { MarkdownEditor } from './editor/MarkdownEditor';
 import type { EditorCommand, MarkdownEditorHandle } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
-import { IconButton, Modal, OperationContext } from './components/Controls';
+import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GraphView } from './components/GraphView';
@@ -99,6 +99,11 @@ export default function App() {
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [forcedPanels, setForcedPanels] = useState<{ left?: boolean; right?: boolean }>({});
   const [menu, setMenu] = useState(false);
+  const [appMenu, setAppMenu] = useState(false);
+  const [tabsMenu, setTabsMenu] = useState(false);
+  const [formatMenu, setFormatMenu] = useState(false);
+  const [toastAtTop, setToastAtTop] = useState(false);
+  const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [graphOpen, setGraphOpen] = useState(false);
   const [graphActive, setGraphActive] = useState(false);
   const [fonts, setFonts] = useState<FontEntry[]>([]);
@@ -132,6 +137,7 @@ export default function App() {
   );
   const editor = useRef<MarkdownEditorHandle>(null);
   const appElement = useRef<HTMLDivElement>(null);
+  const tabScroller = useRef<HTMLDivElement>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const resizeDispose = useRef<(() => void) | null>(null);
@@ -141,6 +147,58 @@ export default function App() {
   const activeRef = useRef(active);
   activeRef.current = active;
   const error = useCallback((message: string) => notify(message, true), [notify]);
+  const windowColors = settings ? appearanceColors(settings.appearance, systemDark) : null;
+  useEffect(() => {
+    if (windowColors)
+      void window.notes
+        .setWindowTheme?.({
+          background: windowColors.sidebar,
+          foreground: windowColors.foreground,
+        })
+        ?.catch((reason) => error(`窗口主题未能更新：${errorText(reason)}`));
+  }, [windowColors?.sidebar, windowColors?.foreground, error]);
+  useEffect(() => {
+    tabScroller.current
+      ?.querySelector<HTMLElement>('.document-tab.active')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeId, graphActive, tabs.length]);
+  useEffect(() => {
+    for (const notice of workspace.notices)
+      if (!notice.error && !notice.action && !noticeTimers.current.has(notice.id))
+        noticeTimers.current.set(
+          notice.id,
+          setTimeout(() => {
+            workspace.setNotices((current) => current.filter((item) => item.id !== notice.id));
+            noticeTimers.current.delete(notice.id);
+          }, 3800),
+        );
+    for (const [id, timer] of noticeTimers.current)
+      if (!workspace.notices.some((notice) => notice.id === id)) {
+        clearTimeout(timer);
+        noticeTimers.current.delete(id);
+      }
+    const view = editor.current?.getView();
+    const cursor = view?.coordsAtPos?.(view.state.selection.main.head);
+    const input =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement.getBoundingClientRect()
+        : null;
+    const rect =
+      input && input.height > 0 && !document.activeElement?.closest('.cm-editor') ? input : cursor;
+    setToastAtTop(
+      Boolean(
+        rect &&
+        rect.right > window.innerWidth - 450 &&
+        rect.bottom > window.innerHeight - 110 - workspace.notices.length * 55,
+      ),
+    );
+  }, [workspace.notices, workspace.setNotices]);
+  useEffect(
+    () => () => {
+      for (const timer of noticeTimers.current.values()) clearTimeout(timer);
+    },
+    [],
+  );
   useEffect(() => {
     const frames = frameValue(setWindowWidth, requestAnimationFrame, cancelAnimationFrame);
     const update = () => frames.push(window.innerWidth);
@@ -303,6 +361,12 @@ export default function App() {
       label: view.state.sliceDoc(from, to),
     });
     setPanel('link');
+  }
+  function format(command: EditorCommand | 'image') {
+    if (command === 'image') imageInput.current?.click();
+    else if (command === 'link') beginLink();
+    else editor.current?.command(command);
+    setFormatMenu(false);
   }
   function insertLink(label: string, target: string) {
     const view = editor.current?.getView();
@@ -518,6 +582,8 @@ export default function App() {
             codeLineNumbers: settings.codeLineNumbers,
             codeWrap: settings.codeWrap,
             codeFold: settings.codeFold,
+            codeFontSize: settings.appearance.codeFontSize ?? 16,
+            codeLineHeight: settings.appearance.codeLineHeight ?? 1.6,
           }
         : {},
     );
@@ -530,6 +596,8 @@ export default function App() {
     settings?.codeLineNumbers,
     settings?.codeWrap,
     settings?.codeFold,
+    settings?.appearance.codeFontSize,
+    settings?.appearance.codeLineHeight,
     error,
   ]);
   async function exportNote(format: 'html' | 'pdf' | 'zip') {
@@ -548,6 +616,8 @@ export default function App() {
           codeLineNumbers: settings.codeLineNumbers,
           codeWrap: settings.codeWrap,
           codeFold: settings.codeFold,
+          codeFontSize: settings.appearance.codeFontSize ?? 16,
+          codeLineHeight: settings.appearance.codeLineHeight ?? 1.6,
         });
         content.style.cssText =
           'position:fixed;left:-20000px;top:0;width:850px;opacity:0;pointer-events:none';
@@ -576,7 +646,7 @@ export default function App() {
             exportWallpaper && wallpaperUrl && settings.appearance.wallpaperFit === 'repeat'
               ? `.export-wallpaper-tile{background-image:url(${JSON.stringify(wallpaperUrl)});background-repeat:repeat;background-position:${settings.appearance.wallpaperPosition}}`
               : '';
-          const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><style>${style}body{isolation:isolate}.export-wallpaper{z-index:0;pointer-events:none}article.markdown-rendered{z-index:1}${wallpaperStyle}</style></head><body>${wallpaper}<article class="markdown-rendered">${content.innerHTML}</article></body></html>`;
+          const html = `<!doctype html><html lang="zh-CN" data-theme="${exportTheme && colors.dark ? 'dark' : 'light'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><style>${style}body{isolation:isolate}.export-wallpaper{z-index:0;pointer-events:none}article.markdown-rendered{z-index:1}${wallpaperStyle}</style></head><body>${wallpaper}<article class="markdown-rendered">${content.innerHTML}</article></body></html>`;
           path = await window.notes.exportDocument({
             format,
             html,
@@ -722,11 +792,31 @@ export default function App() {
     setForcedPanels((current) => ({ ...current, [side]: !visible }));
     changeSettings({ ...settings, [side === 'left' ? 'leftVisible' : 'rightVisible']: !visible });
   };
-  const { dark, foreground, background, accent } = appearanceColors(appearance, systemDark);
+  const {
+    dark,
+    foreground,
+    background,
+    accent,
+    sidebar,
+    surface,
+    muted,
+    border,
+    selected,
+    accentText,
+  } = appearanceColors(appearance, systemDark);
+  const rightGroups = { outline: true, tags: true, backlinks: false, ...settings.rightGroups };
+  const toggleGroup = (key: 'outline' | 'tags' | 'backlinks') =>
+    changeSettings({ ...settings, rightGroups: { ...rightGroups, [key]: !rightGroups[key] } });
   const style = {
     '--accent': accent,
     '--background': background,
     '--foreground': foreground,
+    '--sidebar': sidebar,
+    '--surface': surface,
+    '--muted': muted,
+    '--border': border,
+    '--selected': selected,
+    '--accent-text': accentText,
     '--ui-font': `"${appearance.uiFont}",sans-serif`,
     '--body-font': `"${appearance.bodyFont}",sans-serif`,
     '--code-font': `"${appearance.codeFont}",monospace`,
@@ -735,12 +825,63 @@ export default function App() {
     '--editor-line-height': appearance.lineHeight,
     '--content-width': `${appearance.contentWidth}px`,
     '--editor-opacity': appearance.editorOpacity,
+    '--sidebar-opacity': appearance.sidebarOpacity ?? 0.96,
     '--left-width': `${settings.leftWidth}px`,
     '--right-width': `${settings.rightWidth}px`,
+    '--brand-width': panels.left ? 'calc(var(--left-width) + 8px)' : '168px',
   } as CSSProperties;
   const line = active ? active.content.slice(0, active.cursor).split('\n').length : 1;
+  const tabStrip = (
+    <div ref={tabScroller} className="tabs-bar" role="tablist" aria-label="打开的笔记">
+      {tabs.map((tab) => (
+        <div
+          className={`document-tab ${!graphActive && tab.id === activeId ? 'active' : ''}`}
+          key={tab.id}
+        >
+          <button
+            role="tab"
+            aria-selected={!graphActive && tab.id === activeId}
+            title={tab.path || '未命名草稿'}
+            onClick={() => {
+              workspace.setActiveId(tab.id);
+              setGraphActive(false);
+            }}
+          >
+            <FileText size={14} />
+            <span>{tab.title}</span>
+            {tab.dirty && <i aria-label="有未保存修改" />}
+          </button>
+          <IconButton label={`关闭 ${tab.title}`} onClick={() => void requestClose(tab.id)}>
+            <X size={13} />
+          </IconButton>
+        </div>
+      ))}
+      {graphOpen && (
+        <div className={`document-tab ${graphActive ? 'active' : ''}`}>
+          <button role="tab" aria-selected={graphActive} onClick={() => setGraphActive(true)}>
+            <Network size={14} />
+            <span>关系图谱</span>
+          </button>
+          <IconButton
+            label="关闭关系图谱"
+            onClick={() => {
+              setGraphOpen(false);
+              setGraphActive(false);
+            }}
+          >
+            <X size={13} />
+          </IconButton>
+        </div>
+      )}
+      <IconButton label="新建笔记" onClick={newNote}>
+        <PlusIcon />
+      </IconButton>
+    </div>
+  );
   return (
-    <OperationContext.Provider value={{ busy, notice: workspace.notices.at(-1) || null }}>
+    <OperationContext.Provider
+      value={{ busy, notice: workspace.notices.at(-1) || null, shortcuts: settings.shortcuts }}
+    >
       <div ref={appElement} className="app" data-theme={dark ? 'dark' : 'light'} style={style}>
         {wallpaperUrl && (
           <div
@@ -758,22 +899,133 @@ export default function App() {
         )}
         <header className="app-header">
           <div className="app-brand">
-            <span className="logo-glyph">笺</span>
+            <img className="iris-logo" src="./yuanjian.png" alt="" />
             <strong>鸢笺</strong>
-            <span className="brand-divider" />
-            <span className="header-context">Yuanjian · 让想法自然落笔</span>
-          </div>
-          <div className="header-actions">
+            <div className="menu-anchor">
+              <IconButton
+                label="应用菜单"
+                aria-expanded={appMenu}
+                onClick={() => {
+                  setAppMenu(!appMenu);
+                  setTabsMenu(false);
+                }}
+              >
+                <Menu size={18} />
+              </IconButton>
+              {appMenu && (
+                <DropdownMenu label="应用菜单" onClose={() => setAppMenu(false)}>
+                  {[
+                    ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
+                    ['新建空白笔记', newNote, settings.shortcuts.new],
+                    [
+                      '从模板新建',
+                      () => {
+                        setJournalChoice(null);
+                        setNewTemplate(
+                          settings.templates.find((item) => item.kind === 'note')?.id || '',
+                        );
+                        setPanel('new');
+                      },
+                      '',
+                    ],
+                    [
+                      '关系图谱',
+                      () => {
+                        setGraphOpen(true);
+                        setGraphActive(true);
+                      },
+                      '',
+                    ],
+                    [panels.left ? '收起左侧导航' : '显示左侧导航', () => togglePanel('left'), ''],
+                    [
+                      panels.right ? '收起右侧大纲' : '显示右侧大纲',
+                      () => togglePanel('right'),
+                      '',
+                    ],
+                    ['打开设置', () => setPanel('settings'), settings.shortcuts.settings],
+                  ].map(([label, action, shortcut]) => (
+                    <button
+                      role="menuitem"
+                      key={String(label)}
+                      onClick={() => {
+                        setAppMenu(false);
+                        if (typeof action === 'function') action();
+                      }}
+                    >
+                      <span>{String(label)}</span>
+                      {shortcut && <kbd>{String(shortcut)}</kbd>}
+                    </button>
+                  ))}
+                </DropdownMenu>
+              )}
+            </div>
             <IconButton
               label={panels.left ? '收起左侧导航' : '显示左侧导航'}
               onClick={() => togglePanel('left')}
             >
               {panels.left ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
             </IconButton>
-            <IconButton label="打开 Markdown 文件" onClick={() => void open()}>
+          </div>
+          <div className="header-tab-strip">
+            {tabStrip}
+            <div className="menu-anchor tab-list-anchor">
+              <IconButton
+                label="已打开的笔记列表"
+                aria-expanded={tabsMenu}
+                onClick={() => {
+                  setTabsMenu(!tabsMenu);
+                  setAppMenu(false);
+                }}
+              >
+                <ChevronDown size={17} />
+              </IconButton>
+              {tabsMenu && (
+                <DropdownMenu label="已打开的笔记" onClose={() => setTabsMenu(false)}>
+                  {tabs.map((tab) => (
+                    <button
+                      role="menuitem"
+                      key={tab.id}
+                      onClick={() => {
+                        workspace.setActiveId(tab.id);
+                        setGraphActive(false);
+                        setTabsMenu(false);
+                      }}
+                    >
+                      <FileText size={14} />
+                      <span>
+                        <strong>
+                          {tab.title}
+                          {tab.dirty ? ' · 未保存' : ''}
+                        </strong>
+                        <small>{tab.path || '未命名草稿'}</small>
+                      </span>
+                    </button>
+                  ))}
+                  {graphOpen && (
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setGraphActive(true);
+                        setTabsMenu(false);
+                      }}
+                    >
+                      <Network size={14} />
+                      关系图谱
+                    </button>
+                  )}
+                </DropdownMenu>
+              )}
+            </div>
+          </div>
+          <div className="header-actions">
+            <IconButton
+              label="打开 Markdown 文件"
+              shortcut={settings.shortcuts.open}
+              onClick={() => void open()}
+            >
               <FolderOpen size={17} />
             </IconButton>
-            <IconButton label="新建空白笔记" onClick={newNote}>
+            <IconButton label="新建空白笔记" shortcut={settings.shortcuts.new} onClick={newNote}>
               <FilePlus2 size={17} />
             </IconButton>
             <IconButton
@@ -785,17 +1037,21 @@ export default function App() {
             >
               <Network size={17} />
             </IconButton>
-            <span className="toolbar-separator" />
             <IconButton
               label={panels.right ? '收起右侧大纲' : '显示右侧大纲'}
               onClick={() => togglePanel('right')}
             >
               {panels.right ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
             </IconButton>
-            <IconButton label="打开设置" onClick={() => setPanel('settings')}>
+            <IconButton
+              label="打开设置"
+              shortcut={settings.shortcuts.settings}
+              onClick={() => setPanel('settings')}
+            >
               <Settings size={17} />
             </IconButton>
           </div>
+          <div className="window-controls-space" aria-hidden="true" />
         </header>
         <main className="workspace">
           {
@@ -836,55 +1092,6 @@ export default function App() {
             </>
           }
           <section className="editor-column" aria-label="笔记编辑区">
-            <div className="tabs-bar" role="tablist" aria-label="打开的笔记">
-              {tabs.map((tab) => (
-                <div
-                  className={`document-tab ${!graphActive && tab.id === activeId ? 'active' : ''}`}
-                  key={tab.id}
-                >
-                  <button
-                    role="tab"
-                    aria-selected={!graphActive && tab.id === activeId}
-                    title={tab.path || '未命名草稿'}
-                    onClick={() => {
-                      workspace.setActiveId(tab.id);
-                      setGraphActive(false);
-                    }}
-                  >
-                    <FileText size={14} />
-                    <span>{tab.title}</span>
-                    {tab.dirty && <i aria-label="有未保存修改" />}
-                  </button>
-                  <IconButton label={`关闭 ${tab.title}`} onClick={() => void requestClose(tab.id)}>
-                    <X size={13} />
-                  </IconButton>
-                </div>
-              ))}
-              {graphOpen && (
-                <div className={`document-tab ${graphActive ? 'active' : ''}`}>
-                  <button
-                    role="tab"
-                    aria-selected={graphActive}
-                    onClick={() => setGraphActive(true)}
-                  >
-                    <Network size={14} />
-                    <span>关系图谱</span>
-                  </button>
-                  <IconButton
-                    label="关闭关系图谱"
-                    onClick={() => {
-                      setGraphOpen(false);
-                      setGraphActive(false);
-                    }}
-                  >
-                    <X size={13} />
-                  </IconButton>
-                </div>
-              )}
-              <IconButton label="新建笔记" onClick={newNote}>
-                <PlusIcon />
-              </IconButton>
-            </div>
             {graphActive && graphOpen ? (
               <GraphView
                 index={workspace.index}
@@ -1027,22 +1234,64 @@ export default function App() {
                         </IconButton>
                         <span className="toolbar-separator" />
                         {buttons
-                          .filter((button) => settings.toolbarButtons.includes(button.id))
+                          .filter(
+                            (button) =>
+                              settings.toolbarButtons.includes(button.id) &&
+                              ['heading', 'bold', 'list', 'code', 'math', 'link'].includes(
+                                button.id,
+                              ),
+                          )
                           .map((button) => (
                             <IconButton
                               label={button.title}
                               key={button.id}
-                              onClick={() =>
-                                button.id === 'image'
-                                  ? imageInput.current?.click()
-                                  : button.id === 'link'
-                                    ? beginLink()
-                                    : editor.current?.command(button.id)
-                              }
+                              onClick={() => format(button.id)}
                             >
                               <button.icon size={16} />
                             </IconButton>
                           ))}
+                        <div className="menu-anchor">
+                          <IconButton
+                            label="更多编辑操作"
+                            aria-expanded={formatMenu}
+                            onClick={() => setFormatMenu(!formatMenu)}
+                          >
+                            <Ellipsis size={18} />
+                          </IconButton>
+                          {formatMenu && (
+                            <DropdownMenu label="更多编辑操作" onClose={() => setFormatMenu(false)}>
+                              {buttons
+                                .filter(
+                                  (button) =>
+                                    settings.toolbarButtons.includes(button.id) &&
+                                    !['heading', 'bold', 'list', 'code', 'math', 'link'].includes(
+                                      button.id,
+                                    ),
+                                )
+                                .map((button) => (
+                                  <button
+                                    key={button.id}
+                                    role="menuitem"
+                                    onClick={() => format(button.id)}
+                                  >
+                                    <button.icon size={16} />
+                                    {button.title}
+                                  </button>
+                                ))}
+                              <button role="menuitem" onClick={() => format('find')}>
+                                <Search size={16} />
+                                查找
+                              </button>
+                              <button role="menuitem" onClick={() => format('replace')}>
+                                <ArrowLeftRight size={16} />
+                                查找与替换
+                              </button>
+                              <button role="menuitem" onClick={() => format('pastePlain')}>
+                                粘贴为纯文本
+                              </button>
+                            </DropdownMenu>
+                          )}
+                        </div>
                       </div>
                       <button
                         className="mode-button"
@@ -1141,12 +1390,19 @@ export default function App() {
                 aria-label="大纲与反向引用"
                 hidden={!panels.right}
               >
-                <div className="right-section">
+                <div className={`right-section ${rightGroups.outline ? 'is-open' : ''}`}>
                   <h2>
-                    <AlignLeft size={15} />
-                    大纲<span>{headings.length}</span>
+                    <button
+                      aria-expanded={rightGroups.outline}
+                      aria-controls="right-outline"
+                      onClick={() => toggleGroup('outline')}
+                    >
+                      <AlignLeft size={15} />
+                      大纲<span>{headings.length}</span>
+                      <ChevronDown size={14} />
+                    </button>
                   </h2>
-                  <nav className="outline">
+                  <nav id="right-outline" className="outline" hidden={!rightGroups.outline}>
                     {headings.map((heading, i) => (
                       <button
                         key={`${heading.line}:${i}`}
@@ -1162,56 +1418,74 @@ export default function App() {
                     {!headings.length && <p className="subtle">写下标题，思路便有了轮廓。</p>}
                   </nav>
                 </div>
-                <div className="right-section">
+                <div className={`right-section ${rightGroups.tags ? 'is-open' : ''}`}>
                   <h2>
-                    <Hash size={15} />
-                    标签<span>{tags.length}</span>
-                  </h2>
-                  <div className="note-tags">
-                    {tags.map((tag) => (
-                      <span className="tag" key={tag}>
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                  {active?.path && (
-                    <form
-                      className="tag-editor"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void updateTags();
-                      }}
-                    >
-                      <input
-                        aria-label="编辑顶部标签属性"
-                        placeholder="逗号分隔标签…"
-                        value={tagInput}
-                        onChange={(event) => setTagInput(event.target.value)}
-                      />
-                      <button disabled={Boolean(busy)} type="submit">
-                        更新属性
-                      </button>
-                    </form>
-                  )}
-                </div>
-                <div className="right-section">
-                  <h2>
-                    <Link2 size={15} />
-                    反向引用<span>{backlinks.length}</span>
-                  </h2>
-                  {backlinks.map((note) => (
                     <button
-                      className="backlink-row"
-                      key={note.path}
-                      onClick={() => void open(note.path)}
+                      aria-expanded={rightGroups.tags}
+                      aria-controls="right-tags"
+                      onClick={() => toggleGroup('tags')}
                     >
-                      <FileText size={14} />
-                      <span>{note.title}</span>
+                      <Hash size={15} />
+                      标签<span>{tags.length}</span>
+                      <ChevronDown size={14} />
                     </button>
-                  ))}
-                  {!backlinks.length && (
-                    <p className="subtle">已添加目录中，还没有笔记链接到这里。</p>
-                  )}
+                  </h2>
+                  <div id="right-tags" hidden={!rightGroups.tags}>
+                    <div className="note-tags">
+                      {tags.map((tag) => (
+                        <span className="tag" key={tag}>
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                    {active?.path && (
+                      <form
+                        className="tag-editor"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void updateTags();
+                        }}
+                      >
+                        <input
+                          aria-label="编辑顶部标签属性"
+                          placeholder="逗号分隔标签…"
+                          value={tagInput}
+                          onChange={(event) => setTagInput(event.target.value)}
+                        />
+                        <button disabled={Boolean(busy)} type="submit">
+                          更新属性
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                </div>
+                <div className={`right-section ${rightGroups.backlinks ? 'is-open' : ''}`}>
+                  <h2>
+                    <button
+                      aria-expanded={rightGroups.backlinks}
+                      aria-controls="right-backlinks"
+                      onClick={() => toggleGroup('backlinks')}
+                    >
+                      <Link2 size={15} />
+                      反向引用<span>{backlinks.length}</span>
+                      <ChevronDown size={14} />
+                    </button>
+                  </h2>
+                  <div id="right-backlinks" hidden={!rightGroups.backlinks}>
+                    {backlinks.map((note) => (
+                      <button
+                        className="backlink-row"
+                        key={note.path}
+                        onClick={() => void open(note.path)}
+                      >
+                        <FileText size={14} />
+                        <span>{note.title}</span>
+                      </button>
+                    ))}
+                    {!backlinks.length && (
+                      <p className="subtle">已添加目录中，还没有笔记链接到这里。</p>
+                    )}
+                  </div>
                 </div>
                 <button
                   className="local-graph-button"
@@ -1258,9 +1532,12 @@ export default function App() {
             event.target.value = '';
           }}
         />
-        <div className="toast-region" aria-live="polite">
+        <div className={`toast-region ${toastAtTop ? 'at-top' : ''}`} aria-live="polite">
           {workspace.notices.map((notice) => (
-            <div className={`toast ${notice.error ? 'error' : ''}`} key={notice.id}>
+            <div
+              className={`toast ${notice.error ? 'error' : !notice.action ? 'transient' : ''}`}
+              key={notice.id}
+            >
               <span>{notice.message}</span>
               {notice.action && <button onClick={notice.action.run}>{notice.action.label}</button>}
               <IconButton
@@ -1559,7 +1836,12 @@ export default function App() {
           </Modal>
         )}
         {panel === 'preview' && active && (
-          <Modal title={`阅读预览 · ${active.title}`} onClose={() => setPanel(null)} wide>
+          <Modal
+            title={`阅读预览 · ${active.title}`}
+            onClose={() => setPanel(null)}
+            pending={false}
+            wide
+          >
             <div className="preview-actions">
               <label>
                 <input

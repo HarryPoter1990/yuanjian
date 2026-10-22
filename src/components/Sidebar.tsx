@@ -11,7 +11,7 @@ import {
   Plus,
   Search,
   X,
-} from 'lucide-react';
+} from '../ui/icons';
 import type { FileEntry, NoteMeta, SearchHit, Settings } from '../shared/types';
 import { dateKey, errorText, fileName } from '../ui/model';
 import { Empty, IconButton } from './Controls';

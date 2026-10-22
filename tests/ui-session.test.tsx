@@ -14,6 +14,7 @@ import { asTab } from '../src/ui/model';
 import { useWorkspace } from '../src/ui/useWorkspace';
 import { SettingsPanel } from '../src/components/SettingsPanel';
 import { Sidebar } from '../src/components/Sidebar';
+import { IconButton, Modal, OperationContext } from '../src/components/Controls';
 import App from '../src/App';
 
 const editorCalls = vi.hoisted(() => ({
@@ -706,5 +707,131 @@ describe('desktop session and save lifecycle', () => {
     expect(editorCalls.dispatch).toHaveBeenCalledWith({ selection: { anchor: 3, head: 7 } });
     expect(editorCalls.insert).toHaveBeenCalledWith('[选中文字](sub/目标.md)');
     expect(api.saveFile).not.toHaveBeenCalled();
+  });
+  it('shows Chinese operation tooltips and the configured shortcut on keyboard focus', async () => {
+    await mount();
+    await act(async () =>
+      root.render(
+        <OperationContext.Provider
+          value={{ busy: '', notice: null, shortcuts: { settings: 'Ctrl+Alt+p' } }}
+        >
+          <IconButton label="打开设置">
+            <span>设置</span>
+          </IconButton>
+        </OperationContext.Provider>,
+      ),
+    );
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="打开设置"]');
+    await act(async () => button?.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+      '打开设置 · Ctrl+Alt+p',
+    );
+    await act(async () => button?.blur());
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+  it('protects unsubmitted modal input and restores focus after an explicit discard', async () => {
+    await mount();
+    const trigger = document.createElement('button');
+    trigger.textContent = '原入口';
+    document.body.append(trigger);
+    trigger.focus();
+    const onClose = vi.fn();
+    await act(async () =>
+      root.render(
+        <Modal title="未提交表单" onClose={onClose} pending>
+          <input aria-label="输入" />
+        </Modal>,
+      ),
+    );
+    await act(async () =>
+      host.querySelector('dialog')?.dispatchEvent(new Event('cancel', { cancelable: true })),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('还有未提交的输入');
+    expect(document.activeElement?.textContent).toBe('继续编辑');
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '放弃输入并关闭')
+        ?.click(),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await act(async () => root.render(null));
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+  it('keeps a busy modal open and allows ordinary dismissal once the operation finishes', async () => {
+    await mount();
+    const onClose = vi.fn();
+    await act(async () =>
+      root.render(
+        <Modal title="处理中" onClose={onClose} busy>
+          <p>本地操作</p>
+        </Modal>,
+      ),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="关闭对话框"]')?.click(),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('请等待完成后关闭');
+    await act(async () =>
+      root.render(
+        <Modal title="处理中" onClose={onClose}>
+          <p>本地操作</p>
+        </Modal>,
+      ),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="关闭对话框"]')?.click(),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+  it('preserves sidebar context across manual hiding and remembers right-group expansion', async () => {
+    await mount();
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent === '日历')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="收起左侧导航"]')?.click(),
+    );
+    expect(host.querySelector<HTMLElement>('.left-sidebar')?.hidden).toBe(true);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="显示左侧导航"]')?.click(),
+    );
+    expect(
+      [...host.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent === '日历')
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
+    const group = host.querySelector<HTMLButtonElement>('[aria-controls="right-backlinks"]');
+    expect(group?.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => group?.click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(api.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rightGroups: expect.objectContaining({ backlinks: true }) }),
+    );
+  });
+  it('expires ordinary success notices while retaining failures', async () => {
+    await mount();
+    await act(async () => root.render(<App />));
+    await act(async () => host.querySelector<HTMLButtonElement>('.save-button')?.click());
+    expect(host.querySelector('.toast')?.textContent).toContain('已保存');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3900);
+    });
+    expect(host.querySelector('.toast')).toBeNull();
+    api.saveFile = vi.fn(async () => {
+      throw new Error('磁盘拒绝写入');
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('.save-button')?.click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3900);
+    });
+    expect(host.querySelector('.toast.error')?.textContent).toContain('磁盘拒绝写入');
   });
 });
