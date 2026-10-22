@@ -122,6 +122,14 @@ describe('single-window sticky mode', () => {
     expect(target.setAlwaysOnTop).toHaveBeenLastCalledWith(true);
     expect(changed).toHaveBeenLastCalledWith({ mode: 'sticky', pinned: true });
     expect(failed).toHaveBeenCalledOnce();
+    save.mockRejectedValueOnce(new Error('permission denied'));
+    await expect(controller.setMode('full')).rejects.toThrow('permission denied');
+    expect(controller.getMode()).toEqual({ mode: 'full', pinned: false });
+    expect(changed).toHaveBeenLastCalledWith({ mode: 'full', pinned: false });
+    expect(target.getNormalBounds()).toEqual(full);
+    expect(target.isMaximized()).toBe(true);
+    expect(target.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
+    expect(failed).toHaveBeenCalledTimes(2);
     await controller.persist();
     expect(save.mock.calls.at(-1)![0]).toMatchObject({ bounds: full, maximized: true });
     controller.dispose();

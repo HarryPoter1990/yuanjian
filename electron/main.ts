@@ -71,7 +71,14 @@ let mayClose = false;
 let uiReady = false;
 let persistWindowState: () => Promise<void> = async () => {};
 const pendingOpenPaths: string[] = [];
-function requestOpen(file: string) {
+async function requestOpen(file: string): Promise<void> {
+  if (windowModes?.getMode().mode === 'sticky') {
+    try {
+      await windowModes.setMode('full');
+    } catch {
+      if (windowModes?.getMode().mode !== 'full') return;
+    }
+  }
   if (uiReady) send('notes:open-requested', file);
   else pendingOpenPaths.push(file);
 }
@@ -497,7 +504,7 @@ async function boot() {
   );
   if (initialFile) {
     await store.approveFile(path.resolve(initialFile));
-    requestOpen(path.resolve(initialFile));
+    await requestOpen(path.resolve(initialFile));
   }
 }
 
@@ -510,7 +517,7 @@ else {
       try {
         await windowModes.setMode('full');
       } catch {
-        return;
+        if (windowModes?.getMode().mode !== 'full') return;
       } // The controller reports persistence errors to the existing renderer.
     }
     window?.show();
@@ -518,7 +525,7 @@ else {
     window?.focus();
     if (file && store) {
       await store.approveFile(path.resolve(file));
-      requestOpen(path.resolve(file));
+      await requestOpen(path.resolve(file));
     }
   });
   app
