@@ -164,9 +164,13 @@ export class WindowModeController {
         if (this.target.isMinimized()) {
           this.applying = true;
           try {
-            this.target.setBounds(
-              this.mode === 'sticky' ? this.stickyState().bounds : this.state.bounds,
+            const sticky = this.mode === 'sticky';
+            const bounds = sticky ? this.stickyState().bounds : this.state.bounds;
+            this.target.setMinimumSize(
+              Math.min(sticky ? MIN_STICKY_WIDTH : MIN_WINDOW_WIDTH, bounds.width),
+              Math.min(sticky ? MIN_STICKY_HEIGHT : MIN_WINDOW_HEIGHT, bounds.height),
             );
+            this.target.setBounds(bounds);
           } finally {
             this.applying = false;
           }

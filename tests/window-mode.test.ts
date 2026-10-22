@@ -9,16 +9,23 @@ function setup(initial: WindowState = { bounds: full, maximized: true }) {
   let max = false;
   let min = false;
   let areas = [area];
+  let minimum = { width: 0, height: 0 };
   let controller: WindowModeController;
   const target = {
     isDestroyed: () => false,
     getNormalBounds: () => ({ ...bounds }),
     isMaximized: () => max,
     isMinimized: () => min,
-    setMinimumSize: vi.fn(),
+    setMinimumSize: vi.fn((width: number, height: number) => {
+      minimum = { width, height };
+    }),
     setAlwaysOnTop: vi.fn(),
     setBounds: (value: WindowBounds) => {
-      bounds = { ...value };
+      bounds = {
+        ...value,
+        width: Math.max(value.width, minimum.width),
+        height: Math.max(value.height, minimum.height),
+      };
       controller?.recordGeometry();
     },
     maximize: () => {
@@ -68,6 +75,26 @@ function setup(initial: WindowState = { bounds: full, maximized: true }) {
 }
 
 describe('single-window sticky mode', () => {
+  it.each(['full', 'sticky'] as const)(
+    'lowers %s native minimums when fitting a minimized window onto a smaller display',
+    async (mode) => {
+      const { controller, target, minimize, setDisplays } = setup();
+      if (mode === 'sticky') await controller.setMode('sticky');
+      minimize();
+      const smaller = {
+        x: 0,
+        y: 0,
+        width: mode === 'sticky' ? 240 : 500,
+        height: mode === 'sticky' ? 200 : 400,
+      };
+      setDisplays([smaller]);
+      expect(target.setMinimumSize).toHaveBeenLastCalledWith(smaller.width, smaller.height);
+      expect(target.getNormalBounds()).toEqual(smaller);
+      expect(target.isMinimized()).toBe(true);
+      expect(controller.getMode()).toEqual({ mode, pinned: mode === 'sticky' });
+      controller.dispose();
+    },
+  );
   it('remembers sticky resize and pin choice, but every restart begins full and unpinned', async () => {
     const { controller, target, save, resize } = setup({ bounds: full, maximized: false });
     await controller.setMode('sticky');
