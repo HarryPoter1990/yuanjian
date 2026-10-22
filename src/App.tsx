@@ -881,7 +881,7 @@ export default function App() {
     '--sidebar-opacity': appearance.sidebarOpacity ?? 0.96,
     '--left-width': `${settings.leftWidth}px`,
     '--right-width': `${settings.rightWidth}px`,
-    '--brand-width': panels.left ? 'calc(var(--left-width) + 8px)' : '168px',
+    '--brand-width': panels.left ? 'calc(var(--left-width) + 1px)' : '168px',
   } as CSSProperties;
   const line = active ? active.content.slice(0, active.cursor).split('\n').length : 1;
   const tabStrip = (

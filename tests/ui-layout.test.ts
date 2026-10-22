@@ -3,6 +3,10 @@ import { frameValue, panelWidth, visiblePanels } from '../src/ui/layout';
 
 const preferences = { leftVisible: true, rightVisible: true, leftWidth: 254, rightWidth: 228 };
 describe('responsive desktop layout', () => {
+  it('budgets only the visible 1px divider, not its overlapping grab area', () => {
+    expect(visiblePanels(preferences, 944)).toEqual({ left: true, right: true });
+    expect(visiblePanels(preferences, 943)).toEqual({ left: true, right: false });
+  });
   it('collapses the right panel before the left without changing saved choices', () => {
     expect(visiblePanels(preferences, 1440)).toEqual({ left: true, right: true });
     expect(visiblePanels(preferences, 900)).toEqual({ left: true, right: false });

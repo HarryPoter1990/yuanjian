@@ -165,6 +165,51 @@ try {
   await expect(page.locator('.cm-content')).toContainText('便笺验收');
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => {
+    const wallpaper = document.createElement('div');
+    wallpaper.id = 'divider-fixture-wallpaper';
+    wallpaper.className = 'wallpaper';
+    wallpaper.style.background = 'linear-gradient(125deg, #43d4c9, #ffda9c 50%, #d790a0)';
+    document.querySelector('.app').prepend(wallpaper);
+  });
+  const dividerGeometry = await page.evaluate(() => {
+    const left = document.querySelector('.left-sidebar').getBoundingClientRect();
+    const editor = document.querySelector('.editor-column').getBoundingClientRect();
+    const right = document.querySelector('.right-sidebar').getBoundingClientRect();
+    const dividers = [...document.querySelectorAll('.panel-resizer')];
+    return {
+      gaps: [editor.left - left.right, right.left - editor.right],
+      headerAligned:
+        document.querySelector('.app-brand').getBoundingClientRect().right === editor.left,
+      grabWidths: dividers.map((element) => element.getBoundingClientRect().width),
+      lineWidths: dividers.map((element) => getComputedStyle(element, '::before').width),
+      scrollEdgesUncovered: [left.right - 2, editor.right - 2].every(
+        (x) => !document.elementFromPoint(x, editor.top + 120)?.closest('.panel-resizer'),
+      ),
+      grabAreasReachable: dividers.every((element) => {
+        const rect = element.getBoundingClientRect();
+        return [rect.left + 1, rect.right - 1].every(
+          (x) => document.elementFromPoint(x, rect.top + 120) === element,
+        );
+      }),
+    };
+  });
+  await page.screenshot({ path: path.join(output, 'divider-wallpaper.png') });
+  expect(dividerGeometry.gaps).toEqual([1, 1]);
+  expect(dividerGeometry.headerAligned).toBe(true);
+  expect(dividerGeometry.grabWidths.every((width) => width >= 8)).toBe(true);
+  expect(dividerGeometry.lineWidths).toEqual(['1px', '1px']);
+  expect(dividerGeometry.scrollEdgesUncovered).toBe(true);
+  expect(dividerGeometry.grabAreasReachable).toBe(true);
+  const divider = page.getByRole('separator', { name: '调整左侧栏宽度', exact: true });
+  await divider.hover();
+  expect(
+    await divider.evaluate((element) => ({
+      background: getComputedStyle(element).backgroundColor,
+      lineWidth: getComputedStyle(element, '::before').width,
+    })),
+  ).toEqual({ background: 'rgba(0, 0, 0, 0)', lineWidth: '1px' });
+  await page.evaluate(() => document.getElementById('divider-fixture-wallpaper').remove());
+  await page.evaluate(() => {
     window.__originalEditor = document.querySelector('.cm-editor');
     window.__originalContent = document.querySelector('.cm-content');
   });
@@ -302,6 +347,7 @@ try {
     draftSessionPreserved: true,
     failedModeChangeProtected: true,
     settingsWrites: fixtureState.settingsWrites.length,
+    dividerGeometry,
     modeCalls: fixtureState.modeCalls,
     errors,
   };

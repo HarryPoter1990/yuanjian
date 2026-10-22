@@ -291,7 +291,8 @@ button.danger {
 }
 .panel-resizer:hover,
 .panel-resizer:focus-visible {
-  background: var(--selected);
+  background: transparent;
+  outline: none;
 }
 .sidebar-switch {
   display: flex;
@@ -2006,14 +2007,16 @@ button.danger {
   display: none !important;
 }
 .panel-resizer {
-  width: 8px;
+  /* Keep a 9px grab area in the next pane's padding, but only a 1px layout seam. */
+  width: 9px;
+  margin-inline: 0 -8px;
   border: 0;
   touch-action: none;
 }
 .panel-resizer::before {
   content: '';
   position: absolute;
-  left: 3px;
+  left: 0;
   top: 0;
   bottom: 0;
   width: 1px;
@@ -2023,7 +2026,7 @@ button.danger {
 .panel-resizer:focus-visible::before,
 .is-resizing .panel-resizer::before {
   background: var(--accent);
-  width: 2px;
+  width: 1px;
 }
 .is-resizing,
 .is-resizing * {
