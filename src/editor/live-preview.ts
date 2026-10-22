@@ -20,6 +20,7 @@ export interface MarkdownBlock {
   to: number;
   type: string;
   source: string;
+  headingLevel?: number;
 }
 const parser = createMarkdownParser();
 
@@ -33,7 +34,13 @@ export function markdownBlocks(state: EditorState): MarkdownBlock[] {
       if (!map) throw new Error('Expected mapped token');
       const from = state.doc.line(Math.min(state.doc.lines, map[0] + 1)).from;
       const to = state.doc.line(Math.max(1, Math.min(state.doc.lines, map[1]))).to;
-      return { from, to, type: token.type, source: state.doc.sliceString(from, to) };
+      return {
+        from,
+        to,
+        type: token.type,
+        source: state.doc.sliceString(from, to),
+        headingLevel: token.type === 'heading_open' ? Number(token.tag.slice(1)) : undefined,
+      };
     });
 }
 
@@ -160,6 +167,12 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): Decorati
       );
       const isTable = block.type === 'table_open';
       if (active && !isTable) {
+        if (block.headingLevel)
+          ranges.push(
+            Decoration.line({
+              class: `cm-heading-source cm-heading-source-${block.headingLevel}`,
+            }).range(block.from),
+          );
         if (block.type === 'fence')
           for (
             let line = state.doc.lineAt(block.from).number;

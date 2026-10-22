@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, createRef } from 'react';
+import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
@@ -55,6 +56,36 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it('keeps live heading typography while revealing editable markers and restores plain source typography', async () => {
+    const source = '# 一级标题\n\n## 二级标题\n\n正文';
+    const style = document.createElement('style');
+    style.textContent = readFileSync('src/editor/editor.css', 'utf8');
+    document.head.append(style);
+    try {
+      const { props, onChange } = await mount({ value: source });
+      const activeHeading = host.querySelector('.cm-line.cm-heading-source-1');
+      const renderedHeading = host.querySelector('h2');
+      const renderedSize = renderedHeading && getComputedStyle(renderedHeading).fontSize;
+      expect(activeHeading?.textContent).toBe('# 一级标题');
+      expect(activeHeading && getComputedStyle(activeHeading).fontSize).toBe('2em');
+      expect(activeHeading && getComputedStyle(activeHeading).fontWeight).toBe('650');
+      expect(activeHeading && getComputedStyle(activeHeading).lineHeight).toBe('1.45');
+      await act(async () => editor().dispatch({ selection: { anchor: source.indexOf('二级') } }));
+      const nextHeading = host.querySelector('.cm-line.cm-heading-source-2');
+      expect(nextHeading?.textContent).toBe('## 二级标题');
+      expect(nextHeading && getComputedStyle(nextHeading).fontSize).toBe(renderedSize);
+      expect(editor().state.doc.toString()).toBe(source);
+      expect(onChange).not.toHaveBeenCalled();
+      await act(async () =>
+        root.render(<MarkdownEditor {...props} mode="source" ref={reference} />),
+      );
+      expect(host.querySelector('[class*="cm-heading-source"]')).toBeNull();
+      expect(host.querySelectorAll('.cm-line')[0]?.textContent).toBe('# 一级标题');
+      expect(editor().state.doc.toString()).toBe(source);
+    } finally {
+      style.remove();
+    }
+  });
   it('copies exact code whitespace while keeping the Fluent copy affordance intact', async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });

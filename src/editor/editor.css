@@ -175,23 +175,43 @@
 .markdown-rendered h3,
 .markdown-rendered h4,
 .markdown-rendered h5,
-.markdown-rendered h6 {
+.markdown-rendered h6,
+.markdown-editor.is-live .cm-heading-source {
   font-family: var(--heading-font, inherit);
   font-weight: 650;
   line-height: 1.45;
   margin: 1em 0 0.45em;
   color: inherit;
 }
-.markdown-rendered h1 {
+.markdown-editor.is-live .cm-heading-source {
+  margin: 0;
+  padding-block: 2px;
+}
+.markdown-rendered h1,
+.markdown-editor.is-live .cm-heading-source-1 {
   font-size: 2em;
   letter-spacing: -0.04em;
 }
-.markdown-rendered h2 {
+.markdown-rendered h2,
+.markdown-editor.is-live .cm-heading-source-2 {
   font-size: 1.5em;
   letter-spacing: -0.025em;
 }
-.markdown-rendered h3 {
+.markdown-rendered h3,
+.markdown-editor.is-live .cm-heading-source-3 {
   font-size: 1.25em;
+}
+.markdown-rendered h4,
+.markdown-editor.is-live .cm-heading-source-4 {
+  font-size: 1em;
+}
+.markdown-rendered h5,
+.markdown-editor.is-live .cm-heading-source-5 {
+  font-size: 0.83em;
+}
+.markdown-rendered h6,
+.markdown-editor.is-live .cm-heading-source-6 {
+  font-size: 0.67em;
 }
 .markdown-rendered a {
   color: var(--accent, #3b756b);
