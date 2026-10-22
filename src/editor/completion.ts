@@ -121,15 +121,24 @@ export function mathCompletion(snippets: Snippet[]): Extension {
   });
 }
 
-export function activeMath(state: EditorState): string | null {
+export interface MathRange {
+  source: string;
+  from: number;
+  to: number;
+}
+
+export function activeMathRange(state: EditorState): MathRange | null {
   const position = state.selection.main.head;
   if (inCode(state, position)) return null;
   const text = state.doc.toString();
-  const blockStart = text.lastIndexOf('$$', position);
-  if (blockStart >= 0) {
-    const before = text.slice(0, blockStart).match(/(?<!\\)\$\$/g) ?? [];
-    const end = text.indexOf('$$', blockStart + 2);
-    if (before.length % 2 === 0 && end >= position) return text.slice(blockStart + 2, end);
+  const delimiters = Array.from(text.matchAll(/(?<!\\)\$\$/g)).filter(
+    (match) => !inCode(state, match.index),
+  );
+  for (let index = 0; index + 1 < delimiters.length; index += 2) {
+    const from = delimiters[index].index;
+    const end = delimiters[index + 1].index;
+    if (position >= from && position <= end + 2)
+      return { source: text.slice(from + 2, end), from, to: end + 2 };
   }
   const line = state.doc.lineAt(position);
   const offset = position - line.from;
@@ -139,7 +148,15 @@ export function activeMath(state: EditorState): string | null {
       offset >= match.index &&
       offset <= match.index + match[0].length
     )
-      return match[1];
+      return {
+        source: match[1],
+        from: line.from + match.index,
+        to: line.from + match.index + match[0].length,
+      };
   }
   return null;
+}
+
+export function activeMath(state: EditorState): string | null {
+  return activeMathRange(state)?.source ?? null;
 }

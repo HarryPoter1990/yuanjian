@@ -49,8 +49,7 @@ import {
   searchKeymap,
 } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
-import { activeMath, inCode, inMath, mathCompletion } from './completion';
-import { mathHtml } from './renderer';
+import { inCode, inMath, mathCompletion } from './completion';
 import { richTextToMarkdown } from './clipboard';
 import type { EditorCommand, MarkdownEditorHandle, MarkdownEditorProps } from './types';
 import 'katex/dist/katex.min.css';
@@ -89,7 +88,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     propsRef.current = props;
     const config = useRef(new Compartment());
     const features = useRef(new Compartment());
-    const [formula, setFormula] = useState<string | null>(null);
     const [error, setError] = useState('');
     const pendingImages = useRef<Array<{ from: number; to: number }>>([]);
     const report = (message: string): void => {
@@ -135,7 +133,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         mathCompletion(current.settings.snippets),
         EditorView.theme({
           '&': {
-            fontSize: `${current.mode === 'source' ? current.settings.appearance.codeFontSize ?? 16 : current.settings.appearance.fontSize}px`,
+            fontSize: `${current.mode === 'source' ? (current.settings.appearance.codeFontSize ?? 16) : current.settings.appearance.fontSize}px`,
             '--code-font-size': `${current.settings.appearance.codeFontSize ?? 16}px`,
             '--code-line-height': String(current.settings.appearance.codeLineHeight ?? 1.6),
           },
@@ -144,7 +142,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               current.mode === 'source'
                 ? current.settings.appearance.codeFont
                 : current.settings.appearance.bodyFont,
-            lineHeight: String(current.mode === 'source' ? current.settings.appearance.codeLineHeight ?? 1.6 : current.settings.appearance.lineHeight),
+            lineHeight: String(
+              current.mode === 'source'
+                ? (current.settings.appearance.codeLineHeight ?? 1.6)
+                : current.settings.appearance.lineHeight,
+            ),
             maxWidth: `calc(${current.settings.appearance.contentWidth}px + 56px)`,
           },
           '.cm-gutters': { fontFamily: current.settings.appearance.codeFont },
@@ -335,7 +337,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               if (update.docChanged) propsRef.current.onChange(update.state.doc.toString());
               if (update.selectionSet || update.docChanged) {
                 propsRef.current.onCursor?.(update.state.selection.main.head);
-                setFormula(activeMath(update.state));
               }
             }),
             EditorView.domEventHandlers({
@@ -394,7 +395,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       });
       viewRef.current = view;
       view.scrollDOM.scrollTop = propsRef.current.initialScroll ?? 0;
-      setFormula(activeMath(view.state));
       return () => {
         viewRef.current = null;
         pendingImages.current = [];
@@ -415,26 +415,37 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     useEffect(() => {
       viewRef.current?.dispatch({ effects: config.current.reconfigure(configuration()) });
-    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, props.notePath,
-      props.settings.appearance.codeFontSize, props.settings.appearance.codeLineHeight]);
+    }, [
+      props.mode,
+      props.settings.codeLineNumbers,
+      props.settings.codeWrap,
+      props.settings.codeFold,
+      props.notePath,
+      props.settings.appearance.codeFontSize,
+      props.settings.appearance.codeLineHeight,
+    ]);
 
     const snippetKey = JSON.stringify(props.settings.snippets);
     useEffect(() => {
       viewRef.current?.dispatch({ effects: features.current.reconfigure(featureExtensions()) });
-    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, snippetKey,
-      props.settings.appearance.fontSize, props.settings.appearance.lineHeight, props.settings.appearance.contentWidth,
-      props.settings.appearance.bodyFont, props.settings.appearance.codeFont,
-      props.settings.appearance.codeFontSize, props.settings.appearance.codeLineHeight]);
+    }, [
+      props.mode,
+      props.settings.codeLineNumbers,
+      props.settings.codeWrap,
+      props.settings.codeFold,
+      snippetKey,
+      props.settings.appearance.fontSize,
+      props.settings.appearance.lineHeight,
+      props.settings.appearance.contentWidth,
+      props.settings.appearance.bodyFont,
+      props.settings.appearance.codeFont,
+      props.settings.appearance.codeFontSize,
+      props.settings.appearance.codeLineHeight,
+    ]);
 
     return (
       <div className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}>
         <div className="editor-codemirror-host" ref={host} />
-        {formula !== null && (
-          <aside className="math-preview" aria-label="公式即时预览">
-            <span>公式预览 · Ctrl+Space 补全 · Tab 参数</span>
-            <div dangerouslySetInnerHTML={{ __html: mathHtml(formula, true) }} />
-          </aside>
-        )}
         {error && (
           <div role="alert" className="editor-error">
             <span>{error}</span>

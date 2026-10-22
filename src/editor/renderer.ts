@@ -5,6 +5,7 @@ import hljs from 'highlight.js';
 import type { RenderOptions } from './types';
 import { headingId } from '../shared/markdown';
 import { withoutFrontmatter } from './frontmatter';
+import { iconMarkup } from '../ui/icon-markup';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -117,6 +118,8 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
   md.renderer.rules.inline_math = (tokens, index) => mathHtml(tokens[index].content);
   md.renderer.rules.block_math = (tokens, index) =>
     `<div class="math-block">${mathHtml(tokens[index].content, true)}</div>\n`;
+  md.renderer.rules.table_open = () => '<div class="markdown-table-scroll"><table>\n';
+  md.renderer.rules.table_close = () => '</table></div>\n';
   md.renderer.rules.fence = (tokens, index) => {
     const token = tokens[index];
     const language = token.info.trim().split(/\s+/)[0].toLowerCase();
@@ -152,9 +155,17 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       /* Unknown or incomplete code stays readable. */
     }
     const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}">${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
-    const label = `<span class="code-language-label">${escapeHtml(language || `自动 · ${detected || 'text'}`)}</span><button type="button" class="code-copy" data-code="${encodeURIComponent(token.content)}">复制代码</button>`;
-    const fontSize = Number.isFinite(options.codeFontSize) ? Math.min(72, Math.max(8, options.codeFontSize ?? 16)) : 16;
-    const lineHeight = Number.isFinite(options.codeLineHeight) ? Math.min(4, Math.max(1, options.codeLineHeight ?? 1.6)) : 1.6;
+    const fold =
+      options.codeFold === false
+        ? ''
+        : `<span class="code-fold-icon">${iconMarkup('ChevronDown', 14)}</span>`;
+    const label = `${fold}<span class="code-language-label">${escapeHtml(language || `自动 · ${detected || 'text'}`)}</span><button type="button" class="code-copy" title="复制代码" data-code="${encodeURIComponent(token.content)}">${iconMarkup('Copy', 14)}<span class="code-copy-label">复制代码</span></button>`;
+    const fontSize = Number.isFinite(options.codeFontSize)
+      ? Math.min(72, Math.max(8, options.codeFontSize ?? 16))
+      : 16;
+    const lineHeight = Number.isFinite(options.codeLineHeight)
+      ? Math.min(4, Math.max(1, options.codeLineHeight ?? 1.6))
+      : 1.6;
     const style = `--code-font-size:${fontSize}px;--code-line-height:${lineHeight}`;
     return options.codeFold === false
       ? `<div class="code-container" style="${style}"><div class="code-caption">${label}</div>${body}</div>`
@@ -276,12 +287,13 @@ export async function hydrateMarkdown(
       event.stopPropagation();
       try {
         await navigator.clipboard.writeText(decodeURIComponent(button.dataset.code ?? ''));
-        button.textContent = '已复制';
+        const label = button.querySelector('.code-copy-label') ?? button;
+        label.textContent = '已复制';
         setTimeout(() => {
-          button.textContent = '复制代码';
+          label.textContent = '复制代码';
         }, 1200);
       } catch {
-        button.textContent = '复制失败';
+        (button.querySelector('.code-copy-label') ?? button).textContent = '复制失败';
       }
     });
   }

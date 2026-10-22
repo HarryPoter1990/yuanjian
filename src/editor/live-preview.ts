@@ -3,6 +3,8 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { createMarkdownParser, hydrateMarkdown, renderMarkdown } from './renderer';
 import { TableWidget } from './table-widget';
 import type { RenderOptions } from './types';
+import { activeMathRange } from './completion';
+import { MathPreviewWidget } from './math-preview';
 
 export interface PreviewConfig extends RenderOptions {
   mode: 'live' | 'source';
@@ -149,30 +151,46 @@ class PreviewWidget extends WidgetType {
 
 function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): DecorationSet {
   const config = state.facet(previewConfig);
-  if (config.mode === 'source') return Decoration.none;
   const ranges: Range<Decoration>[] = [];
-  for (const block of blocks) {
-    if (block.from >= block.to) continue;
-    const active = state.selection.ranges.some(
-      (selection) => selection.from <= block.to && selection.to >= block.from,
-    );
-    const isTable = block.type === 'table_open';
-    if (active && !isTable) {
-      if (block.type === 'fence') for (let line = state.doc.lineAt(block.from).number; line <= state.doc.lineAt(block.to).number; line++) {
-        ranges.push(Decoration.line({ class: 'cm-code-source' }).range(state.doc.line(line).from));
+  if (config.mode === 'live')
+    for (const block of blocks) {
+      if (block.from >= block.to) continue;
+      const active = state.selection.ranges.some(
+        (selection) => selection.from <= block.to && selection.to >= block.from,
+      );
+      const isTable = block.type === 'table_open';
+      if (active && !isTable) {
+        if (block.type === 'fence')
+          for (
+            let line = state.doc.lineAt(block.from).number;
+            line <= state.doc.lineAt(block.to).number;
+            line++
+          ) {
+            ranges.push(
+              Decoration.line({ class: 'cm-code-source' }).range(state.doc.line(line).from),
+            );
+          }
+        continue;
       }
-      continue;
+      // Block replacements include their edges so CodeMirror does not add empty text lines on both sides.
+      ranges.push(
+        Decoration.replace({
+          block: true,
+          widget: isTable
+            ? new TableWidget(block.source, block.from, block.to)
+            : new PreviewWidget(block, config),
+        }).range(block.from, block.to),
+      );
     }
-    // Block replacements include their edges so CodeMirror does not add empty text lines on both sides.
+  const formula = activeMathRange(state);
+  if (formula)
     ranges.push(
-      Decoration.replace({
+      Decoration.widget({
         block: true,
-        widget: isTable
-          ? new TableWidget(block.source, block.from, block.to)
-          : new PreviewWidget(block, config),
-      }).range(block.from, block.to),
+        side: 1,
+        widget: new MathPreviewWidget(formula.source),
+      }).range(state.doc.lineAt(formula.to).to),
     );
-  }
   return Decoration.set(ranges, true);
 }
 

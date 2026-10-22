@@ -30,14 +30,25 @@ export class TableWidget extends WidgetType {
     let rowIndex = 0;
     let columnIndex = 0;
     const commit = (): void => {
+      const keepFocus = container.contains(document.activeElement);
       const from = Number(container.dataset.tableFrom);
       const to = Number(container.dataset.tableTo);
       if (view.state.doc.sliceString(from, to) !== this.source) return;
       const insert = serializeTable(table);
       view.dispatch({ changes: { from, to, insert }, userEvent: 'input.table' });
+      if (keepFocus)
+        queueMicrotask(() =>
+          view.dom
+            .querySelector<HTMLInputElement>(
+              `[data-table-from="${from}"] input[data-row="${Math.min(rowIndex, table.rows.length - 1)}"][data-column="${Math.min(columnIndex, table.alignments.length - 1)}"]`,
+            )
+            ?.focus({ preventScroll: true }),
+        );
     };
     const toolbar = document.createElement('div');
     toolbar.className = 'table-toolbar';
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute('aria-label', '当前表格行列与对齐');
     const action = (label: string, run: () => void): void => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -82,11 +93,11 @@ export class TableWidget extends WidgetType {
         table.alignments[columnIndex] = alignment;
         commit();
       });
-    const hint = document.createElement('small');
-    hint.textContent = '选择单元格后操作行列 · 离开单元格保存 · 源码模式可编辑标记';
-    toolbar.append(hint);
     container.append(toolbar);
+    const scroll = document.createElement('div');
+    scroll.className = 'table-scroll';
     const grid = document.createElement('table');
+    grid.style.minWidth = `${table.alignments.length * 128}px`;
     table.rows.forEach((row, rowNumber) => {
       const tr = document.createElement('tr');
       row.forEach((value, columnNumber) => {
@@ -139,7 +150,8 @@ export class TableWidget extends WidgetType {
       });
       grid.append(tr);
     });
-    container.append(grid);
+    scroll.append(grid);
+    container.append(scroll);
     return container;
   }
   ignoreEvent(): boolean {

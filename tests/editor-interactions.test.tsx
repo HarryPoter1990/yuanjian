@@ -55,25 +55,110 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it('copies exact code whitespace while keeping the Fluent copy affordance intact', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await mount({ value: '# 代码\n\n```text\n  保留缩进\n\n```' });
+    const button = host.querySelector<HTMLButtonElement>('.code-copy');
+    await act(async () => button?.click());
+    expect(writeText).toHaveBeenCalledWith('  保留缩进\n\n');
+    expect(button?.querySelector('svg')).not.toBeNull();
+    expect(button?.textContent).toBe('已复制');
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+  it('keeps table tools available during edits and returns focus inside the edited grid', async () => {
+    const source = '# 表格\n\n| A | B |\n| --- | --- |\n| 一 | 二 |';
+    await mount({ value: source });
+    const cell = host.querySelector<HTMLInputElement>('[aria-label="表格第 2 行第 2 列"]');
+    await act(async () => cell?.focus());
+    const addColumn = Array.from(
+      host.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button'),
+    ).find((button) => button.textContent === '+ 列');
+    await act(async () => addColumn?.click());
+    expect(document.activeElement?.closest('.markdown-table-widget')).not.toBeNull();
+    expect(host.querySelector('[aria-label="表格第 2 行第 3 列"]')).not.toBeNull();
+    expect(editor().state.doc.toString()).toBe(
+      '# 表格\n\n| A | B |  |\n| --- | --- | --- |\n| 一 | 二 |  |',
+    );
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    await act(async () => outside.focus());
+    expect(document.activeElement).toBe(outside);
+    expect(
+      host
+        .querySelector('.table-toolbar')
+        ?.parentElement?.classList.contains('markdown-table-widget'),
+    ).toBe(true);
+    outside.remove();
+  });
+
+  it('places formula preview inside CodeMirror below its source and reports local syntax errors', async () => {
+    const source = '# 数学\n\n$$\n\\frac{a}{b}\n$$\n\n后面的段落';
+    const { props } = await mount({
+      value: source,
+      mode: 'source',
+      initialCursor: source.indexOf('a}'),
+    });
+    const preview = host.querySelector('.math-preview');
+    expect(preview?.parentElement?.classList.contains('cm-content')).toBe(true);
+    expect(preview?.previousElementSibling?.textContent).toContain('$$');
+    expect(preview?.nextElementSibling?.textContent).not.toContain('\\frac');
+    expect(editor().state.doc.toString()).toBe(source);
+    const position = editor().state.selection.main.head;
+    await act(async () => root.render(<MarkdownEditor {...props} mode="live" ref={reference} />));
+    expect(editor().state.selection.main.head).toBe(position);
+    expect(host.querySelector('.math-preview .katex')).not.toBeNull();
+    await act(async () =>
+      editor().dispatch({ selection: { anchor: source.indexOf('后面的段落') } }),
+    );
+    expect(host.querySelector('.math-preview')).toBeNull();
+    const invalid = '$\\frac{$';
+    await act(async () =>
+      root.render(<MarkdownEditor {...props} value={invalid} mode="source" ref={reference} />),
+    );
+    await act(async () => editor().dispatch({ selection: { anchor: 4 } }));
+    expect(host.querySelector('.math-preview-error')?.textContent).toContain('KaTeX parse error');
+    expect(editor().state.doc.toString()).toBe(invalid);
+  });
   it('keeps language, copy and folding in the same code header and preserves source on presentation changes', async () => {
     const source = '# 标题\n\n```javascript\nconst message = "中文";\n```';
     const settings = structuredClone(defaultSettings);
     settings.appearance.codeFontSize = 20;
     settings.appearance.codeLineHeight = 1.8;
     const { props } = await mount({ value: source, settings });
-    const language = host.querySelector<HTMLInputElement>('.code-caption input[aria-label="代码语言"]');
+    const language = host.querySelector<HTMLInputElement>(
+      '.code-caption input[aria-label="代码语言"]',
+    );
     expect(language?.value).toBe('javascript');
     expect(host.querySelector('.code-caption .code-copy')).not.toBeNull();
-    expect(host.querySelector<HTMLElement>('.code-container')?.style.getPropertyValue('--code-font-size')).toBe('20px');
+    expect(
+      host
+        .querySelector<HTMLElement>('.code-container')
+        ?.style.getPropertyValue('--code-font-size'),
+    ).toBe('20px');
     const summary = host.querySelector<HTMLElement>('summary.code-caption');
     await act(async () => summary?.click());
     expect(host.querySelector('details')?.open).toBe(false);
     expect(editor().state.doc.toString()).toBe(source);
     await act(async () => summary?.click());
-    await act(async () => { if (language) { language.value = 'typescript'; language.dispatchEvent(new Event('change', { bubbles: true })); } });
+    await act(async () => {
+      if (language) {
+        language.value = 'typescript';
+        language.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
     expect(editor().state.doc.toString()).toBe(source.replace('```javascript', '```typescript'));
     const latest = editor().state.doc.toString();
-    await act(async () => root.render(<MarkdownEditor {...props} value={latest} settings={{ ...settings, codeFold: false }} ref={reference} />));
+    await act(async () =>
+      root.render(
+        <MarkdownEditor
+          {...props}
+          value={latest}
+          settings={{ ...settings, codeFold: false }}
+          ref={reference}
+        />,
+      ),
+    );
     expect(host.querySelector('details')).toBeNull();
     expect(host.querySelector('.code-caption input[aria-label="代码语言"]')).not.toBeNull();
     expect(editor().state.doc.toString()).toBe(latest);
@@ -87,16 +172,28 @@ describe('mounted CodeMirror editor', () => {
       const settings = structuredClone(defaultSettings);
       settings.leftWidth = 200 + index;
       settings.rightWidth = 300 - index;
-      await act(async () => root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />));
+      await act(async () =>
+        root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />),
+      );
     }
-    expect(update.mock.calls.flatMap(([transactions]) => transactions).filter(transaction => transaction.reconfigured)).toHaveLength(0);
+    expect(
+      update.mock.calls
+        .flatMap(([transactions]) => transactions)
+        .filter((transaction) => transaction.reconfigured),
+    ).toHaveLength(0);
     expect(host.querySelector('.markdown-preview-block')).toBe(preview);
     expect(editor()).toBe(view);
     expect(editor().state.doc.toString()).toBe(props.value);
     const settings = structuredClone(defaultSettings);
     settings.codeWrap = !settings.codeWrap;
-    await act(async () => root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />));
-    expect(update.mock.calls.flatMap(([transactions]) => transactions).some(transaction => transaction.reconfigured)).toBe(true);
+    await act(async () =>
+      root.render(<MarkdownEditor {...props} settings={settings} ref={reference} />),
+    );
+    expect(
+      update.mock.calls
+        .flatMap(([transactions]) => transactions)
+        .some((transaction) => transaction.reconfigured),
+    ).toBe(true);
   });
   it('reveals a clicked paragraph, edits Chinese source and supports undo and mode switches', async () => {
     const { props, onChange } = await mount();
