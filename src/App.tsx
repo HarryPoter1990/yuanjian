@@ -13,6 +13,7 @@ import {
   FileText,
   FolderOpen,
   Hash,
+  Heading1,
   ImagePlus,
   Italic,
   Link2,
@@ -78,7 +79,7 @@ type Panel =
   | 'link'
   | null;
 const buttons: { id: EditorCommand | 'image'; title: string; icon: typeof Bold }[] = [
-  { id: 'heading', title: '标题', icon: Hash },
+  { id: 'heading', title: '标题', icon: Heading1 },
   { id: 'bold', title: '粗体', icon: Bold },
   { id: 'italic', title: '斜体', icon: Italic },
   { id: 'list', title: '列表', icon: List },

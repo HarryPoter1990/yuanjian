@@ -86,3 +86,4 @@ export const X = icon('X');
 export const ZoomIn = icon('ZoomIn');
 export const ZoomOut = icon('ZoomOut');
 export const Copy = icon('Copy');
+export const Heading1 = icon('Heading1');
