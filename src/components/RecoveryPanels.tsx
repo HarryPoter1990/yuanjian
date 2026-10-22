@@ -53,7 +53,7 @@ export function HistoryPanel({
     }
   }
   return (
-    <Modal title={`版本历史 · ${tab.title}`} onClose={onClose} wide>
+    <Modal title={`版本历史 · ${tab.title}`} onClose={onClose} busy={busy} wide>
       <div className="history-layout">
         <nav className="history-list" aria-label="历史版本">
           {entries.map((entry) => (
@@ -177,7 +177,7 @@ export function AttachmentPanel({
     .filter((item) => selected.has(item.path))
     .reduce((sum, item) => sum + item.bytes, 0);
   return (
-    <Modal title="检查疑似未引用附件" onClose={onClose} wide>
+    <Modal title="检查疑似未引用附件" onClose={onClose} busy={busy} wide>
       <div className="panel-content">
         <p className="section-description">
           仅扫描已添加目录内的附件及引用，不代表整个磁盘。请核对路径后勾选；笔记正文不会被删除。

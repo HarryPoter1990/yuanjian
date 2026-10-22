@@ -202,12 +202,12 @@ export function Modal({
   const [discard, setDiscard] = useState(false);
   const [closeMessage, setCloseMessage] = useState('');
   const continueButton = useRef<HTMLButtonElement>(null);
-  const requestClose = () => {
+  const requestClose = (discardInput = false) => {
     if (busy || operation.busy) {
       setCloseMessage('当前操作仍在进行，请等待完成后关闭。');
       return;
     }
-    if (pending ?? changed) {
+    if (!discardInput && (pending ?? changed)) {
       setDiscard(true);
       return;
     }
@@ -254,7 +254,7 @@ export function Modal({
     >
       <header className="modal-header">
         <h2 id={titleId}>{title}</h2>
-        <IconButton label="关闭对话框" onClick={requestClose}>
+        <IconButton label="关闭对话框" onClick={() => requestClose()}>
           <X size={18} />
         </IconButton>
       </header>
@@ -265,7 +265,7 @@ export function Modal({
           <button ref={continueButton} onClick={() => setDiscard(false)}>
             继续编辑
           </button>
-          <button className="danger-text" onClick={onClose}>
+          <button className="danger-text" onClick={() => requestClose(true)}>
             放弃输入并关闭
           </button>
         </div>
