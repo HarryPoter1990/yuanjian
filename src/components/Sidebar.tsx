@@ -191,7 +191,7 @@ export function Sidebar({
               <input
                 autoFocus
                 aria-label="跨文件搜索"
-                placeholder="搜索已添加目录…"
+                placeholder="搜索笔记"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
