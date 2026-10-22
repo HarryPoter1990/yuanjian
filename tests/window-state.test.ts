@@ -5,6 +5,7 @@ import os from 'node:os';
 import {
   applyWindowTheme,
   captureWindowState,
+  restoreWindowBounds,
   restoreWindowState,
   WindowStateStore,
 } from '../electron/window-state';
@@ -19,6 +20,56 @@ afterEach(async () => {
 });
 
 describe('native window state', () => {
+  it('corrects measured native DPI offsets without feeding them into later launches', () => {
+    const saved = { x: 134, y: 40, width: 1121, height: 761 };
+    for (let launch = 0; launch < 3; launch++) {
+      let actual = { ...saved, width: saved.width + 4, height: saved.height + 2 };
+      const target = {
+        getNormalBounds: () => ({ ...actual }),
+        setBounds: (requested: typeof saved) => {
+          actual = { ...requested, width: requested.width + 1, height: requested.height + 1 };
+        },
+      };
+      expect(restoreWindowBounds(target, saved)).toEqual(saved);
+      expect(actual).toEqual(saved);
+    }
+  });
+  it('preserves the chosen rectangle on state transitions and records a later normal resize', () => {
+    const chosen = { x: 134, y: 40, width: 1121, height: 761 };
+    const target = {
+      getNormalBounds: () => ({ ...chosen, width: 1125, height: 763 }),
+      isMaximized: () => true,
+      isMinimized: () => false,
+    };
+    const maximized = captureWindowState(target, { bounds: chosen, maximized: false }, false);
+    expect(maximized).toEqual({ bounds: chosen, maximized: true });
+    expect(captureWindowState({ ...target, isMinimized: () => true }, maximized, false)).toEqual(
+      maximized,
+    );
+    expect(
+      captureWindowState(
+        {
+          ...target,
+          isMaximized: () => false,
+          getNormalBounds: () => ({ ...chosen, width: 1300 }),
+        },
+        { bounds: chosen, maximized: false },
+        true,
+      ),
+    ).toEqual({ bounds: { ...chosen, width: 1300 }, maximized: false });
+  });
+  it('bounds calibration stops if the native platform cannot represent the requested rectangle', () => {
+    const desired = { x: 30, y: 40, width: 600, height: 480 };
+    const setBounds = vi.fn();
+    expect(
+      restoreWindowBounds(
+        { getNormalBounds: () => ({ ...desired, width: 601 }), setBounds },
+        desired,
+      ),
+    ).toEqual({ ...desired, width: 601 });
+    expect(setBounds).toHaveBeenCalledTimes(4);
+    expect(desired).toEqual({ x: 30, y: 40, width: 600, height: 480 });
+  });
   it('keeps a valid normal rectangle on a monitor to the left of the primary display', () => {
     const saved = { bounds: { x: -1800, y: 30, width: 1200, height: 800 }, maximized: false };
     expect(restoreWindowState(saved, [workArea, { ...workArea, x: -1920 }])).toEqual(saved);

@@ -92,13 +92,37 @@ export function restoreWindowState(raw: unknown, workAreas: readonly WindowBound
 export function captureWindowState(
   target: { getNormalBounds(): WindowBounds; isMaximized(): boolean; isMinimized(): boolean },
   previous?: WindowState,
+  captureBounds = true,
 ): WindowState {
   return {
-    bounds: { ...target.getNormalBounds() },
+    bounds: { ...(captureBounds || !previous ? target.getNormalBounds() : previous.bounds) },
     maximized: target.isMinimized()
       ? (previous?.maximized ?? target.isMaximized())
       : target.isMaximized(),
   };
+}
+
+export function restoreWindowBounds(
+  target: { getNormalBounds(): WindowBounds; setBounds(bounds: WindowBounds): void },
+  desired: WindowBounds,
+): WindowBounds {
+  // Electron's Windows fractional-DPI conversions are not inverse operations (#51572).
+  let requested = { ...desired };
+  let actual = target.getNormalBounds();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (Object.keys(desired).every((key) => Reflect.get(actual, key) === Reflect.get(desired, key)))
+      break;
+    requested = {
+      x: requested.x + desired.x - actual.x,
+      y: requested.y + desired.y - actual.y,
+      width: requested.width + desired.width - actual.width,
+      height: requested.height + desired.height - actual.height,
+    };
+    if (requested.width <= 0 || requested.height <= 0) break;
+    target.setBounds(requested);
+    actual = target.getNormalBounds();
+  }
+  return { ...actual };
 }
 
 export class WindowStateStore {

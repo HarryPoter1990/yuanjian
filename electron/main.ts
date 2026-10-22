@@ -27,6 +27,7 @@ import {
   captureWindowState,
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
+  restoreWindowBounds,
   restoreWindowState,
   TITLE_BAR_HEIGHT,
   WindowStateStore,
@@ -420,7 +421,7 @@ async function boot() {
     minimizable: true,
     closable: true,
     title: '鸢笺 · Yuanjian',
-    icon: path.join(buildDirectory, 'yuanjian.png'),
+    icon: path.join(buildDirectory, 'app-icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -432,6 +433,7 @@ async function boot() {
   });
   window = mainWindow;
   applyWindowTheme(mainWindow, initialTheme);
+  let restoringWindowBounds = true;
   let windowStateTimer: ReturnType<typeof setTimeout> | undefined;
   const reportWindowStateFailure = (error: unknown) =>
     progress({
@@ -443,26 +445,30 @@ async function boot() {
   persistWindowState = async () => {
     clearTimeout(windowStateTimer);
     if (!mainWindow.isDestroyed())
-      lastWindowState = captureWindowState(mainWindow, lastWindowState);
+      lastWindowState = captureWindowState(mainWindow, lastWindowState, false);
     await windowStateStore.save(lastWindowState);
   };
-  const recordWindowChange = () => {
-    if (mainWindow.isDestroyed()) return;
-    lastWindowState = captureWindowState(mainWindow, lastWindowState);
+  const recordWindowChange = (captureBounds = false) => {
+    if (mainWindow.isDestroyed() || restoringWindowBounds) return;
+    lastWindowState = captureWindowState(mainWindow, lastWindowState, captureBounds);
     clearTimeout(windowStateTimer);
     windowStateTimer = setTimeout(() => {
       void windowStateStore.save(lastWindowState).catch(reportWindowStateFailure);
     }, 250);
   };
-  mainWindow.on('move', recordWindowChange);
-  mainWindow.on('resize', recordWindowChange);
-  mainWindow.on('maximize', recordWindowChange);
-  mainWindow.on('unmaximize', recordWindowChange);
-  mainWindow.on('minimize', recordWindowChange);
-  mainWindow.on('restore', recordWindowChange);
+  const recordGeometryChange = () =>
+    recordWindowChange(
+      !lastWindowState.maximized && !mainWindow.isMaximized() && !mainWindow.isMinimized(),
+    );
+  mainWindow.on('move', recordGeometryChange);
+  mainWindow.on('resize', recordGeometryChange);
+  mainWindow.on('maximize', () => recordWindowChange());
+  mainWindow.on('unmaximize', () => recordWindowChange());
+  mainWindow.on('minimize', () => recordWindowChange());
+  mainWindow.on('restore', () => recordWindowChange());
   const fitCurrentDisplays = () => {
     if (mainWindow.isDestroyed()) return;
-    const current = captureWindowState(mainWindow, lastWindowState);
+    const current = captureWindowState(mainWindow, lastWindowState, false);
     const fitted = restoreWindowState(current, workAreas());
     const minimized = mainWindow.isMinimized();
     if (
@@ -470,13 +476,17 @@ async function boot() {
         (key) => Reflect.get(fitted.bounds, key) !== Reflect.get(current.bounds, key),
       )
     ) {
+      restoringWindowBounds = true;
       if (current.maximized && !minimized) mainWindow.unmaximize();
       mainWindow.setMinimumSize(
         Math.min(MIN_WINDOW_WIDTH, fitted.bounds.width),
         Math.min(MIN_WINDOW_HEIGHT, fitted.bounds.height),
       );
       mainWindow.setBounds(fitted.bounds);
+      if (!minimized) restoreWindowBounds(mainWindow, fitted.bounds);
       if (current.maximized && !minimized) mainWindow.maximize();
+      lastWindowState = fitted;
+      restoringWindowBounds = false;
     }
     recordWindowChange();
   };
@@ -492,8 +502,11 @@ async function boot() {
     if (url.split('#')[0] !== mainUrl) event.preventDefault();
   });
   window.once('ready-to-show', () => {
-    if (shouldStartMaximized) mainWindow.maximize();
     mainWindow.show();
+    restoreWindowBounds(mainWindow, lastWindowState.bounds);
+    if (shouldStartMaximized) mainWindow.maximize();
+    restoringWindowBounds = false;
+    recordWindowChange();
   });
   window.on('close', (event) => {
     if (mayClose) return;
