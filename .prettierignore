@@ -1,0 +1,8 @@
+node_modules
+.npm-cache
+.test-data
+artifacts
+dist
+dist-electron
+release
+src/editor/fixtures/*.md

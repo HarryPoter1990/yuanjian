@@ -1,0 +1,159 @@
+import { z } from 'zod';
+
+const text = z.string().max(64 * 1024 * 1024);
+const file = z.string().min(1).max(32768);
+const short = z.string().max(1024);
+const number = z.number().finite();
+const template = z.object({
+  id: short,
+  name: short,
+  kind: z.enum(['note', 'daily', 'weekly', 'monthly']),
+  content: text,
+});
+const appearance = z.object({
+  mode: z.enum(['light', 'dark', 'system']),
+  accent: short,
+  background: short,
+  foreground: short,
+  uiFont: short,
+  bodyFont: short,
+  codeFont: short,
+  headingFont: short,
+  fontSize: number.min(8).max(72),
+  lineHeight: number.min(1).max(4),
+  contentWidth: number.min(300).max(4000),
+  wallpaper: z.string().max(32768),
+  wallpaperOpacity: number.min(0).max(1),
+  wallpaperBlur: number.min(0).max(100),
+  wallpaperBrightness: number.min(0).max(3),
+  wallpaperFit: z.enum(['cover', 'contain', 'repeat']),
+  wallpaperPosition: short,
+  editorOpacity: number.min(0).max(1),
+});
+export const settingsSchema = z.object({
+  roots: z.array(file).max(100),
+  excluded: z.array(short).max(300),
+  showAllFiles: z.boolean(),
+  autoSave: z.boolean(),
+  leftVisible: z.boolean(),
+  rightVisible: z.boolean(),
+  leftWidth: number.min(120).max(1000),
+  rightWidth: number.min(120).max(1000),
+  toolbarVisible: z.boolean(),
+  toolbarButtons: z.array(short).max(100),
+  statusVisible: z.boolean(),
+  appearance,
+  themes: z.array(z.object({ id: short, name: short, appearance })).max(500),
+  codeLineNumbers: z.boolean(),
+  codeWrap: z.boolean(),
+  codeFold: z.boolean(),
+  attachmentPattern: short,
+  historyDays: number.min(1).max(36500),
+  historyLimitMB: number.min(1).max(1024000),
+  journalDirectory: z.string().max(32768),
+  dailyPattern: short,
+  weeklyPattern: short,
+  monthlyPattern: short,
+  weeklyEnabled: z.boolean(),
+  monthlyEnabled: z.boolean(),
+  templates: z.array(template).max(1000),
+  snippets: z
+    .array(z.object({ trigger: short, body: z.string().max(100000), enabled: z.boolean() }))
+    .max(5000),
+  shortcuts: z.record(z.string().max(100), z.string().max(100)),
+  graph: z.object({
+    local: z.boolean(),
+    depth: number.int().min(1).max(10),
+    tags: z.boolean(),
+    attachments: z.boolean(),
+    root: z.string().max(32768),
+    tag: short,
+    positions: z
+      .record(z.string().max(32768), z.object({ x: number, y: number }))
+      .refine((value) => Object.keys(value).length <= 100000),
+    zoom: number.min(0.001).max(100),
+    pan: z.object({ x: number, y: number }),
+  }),
+});
+const tab = z.object({
+  id: file,
+  path: file.nullable(),
+  title: short,
+  content: text,
+  hash: short,
+  modifiedAt: number,
+  baseContent: text,
+  dirty: z.boolean(),
+  cursor: number.int().min(0),
+  scrollTop: number.min(0),
+  mode: z.enum(['live', 'source']),
+});
+export const sessionSchema = z.object({ tabs: z.array(tab).max(200), activeId: file.nullable() });
+
+export const argumentSchemas = {
+  bootstrap: z.tuple([]),
+  saveSettings: z.tuple([settingsSchema]),
+  saveSession: z.tuple([sessionSchema]),
+  openFile: z.tuple([file.optional()]),
+  saveFile: z.tuple([
+    z.object({
+      path: file.nullable(),
+      content: text,
+      baseContent: text,
+      hash: short,
+      title: short,
+    }),
+  ]),
+  selectDirectory: z.tuple([]),
+  getTree: z.tuple([file]),
+  getIndex: z.tuple([]),
+  search: z.tuple([
+    z.string().max(10000),
+    z.object({ root: file.optional(), tag: short.optional() }).optional(),
+  ]),
+  resolveLink: z.tuple([file, z.string().max(32768)]),
+  moveFile: z.tuple([file, file.optional()]),
+  undoMove: z.tuple([short]),
+  trashFile: z.tuple([file]),
+  setTags: z.tuple([file, z.array(z.string().max(200)).max(1000)]),
+  putAttachment: z.tuple([
+    file,
+    short,
+    z.array(z.number().int().min(0).max(255)).max(64 * 1024 * 1024),
+  ]),
+  assetUrl: z.tuple([file, file.optional()]),
+  localizeImages: z.tuple([file, text, z.array(z.string().url().max(32768)).max(10000).optional()]),
+  scanAttachments: z.tuple([]),
+  trashAttachments: z.tuple([z.array(file).max(5000)]),
+  listHistory: z.tuple([file.optional()]),
+  readHistory: z.tuple([short]),
+  restoreHistory: z.tuple([short]),
+  pinHistory: z.tuple([short, z.boolean()]),
+  historyStats: z.tuple([]),
+  pruneHistory: z.tuple([]),
+  periodicNote: z.tuple([
+    z.enum(['daily', 'weekly', 'monthly']),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    short.optional(),
+    z.boolean().optional(),
+  ]),
+  getFonts: z.tuple([z.boolean().optional()]),
+  getFontCatalog: z.tuple([]),
+  importFonts: z.tuple([]),
+  downloadFont: z.tuple([short]),
+  removeFont: z.tuple([short]),
+  chooseWallpaper: z.tuple([]),
+  exportDocument: z.tuple([
+    z.object({
+      format: z.enum(['html', 'pdf']),
+      html: text,
+      notePath: file.nullable(),
+      title: short,
+    }),
+  ]),
+  exportBundle: z.tuple([file, text]),
+  openExternal: z.tuple([z.string().url().max(32768)]),
+  revealPath: z.tuple([file]),
+  closeReady: z.tuple([]),
+};
+export type InvokeMethod = keyof typeof argumentSchemas;
