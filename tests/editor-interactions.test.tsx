@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 import { startCompletion, acceptCompletion, nextSnippetField } from '@codemirror/autocomplete';
 import { MarkdownEditor } from '../src/editor/MarkdownEditor';
 import type { MarkdownEditorHandle, MarkdownEditorProps } from '../src/editor/types';
@@ -61,6 +62,35 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it.each([
+    { key: 'Home', selected: 'const value', anchor: 11, head: 0 },
+    { key: 'End', selected: 'value = 1;', anchor: 6, head: 16 },
+  ])(
+    'extends an undirectional word selection with Shift+$key without dropping the selected word',
+    async ({ key, selected, anchor, head }) => {
+      const code = 'const value = 1;';
+      const source = `\`\`\`javascript\n${code}\n\`\`\``;
+      const offset = source.indexOf(code);
+      const settings = { ...defaultSettings, codeWrap: false };
+      const { onChange } = await mount({ value: source, settings });
+      await act(async () => {
+        editor().dispatch({
+          selection: EditorSelection.create([
+            EditorSelection.undirectionalRange(offset + 6, offset + 11),
+          ]),
+        });
+        editor().contentDOM.dispatchEvent(
+          new KeyboardEvent('keydown', { key, shiftKey: true, bubbles: true }),
+        );
+      });
+      const range = editor().state.selection.main;
+      expect(editor().state.sliceDoc(range.from, range.to)).toBe(selected);
+      expect(range.anchor).toBe(offset + anchor);
+      expect(range.head).toBe(offset + head);
+      expect(editor().state.doc.toString()).toBe(source);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
   it('keeps live prose wrapped and scrolls only the active code block when code wrapping is disabled', async () => {
     const paragraph = '这是应始终换行的正文。'.repeat(50);
     const longCode = `const text = "${'abcdef'.repeat(100)}";`;

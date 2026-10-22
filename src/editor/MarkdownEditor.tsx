@@ -123,6 +123,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       )
         return false;
       const ranges = view.state.selection.ranges.map((range) => {
+        if (extend && range.undirectional && range.head >= range.anchor !== end)
+          range = EditorSelection.range(range.head, range.anchor);
         const line = view.state.doc.lineAt(range.head);
         const head = end ? line.to : line.from;
         return extend ? EditorSelection.range(range.anchor, head) : EditorSelection.cursor(head);
