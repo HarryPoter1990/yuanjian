@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+release/
+test-results/
+playwright-report/
+.test-data/
+artifacts/
+*.log
+.env*
