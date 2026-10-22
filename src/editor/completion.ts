@@ -69,19 +69,26 @@ export function inCode(state: EditorState, position: number): boolean {
   return false;
 }
 
+export function isEscaped(text: string, position: number): boolean {
+  let start = position;
+  while (start > 0 && text[start - 1] === '\\') start--;
+  return (position - start) % 2 === 1;
+}
+
 export function inMath(state: EditorState, position: number): boolean {
   if (inCode(state, position)) return false;
   const before = state.doc.sliceString(0, position);
   const fences = before.match(/^\s*(```|~~~).*$/gm) ?? [];
   if (fences.length % 2) return false;
-  const blocks = (before.match(/(?<!\\)\$\$/g) ?? []).length;
+  const blocks = Array.from(before.matchAll(/\$\$/g)).filter(
+    (match) => !isEscaped(before, match.index),
+  ).length;
   if (blocks % 2) return true;
   const line = state.doc.lineAt(position);
-  const inline =
-    line.text
-      .slice(0, position - line.from)
-      .replace(/\$\$/g, '')
-      .match(/(?<!\\)\$/g) ?? [];
+  const lineBefore = line.text.slice(0, position - line.from);
+  const inline = Array.from(lineBefore.matchAll(/\$\$|\$/g)).filter(
+    (match) => match[0] === '$' && !isEscaped(lineBefore, match.index),
+  );
   return inline.length % 2 === 1;
 }
 

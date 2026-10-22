@@ -49,7 +49,7 @@ import {
   searchKeymap,
 } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
-import { inCode, inMath, mathCompletion } from './completion';
+import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { richTextToMarkdown } from './clipboard';
 import type { EditorCommand, MarkdownEditorHandle, MarkdownEditorProps } from './types';
 import 'katex/dist/katex.min.css';
@@ -299,7 +299,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           },
           extensions: [
             history(),
-            drawSelection(),
+            drawSelection({ cursorBlinkRate: 1060 }),
             dropCursor(),
             rectangularSelection(),
             highlightActiveLine(),
@@ -342,7 +342,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               indentWithTab,
             ]),
             EditorView.inputHandler.of((editor, from, to, text) => {
-              if (text !== '$' || inCode(editor.state, from)) return false;
+              if (text !== '$' || from !== to || inCode(editor.state, from)) return false;
+              const line = editor.state.doc.lineAt(from);
+              if (isEscaped(line.text, from - line.from)) return false;
               if (
                 inMath(editor.state, from) &&
                 editor.state.doc.sliceString(from, from + 1) === '$'
