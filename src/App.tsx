@@ -26,6 +26,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pin,
   Quote,
   Redo2,
   Save,
@@ -49,6 +50,7 @@ import type { EditorCommand, MarkdownEditorHandle } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
+import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GraphView } from './components/GraphView';
 import { LinkPanel } from './components/LinkPanel';
@@ -57,6 +59,7 @@ import { useWorkspace } from './ui/useWorkspace';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
 import { frameValue, panelWidth, visiblePanels } from './ui/layout';
+import { useWindowMode } from './ui/useWindowMode';
 import {
   appearanceColors,
   dateKey,
@@ -96,7 +99,7 @@ export default function App() {
   const workspace = useWorkspace();
   const { settings, tabs, activeId, notify, updateTab } = workspace;
   const active = tabs.find((tab) => tab.id === activeId) || null;
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanelState] = useState<Panel>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [forcedPanels, setForcedPanels] = useState<{ left?: boolean; right?: boolean }>({});
   const [menu, setMenu] = useState(false);
@@ -148,6 +151,43 @@ export default function App() {
   const activeRef = useRef(active);
   activeRef.current = active;
   const error = useCallback((message: string) => notify(message, true), [notify]);
+  const windowMode = useWindowMode(error);
+  const sticky = windowMode.mode === 'sticky';
+  const inFullWindow = useCallback(
+    async (action: () => void) => {
+      if (await windowMode.change('full')) action();
+    },
+    [windowMode.change],
+  );
+  const setPanel = useCallback(
+    (next: Panel) => {
+      if (next && !['close', 'link'].includes(next)) void inFullWindow(() => setPanelState(next));
+      else setPanelState(next);
+    },
+    [inFullWindow],
+  );
+  const openGraph = () =>
+    void inFullWindow(() => {
+      setGraphOpen(true);
+      setGraphActive(true);
+    });
+  useEffect(() => {
+    if (!sticky) return;
+    setGraphActive(false);
+    setMenu(false);
+    setAppMenu(false);
+    setTabsMenu(false);
+    setFormatMenu(false);
+    if (workspace.bootstrap && !active) workspace.newDraft();
+  }, [sticky, workspace.bootstrap, activeId, Boolean(active), workspace.newDraft]);
+  async function changeWindowMode(mode: 'full' | 'sticky') {
+    if (windowMode.pending || workspace.closing) return;
+    if (mode === 'sticky' && (busy || panel || workspace.conflict)) return;
+    if (await windowMode.change(mode)) {
+      setGraphActive(false);
+      setTimeout(() => editor.current?.focus(), 0);
+    }
+  }
   const windowColors = settings ? appearanceColors(settings.appearance, systemDark) : null;
   useEffect(() => {
     if (windowColors)
@@ -573,7 +613,17 @@ export default function App() {
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [settings, active, newNote, open, panel, workspace.conflict, workspace.save, updateTab]);
+  }, [
+    settings,
+    active,
+    newNote,
+    open,
+    panel,
+    workspace.conflict,
+    workspace.save,
+    updateTab,
+    setPanel,
+  ]);
   useEffect(() => {
     if (panel !== 'preview' || !active || !preview.current) return;
     preview.current.innerHTML = renderMarkdown(
@@ -602,6 +652,7 @@ export default function App() {
     error,
   ]);
   async function exportNote(format: 'html' | 'pdf' | 'zip') {
+    if (!(await windowMode.change('full'))) return;
     if (!active || !settings) return;
     await run(`导出 ${format.toUpperCase()}`, async () => {
       let path: string | null;
@@ -787,7 +838,8 @@ export default function App() {
       </main>
     );
   const appearance = settings.appearance;
-  const panels = visiblePanels(settings, windowWidth, forcedPanels);
+  const preferredPanels = visiblePanels(settings, windowWidth, forcedPanels);
+  const panels = sticky ? { left: false, right: false } : preferredPanels;
   const togglePanel = (side: 'left' | 'right') => {
     const visible = panels[side];
     setForcedPanels((current) => ({ ...current, [side]: !visible }));
@@ -859,7 +911,7 @@ export default function App() {
       ))}
       {graphOpen && (
         <div className={`document-tab ${graphActive ? 'active' : ''}`}>
-          <button role="tab" aria-selected={graphActive} onClick={() => setGraphActive(true)}>
+          <button role="tab" aria-selected={graphActive} onClick={openGraph}>
             <Network size={14} />
             <span>关系图谱</span>
           </button>
@@ -883,7 +935,13 @@ export default function App() {
     <OperationContext.Provider
       value={{ busy, notice: workspace.notices.at(-1) || null, shortcuts: settings.shortcuts }}
     >
-      <div ref={appElement} className="app" data-theme={dark ? 'dark' : 'light'} style={style}>
+      <div
+        ref={appElement}
+        className="app"
+        data-theme={dark ? 'dark' : 'light'}
+        data-window-mode={windowMode.mode}
+        style={style}
+      >
         {wallpaperUrl && (
           <div
             className="wallpaper"
@@ -898,7 +956,7 @@ export default function App() {
             }}
           />
         )}
-        <header className="app-header">
+        <header className="app-header" hidden={sticky}>
           <div className="app-brand">
             <img className="iris-logo" src="./yuanjian.png" alt="" />
             <strong>鸢笺</strong>
@@ -932,8 +990,7 @@ export default function App() {
                     [
                       '关系图谱',
                       () => {
-                        setGraphOpen(true);
-                        setGraphActive(true);
+                        openGraph();
                       },
                       '',
                     ],
@@ -944,6 +1001,7 @@ export default function App() {
                       '',
                     ],
                     ['打开设置', () => setPanel('settings'), settings.shortcuts.settings],
+                    ['进入便笺模式', () => void changeWindowMode('sticky'), ''],
                   ].map(([label, action, shortcut]) => (
                     <button
                       role="menuitem"
@@ -1006,7 +1064,7 @@ export default function App() {
                     <button
                       role="menuitem"
                       onClick={() => {
-                        setGraphActive(true);
+                        openGraph();
                         setTabsMenu(false);
                       }}
                     >
@@ -1020,6 +1078,17 @@ export default function App() {
           </div>
           <div className="header-actions">
             <IconButton
+              label="进入便笺模式"
+              disabled={
+                !windowMode.ready ||
+                windowMode.pending ||
+                Boolean(busy || panel || workspace.conflict || workspace.closing)
+              }
+              onClick={() => void changeWindowMode('sticky')}
+            >
+              <Pin size={17} />
+            </IconButton>
+            <IconButton
               label="打开 Markdown 文件"
               shortcut={settings.shortcuts.open}
               onClick={() => void open()}
@@ -1032,8 +1101,7 @@ export default function App() {
             <IconButton
               label="关系图谱"
               onClick={() => {
-                setGraphOpen(true);
-                setGraphActive(true);
+                openGraph();
               }}
             >
               <Network size={17} />
@@ -1054,6 +1122,73 @@ export default function App() {
           </div>
           <div className="window-controls-space" aria-hidden="true" />
         </header>
+        <div hidden={!sticky} className="sticky-header-host">
+          <StickyHeader
+            active={active}
+            tabs={tabs}
+            pinned={windowMode.pinned}
+            saving={Boolean(active && workspace.saving.includes(active.id))}
+            pending={
+              windowMode.pending ||
+              Boolean(busy || panel || workspace.conflict || workspace.closing)
+            }
+            onSelect={(id) => {
+              workspace.setActiveId(id);
+              setGraphActive(false);
+              setTimeout(() => editor.current?.focus(), 0);
+            }}
+            onPin={() => void windowMode.pin()}
+            onFull={() => void changeWindowMode('full')}
+            actions={[
+              {
+                label: active?.dirty ? '保存笔记' : '保存 / 另存为',
+                disabled: !active || workspace.saving.includes(active.id),
+                run: () => {
+                  if (active) void workspace.save(active.id, true);
+                },
+              },
+              { label: '新建空白笔记', run: newNote },
+              { label: '打开 Markdown 文件', run: () => void open() },
+              { label: '撤销', run: () => editor.current?.command('undo') },
+              { label: '重做', run: () => editor.current?.command('redo') },
+              { label: '查找与替换', run: () => editor.current?.command('replace') },
+              ...buttons
+                .filter((button) => settings.toolbarButtons.includes(button.id))
+                .map((button) => ({ label: button.title, run: () => format(button.id) })),
+              {
+                label: active?.mode === 'source' ? '切换即时排版' : '切换源码',
+                run: () => {
+                  if (active)
+                    updateTab(active.id, { mode: active.mode === 'source' ? 'live' : 'source' });
+                },
+              },
+              {
+                label: '从模板新建',
+                run: () => {
+                  setJournalChoice(null);
+                  setNewTemplate(settings.templates.find((item) => item.kind === 'note')?.id || '');
+                  setPanel('new');
+                },
+              },
+              { label: '阅读预览 / 导出', run: () => setPanel('preview') },
+              ...(active?.path ? [{ label: '版本历史', run: () => setPanel('history') }] : []),
+              { label: '关系图谱', run: openGraph },
+              { label: '打开设置', run: () => setPanel('settings') },
+              {
+                label: '关闭当前笔记',
+                disabled: !active,
+                run: () => {
+                  if (active) void requestClose(active.id);
+                },
+              },
+            ]}
+          />
+        </div>
+        {windowMode.pending && (
+          <span className="window-mode-feedback" role="status">
+            正在调整窗口…
+          </span>
+        )}
         <main className="workspace">
           {
             <>
@@ -1492,8 +1627,7 @@ export default function App() {
                   className="local-graph-button"
                   onClick={() => {
                     changeSettings({ ...settings, graph: { ...settings.graph, local: true } });
-                    setGraphOpen(true);
-                    setGraphActive(true);
+                    openGraph();
                   }}
                 >
                   <Network size={15} />

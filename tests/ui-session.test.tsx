@@ -8,6 +8,7 @@ import type {
   SaveOutcome,
   SaveRequest,
   SessionState,
+  WindowModeState,
 } from '../src/shared/types';
 import { defaultSettings } from '../src/shared/defaults';
 import { asTab } from '../src/ui/model';
@@ -837,5 +838,167 @@ describe('desktop session and save lifecycle', () => {
       await vi.advanceTimersByTimeAsync(3900);
     });
     expect(host.querySelector('.toast.error')?.textContent).toContain('磁盘拒绝写入');
+  });
+  it('keeps the mounted editor and sidebar context when entering and leaving sticky mode without changing layout preferences', async () => {
+    await mount();
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent === '日历')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
+    const originalEditor = host.querySelector('[aria-label="测试正文编辑器"]');
+    const originalSidebar = host.querySelector('.left-sidebar');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.click(),
+    );
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('sticky');
+    expect(host.querySelector('[aria-label="测试正文编辑器"]')).toBe(originalEditor);
+    expect(host.querySelector('.left-sidebar')).toBe(originalSidebar);
+    expect(host.querySelector<HTMLElement>('.left-sidebar')?.hidden).toBe(true);
+    expect(
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="便笺始终置顶"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="便笺始终置顶"]')?.click(),
+    );
+    expect(api.setStickyPinned).toHaveBeenCalledWith(false);
+    expect(
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="便笺始终置顶"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('false');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="返回完整窗口"]')?.click(),
+    );
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('full');
+    expect(host.querySelector('[aria-label="测试正文编辑器"]')).toBe(originalEditor);
+    expect(
+      [...host.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent === '日历')
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+  it('waits for the full window before a sticky settings shortcut opens its panel', async () => {
+    let finishFull: ((state: WindowModeState) => void) | undefined;
+    await mount(undefined, (api) => {
+      api.setWindowMode = vi.fn(async (mode) =>
+        mode === 'sticky'
+          ? { mode, pinned: true }
+          : new Promise<WindowModeState>((resolve) => {
+              finishFull = resolve;
+            }),
+      );
+    });
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.click(),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }),
+      ),
+    );
+    expect(api.setWindowMode).toHaveBeenLastCalledWith('full');
+    expect(host.querySelector('dialog')).toBeNull();
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('sticky');
+    expect(host.textContent).toContain('正在调整窗口');
+    await act(async () => finishFull?.({ mode: 'full', pinned: false }));
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('full');
+    expect(host.querySelector('dialog')?.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(host.querySelector('dialog')?.textContent).toContain('设置');
+  });
+  it('retains sticky mode and content when returning full fails, and handles external mode events', async () => {
+    let modeChanged: ((state: WindowModeState) => void) | undefined;
+    await mount(undefined, (api) => {
+      api.onWindowModeChanged = vi.fn((callback) => {
+        modeChanged = callback;
+        return () => {};
+      });
+      api.setWindowMode = vi.fn(async (mode) => {
+        if (mode === 'full') throw new Error('窗口切换被拒绝');
+        return { mode, pinned: true };
+      });
+    });
+    await act(async () => root.render(<App />));
+    const originalEditor = host.querySelector('[aria-label="测试正文编辑器"]');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.click(),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }),
+      ),
+    );
+    expect(host.querySelector('dialog')).toBeNull();
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('sticky');
+    expect(host.querySelector('.toast.error')?.textContent).toContain('窗口切换被拒绝');
+    expect(host.querySelector('[aria-label="测试正文编辑器"]')).toBe(originalEditor);
+    await act(async () => modeChanged?.({ mode: 'full', pinned: false }));
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('full');
+    expect(host.querySelector('[aria-label="测试正文编辑器"]')).toBe(originalEditor);
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+  it('switches opened notes from the sticky title menu and keeps ordinary editing actions in the same window', async () => {
+    const second = {
+      ...asTab(note),
+      id: 'second',
+      title: '第二篇',
+      path: null,
+      content: '第二篇正文',
+    };
+    await mount({ tabs: [asTab(note), second], activeId: note.id });
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]')?.click(),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="切换便笺笔记"]')?.click(),
+    );
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[aria-label="便笺笔记"] [role="menuitem"]')]
+        .find((item) => item.textContent?.includes('第二篇'))
+        ?.click(),
+    );
+    expect(host.querySelector('.sticky-title')?.textContent).toContain('第二篇');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="便笺更多操作"]')?.click(),
+    );
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[aria-label="便笺操作"] [role="menuitem"]')]
+        .find((item) => item.textContent === '新建空白笔记')
+        ?.click(),
+    );
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('sticky');
+    expect(api.setWindowMode).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.sticky-title')?.textContent).toContain('未命名');
+  });
+  it('coalesces repeated sticky entry and opens a draft when no note is active', async () => {
+    let finishSticky: ((state: WindowModeState) => void) | undefined;
+    await mount({ tabs: [], activeId: null }, (api) => {
+      api.setWindowMode = vi.fn(
+        () =>
+          new Promise<WindowModeState>((resolve) => {
+            finishSticky = resolve;
+          }),
+      );
+    });
+    await act(async () => root.render(<App />));
+    const enter = host.querySelector<HTMLButtonElement>('[aria-label="进入便笺模式"]');
+    await act(async () => {
+      enter?.click();
+      enter?.click();
+    });
+    expect(api.setWindowMode).toHaveBeenCalledTimes(1);
+    await act(async () => finishSticky?.({ mode: 'sticky', pinned: true }));
+    expect(host.querySelector('.app')?.getAttribute('data-window-mode')).toBe('sticky');
+    expect(host.querySelector('[aria-label="测试正文编辑器"]')).not.toBeNull();
+    expect(host.querySelector('.sticky-title')?.textContent).toContain('未命名');
+    expect(api.saveFile).not.toHaveBeenCalled();
   });
 });
