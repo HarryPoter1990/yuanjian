@@ -90,10 +90,14 @@ class PreviewWidget extends WidgetType {
       const toolbar = document.createElement('div');
       toolbar.className = 'code-language-toolbar';
       const label = document.createElement('label');
-      label.textContent = '语言 ';
+      const caption = document.createElement('span');
+      caption.textContent = '代码语言';
+      label.append(caption);
       const input = document.createElement('input');
       input.setAttribute('aria-label', '代码语言');
-      input.placeholder = '自动识别（如 java、python）';
+      const languageLabel = root.querySelector('.code-language-label');
+      input.placeholder = languageLabel?.textContent ?? '自动识别';
+      input.title = '代码语言，留空自动识别；如 java、python';
       const match = this.block.source.match(/^(\s*)(`{3,}|~{3,})([^\n]*)/);
       input.value = match?.[3].trim() ?? '';
       input.addEventListener('change', () => {
@@ -108,7 +112,8 @@ class PreviewWidget extends WidgetType {
       });
       label.append(input);
       toolbar.append(label);
-      root.prepend(toolbar);
+      languageLabel?.replaceWith(toolbar);
+      root.querySelector('details')?.addEventListener('toggle', refresh);
     }
     root.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -152,7 +157,12 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[]): Decorati
       (selection) => selection.from <= block.to && selection.to >= block.from,
     );
     const isTable = block.type === 'table_open';
-    if (active && !isTable) continue;
+    if (active && !isTable) {
+      if (block.type === 'fence') for (let line = state.doc.lineAt(block.from).number; line <= state.doc.lineAt(block.to).number; line++) {
+        ranges.push(Decoration.line({ class: 'cm-code-source' }).range(state.doc.line(line).from));
+      }
+      continue;
+    }
     // Block replacements include their edges so CodeMirror does not add empty text lines on both sides.
     ranges.push(
       Decoration.replace({

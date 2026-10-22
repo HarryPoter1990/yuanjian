@@ -8,6 +8,23 @@ import { richTextToMarkdown } from '../src/editor/clipboard';
 import { extractHeadings } from '../src/shared/markdown';
 
 describe('safe Markdown rendering', () => {
+  it('keeps code controls compact and independent font metrics without changing copied source', () => {
+    const root = document.createElement('div');
+    root.innerHTML = renderMarkdown('```javascript\nconst value = "中文";\n```', { codeFontSize: 20, codeLineHeight: 1.8 });
+    const code = root.querySelector<HTMLElement>('.code-container');
+    expect(code?.style.getPropertyValue('--code-font-size')).toBe('20px');
+    expect(code?.style.getPropertyValue('--code-line-height')).toBe('1.8');
+    expect(root.querySelector('.code-caption .code-language-label')?.textContent).toBe('javascript');
+    expect(decodeURIComponent(root.querySelector<HTMLButtonElement>('.code-caption .code-copy')?.dataset.code ?? '')).toBe('const value = "中文";\n');
+    expect(root.querySelector('.hljs-keyword')).not.toBeNull();
+    expect(root.querySelector('.hljs-string')).not.toBeNull();
+    expect(root.querySelector('.code-line-number')).not.toBeNull();
+    root.innerHTML = renderMarkdown('```text\nlong line\n```', { codeFold: false, codeWrap: false, codeLineNumbers: false });
+    expect(root.querySelector('details')).toBeNull();
+    expect(root.querySelector('.code-wrap')).toBeNull();
+    expect(root.querySelector('.code-line-number')).toBeNull();
+    expect(root.querySelector('.code-copy')).not.toBeNull();
+  });
   it('renders Chinese, tasks, math, code and wiki links without executing raw HTML', () => {
     const html = renderMarkdown(
       '# 中文标题\n\n- [x] 学习\n\n$x^2$\n\n$$\n\\frac{a}{b}\n$$\n\n[[同名笔记#目标|继续]]\n\n```java\nclass Demo {}\n```\n\n<script>alert(1)</script>',

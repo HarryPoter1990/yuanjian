@@ -152,10 +152,13 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       /* Unknown or incomplete code stays readable. */
     }
     const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}">${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
-    const label = `<span>${escapeHtml(language || `自动 · ${detected || 'text'}`)}</span><button type="button" class="code-copy" data-code="${escapeHtml(token.content)}">复制代码</button>`;
+    const label = `<span class="code-language-label">${escapeHtml(language || `自动 · ${detected || 'text'}`)}</span><button type="button" class="code-copy" data-code="${encodeURIComponent(token.content)}">复制代码</button>`;
+    const fontSize = Number.isFinite(options.codeFontSize) ? Math.min(72, Math.max(8, options.codeFontSize ?? 16)) : 16;
+    const lineHeight = Number.isFinite(options.codeLineHeight) ? Math.min(4, Math.max(1, options.codeLineHeight ?? 1.6)) : 1.6;
+    const style = `--code-font-size:${fontSize}px;--code-line-height:${lineHeight}`;
     return options.codeFold === false
-      ? `<div class="code-container"><div class="code-caption">${label}</div>${body}</div>`
-      : `<details class="code-container" open><summary class="code-caption">${label}</summary>${body}</details>`;
+      ? `<div class="code-container" style="${style}"><div class="code-caption">${label}</div>${body}</div>`
+      : `<details class="code-container" style="${style}" open><summary class="code-caption">${label}</summary>${body}</details>`;
   };
   md.renderer.rules.image = (tokens, index) => {
     const token = tokens[index];
@@ -272,7 +275,7 @@ export async function hydrateMarkdown(
       event.preventDefault();
       event.stopPropagation();
       try {
-        await navigator.clipboard.writeText(button.dataset.code ?? '');
+        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.code ?? ''));
         button.textContent = '已复制';
         setTimeout(() => {
           button.textContent = '复制代码';

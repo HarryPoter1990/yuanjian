@@ -50,4 +50,6 @@ export interface RenderOptions {
   codeLineNumbers?: boolean;
   codeWrap?: boolean;
   codeFold?: boolean;
+  codeFontSize?: number;
+  codeLineHeight?: number;
 }

@@ -18,6 +18,7 @@ import {
 import {
   bracketMatching,
   defaultHighlightStyle,
+  HighlightStyle,
   foldGutter,
   foldKeymap,
   indentOnInput,
@@ -25,6 +26,7 @@ import {
 } from '@codemirror/language';
 import { markdown, markdownKeymap } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
+import { tags } from '@lezer/highlight';
 import {
   defaultKeymap,
   history,
@@ -52,8 +54,16 @@ import { mathHtml } from './renderer';
 import { richTextToMarkdown } from './clipboard';
 import type { EditorCommand, MarkdownEditorHandle, MarkdownEditorProps } from './types';
 import 'katex/dist/katex.min.css';
-import 'highlight.js/styles/github.css';
 import './editor.css';
+
+const codeHighlighting = HighlightStyle.define([
+  { tag: [tags.keyword, tags.operatorKeyword], color: 'var(--syntax-keyword)' },
+  { tag: [tags.string, tags.regexp], color: 'var(--syntax-string)' },
+  { tag: [tags.number, tags.bool, tags.null], color: 'var(--syntax-number)' },
+  { tag: [tags.comment, tags.meta], color: 'var(--syntax-comment)' },
+  { tag: [tags.typeName, tags.className], color: 'var(--syntax-type)' },
+  { tag: tags.function(tags.variableName), color: 'var(--syntax-function)' },
+]);
 
 function replaceSelection(view: EditorView, text: string): void {
   view.dispatch(view.state.replaceSelection(text), { userEvent: 'input' });
@@ -94,6 +104,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         codeLineNumbers: current.settings.codeLineNumbers,
         codeWrap: current.settings.codeWrap,
         codeFold: current.settings.codeFold,
+        codeFontSize: current.settings.appearance.codeFontSize ?? 16,
+        codeLineHeight: current.settings.appearance.codeLineHeight ?? 1.6,
         resolveAssetAsync: (reference) =>
           window.notes.assetUrl(reference, propsRef.current.notePath ?? undefined),
         onLink: (target) => propsRef.current.onLink?.(target),
@@ -122,14 +134,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         current.settings.codeWrap ? EditorView.lineWrapping : [],
         mathCompletion(current.settings.snippets),
         EditorView.theme({
-          '&': { fontSize: `${current.settings.appearance.fontSize}px` },
+          '&': {
+            fontSize: `${current.mode === 'source' ? current.settings.appearance.codeFontSize ?? 16 : current.settings.appearance.fontSize}px`,
+            '--code-font-size': `${current.settings.appearance.codeFontSize ?? 16}px`,
+            '--code-line-height': String(current.settings.appearance.codeLineHeight ?? 1.6),
+          },
           '.cm-content': {
             fontFamily:
               current.mode === 'source'
                 ? current.settings.appearance.codeFont
                 : current.settings.appearance.bodyFont,
-            lineHeight: String(current.settings.appearance.lineHeight),
-            maxWidth: `${current.settings.appearance.contentWidth}px`,
+            lineHeight: String(current.mode === 'source' ? current.settings.appearance.codeLineHeight ?? 1.6 : current.settings.appearance.lineHeight),
+            maxWidth: `calc(${current.settings.appearance.contentWidth}px + 56px)`,
           },
           '.cm-gutters': { fontFamily: current.settings.appearance.codeFont },
         }),
@@ -261,6 +277,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             indentOnInput(),
             bracketMatching(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+            syntaxHighlighting(codeHighlighting),
             markdown({ codeLanguages: languages, addKeymap: false }),
             closeBrackets(),
             search({ top: true }),
@@ -398,14 +415,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     useEffect(() => {
       viewRef.current?.dispatch({ effects: config.current.reconfigure(configuration()) });
-    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, props.notePath]);
+    }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, props.notePath,
+      props.settings.appearance.codeFontSize, props.settings.appearance.codeLineHeight]);
 
     const snippetKey = JSON.stringify(props.settings.snippets);
     useEffect(() => {
       viewRef.current?.dispatch({ effects: features.current.reconfigure(featureExtensions()) });
     }, [props.mode, props.settings.codeLineNumbers, props.settings.codeWrap, props.settings.codeFold, snippetKey,
       props.settings.appearance.fontSize, props.settings.appearance.lineHeight, props.settings.appearance.contentWidth,
-      props.settings.appearance.bodyFont, props.settings.appearance.codeFont]);
+      props.settings.appearance.bodyFont, props.settings.appearance.codeFont,
+      props.settings.appearance.codeFontSize, props.settings.appearance.codeLineHeight]);
 
     return (
       <div className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}>

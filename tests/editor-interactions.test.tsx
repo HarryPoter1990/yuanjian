@@ -55,6 +55,29 @@ function editor(): EditorView {
 }
 
 describe('mounted CodeMirror editor', () => {
+  it('keeps language, copy and folding in the same code header and preserves source on presentation changes', async () => {
+    const source = '# 标题\n\n```javascript\nconst message = "中文";\n```';
+    const settings = structuredClone(defaultSettings);
+    settings.appearance.codeFontSize = 20;
+    settings.appearance.codeLineHeight = 1.8;
+    const { props } = await mount({ value: source, settings });
+    const language = host.querySelector<HTMLInputElement>('.code-caption input[aria-label="代码语言"]');
+    expect(language?.value).toBe('javascript');
+    expect(host.querySelector('.code-caption .code-copy')).not.toBeNull();
+    expect(host.querySelector<HTMLElement>('.code-container')?.style.getPropertyValue('--code-font-size')).toBe('20px');
+    const summary = host.querySelector<HTMLElement>('summary.code-caption');
+    await act(async () => summary?.click());
+    expect(host.querySelector('details')?.open).toBe(false);
+    expect(editor().state.doc.toString()).toBe(source);
+    await act(async () => summary?.click());
+    await act(async () => { if (language) { language.value = 'typescript'; language.dispatchEvent(new Event('change', { bubbles: true })); } });
+    expect(editor().state.doc.toString()).toBe(source.replace('```javascript', '```typescript'));
+    const latest = editor().state.doc.toString();
+    await act(async () => root.render(<MarkdownEditor {...props} value={latest} settings={{ ...settings, codeFold: false }} ref={reference} />));
+    expect(host.querySelector('details')).toBeNull();
+    expect(host.querySelector('.code-caption input[aria-label="代码语言"]')).not.toBeNull();
+    expect(editor().state.doc.toString()).toBe(latest);
+  });
   it('does not reconfigure CodeMirror or rebuild previews while only sidebar width changes', async () => {
     const { props } = await mount();
     const view = editor();
