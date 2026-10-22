@@ -69,9 +69,9 @@ describe('UI document model', () => {
   });
   it('keeps dark mode, system mode, graph colors and themed exports consistent', () => {
     expect(appearanceColors({ ...defaultAppearance, mode: 'dark' }, false)).toMatchObject({
-      background: '#1c2227',
-      foreground: '#e1e6e9',
-      accent: '#87b9a5',
+      background: '#191919',
+      foreground: '#EEEEEE',
+      accent: '#9FB59E',
     });
     expect(appearanceColors({ ...defaultAppearance, mode: 'system' }, true).dark).toBe(true);
     expect(

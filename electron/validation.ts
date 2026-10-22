@@ -32,6 +32,7 @@ const appearance = z.object({
   wallpaperFit: z.enum(['cover', 'contain', 'repeat']),
   wallpaperPosition: short,
   editorOpacity: number.min(0).max(1),
+  sidebarOpacity: number.min(0).max(1).optional(),
 });
 export const settingsSchema = z.object({
   roots: z.array(file).max(100),

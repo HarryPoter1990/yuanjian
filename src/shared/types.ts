@@ -51,6 +51,7 @@ export interface Snippet {
   enabled: boolean;
 }
 export interface Appearance {
+  palette?: 'ink' | 'moss' | 'paper';
   mode: 'light' | 'dark' | 'system';
   accent: string;
   background: string;
@@ -58,6 +59,8 @@ export interface Appearance {
   uiFont: string;
   bodyFont: string;
   codeFont: string;
+  codeFontSize?: number;
+  codeLineHeight?: number;
   headingFont: string;
   fontSize: number;
   lineHeight: number;
@@ -69,6 +72,7 @@ export interface Appearance {
   wallpaperFit: 'cover' | 'contain' | 'repeat';
   wallpaperPosition: string;
   editorOpacity: number;
+  sidebarOpacity?: number;
 }
 export interface ThemePreset {
   id: string;
@@ -95,6 +99,7 @@ export interface Settings {
   rightVisible: boolean;
   leftWidth: number;
   rightWidth: number;
+  rightGroups?: Record<string, boolean>;
   toolbarVisible: boolean;
   toolbarButtons: string[];
   statusVisible: boolean;
@@ -212,6 +217,7 @@ export interface OperationProgress {
   message: string;
 }
 export interface DesktopAPI {
+  setWindowTheme(theme: { background: string; foreground: string }): Promise<void>;
   bootstrap(): Promise<Bootstrap>;
   saveSettings(settings: Settings): Promise<Settings>;
   saveSession(session: SessionState): Promise<void>;

@@ -1,0 +1,97 @@
+import type { Appearance } from './types';
+
+// Approved visual review: prototype/visual-review, be02075.
+export const builtinPalettes = [
+  {
+    id: 'ink',
+    name: '中性墨灰',
+    light: {
+      bg: '#FCFCFC',
+      sidebar: '#F9F9F9',
+      surface: '#F0F0F0',
+      fg: '#202020',
+      muted: '#646464',
+      border: '#D9D9D9',
+      accent: '#202020',
+      accentText: '#FFFFFF',
+      selected: '#E8E8E8',
+    },
+    dark: {
+      bg: '#191919',
+      sidebar: '#111111',
+      surface: '#222222',
+      fg: '#EEEEEE',
+      muted: '#B4B4B4',
+      border: '#3A3A3A',
+      accent: '#EEEEEE',
+      accentText: '#191919',
+      selected: '#313131',
+    },
+  },
+  {
+    id: 'moss',
+    name: '苔绿',
+    light: {
+      bg: '#FCFCFC',
+      sidebar: '#F9F9F9',
+      surface: '#F0F0F0',
+      fg: '#202020',
+      muted: '#646464',
+      border: '#D9D9D9',
+      accent: '#526B57',
+      accentText: '#FFFFFF',
+      selected: '#E8EEE7',
+    },
+    dark: {
+      bg: '#191919',
+      sidebar: '#111111',
+      surface: '#222222',
+      fg: '#EEEEEE',
+      muted: '#B4B4B4',
+      border: '#3A3A3A',
+      accent: '#9FB59E',
+      accentText: '#191919',
+      selected: '#29342C',
+    },
+  },
+  {
+    id: 'paper',
+    name: '暖铜与纸色',
+    light: {
+      bg: '#FAF8F3',
+      sidebar: '#F2EFE8',
+      surface: '#F6F2EB',
+      fg: '#21201C',
+      muted: '#63635E',
+      border: '#DED9CF',
+      accent: '#7D5E54',
+      accentText: '#FFFFFF',
+      selected: '#EFE4DF',
+    },
+    dark: {
+      bg: '#1B1A18',
+      sidebar: '#151412',
+      surface: '#24221F',
+      fg: '#EEEEEC',
+      muted: '#B5B3AD',
+      border: '#3B3A37',
+      accent: '#D4B3A5',
+      accentText: '#211C19',
+      selected: '#302A27',
+    },
+  },
+] as const;
+
+export function paletteAppearance(
+  appearance: Appearance,
+  id: NonNullable<Appearance['palette']>,
+): Appearance {
+  const palette = builtinPalettes.find((item) => item.id === id)!;
+  return {
+    ...appearance,
+    palette: id,
+    background: palette.light.bg,
+    foreground: palette.light.fg,
+    accent: palette.light.accent,
+  };
+}

@@ -1,12 +1,45 @@
 import type { Appearance, NoteDocument, SaveOutcome, TabState } from '../shared/types';
+import { builtinPalettes } from '../shared/palettes';
 
 export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const dark = appearance.mode === 'dark' || (appearance.mode === 'system' && systemDark);
+  const palette = builtinPalettes.find((item) => item.id === appearance.palette);
+  if (palette) {
+    const colors = palette[dark ? 'dark' : 'light'];
+    const resolve = (key: 'bg' | 'fg' | 'accent', value: string) =>
+      [palette.light[key], palette.dark[key]].some(
+        (color) => color.toLowerCase() === value.toLowerCase(),
+      )
+        ? colors[key]
+        : value;
+    return {
+      dark,
+      background: resolve('bg', appearance.background),
+      foreground: resolve('fg', appearance.foreground),
+      accent: resolve('accent', appearance.accent),
+      sidebar: colors.sidebar,
+      surface: colors.surface,
+      muted: colors.muted,
+      border: colors.border,
+      selected: colors.selected,
+      accentText: colors.accentText,
+    };
+  }
+  const background =
+    dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background;
+  const foreground =
+    dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground;
   return {
     dark,
-    background: dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background,
-    foreground: dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground,
+    background,
+    foreground,
     accent: dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent,
+    sidebar: background,
+    surface: `color-mix(in srgb, ${foreground} 4%, ${background})`,
+    muted: `color-mix(in srgb, ${foreground} 70%, ${background})`,
+    border: `color-mix(in srgb, ${foreground} 16%, ${background})`,
+    selected: `color-mix(in srgb, ${foreground} 9%, ${background})`,
+    accentText: dark ? '#191919' : '#FFFFFF',
   };
 }
 

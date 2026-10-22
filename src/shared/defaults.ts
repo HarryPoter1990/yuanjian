@@ -1,17 +1,20 @@
 import type { Appearance, Settings } from './types';
 
 export const defaultAppearance: Appearance = {
+  palette: 'moss',
   mode: 'light',
-  accent: '#3b756b',
-  background: '#f6f5f1',
-  foreground: '#292d32',
+  accent: '#526B57',
+  background: '#FCFCFC',
+  foreground: '#202020',
   uiFont: 'Inter Variable',
   bodyFont: 'Noto Sans SC Variable',
   codeFont: 'JetBrains Mono',
+  codeFontSize: 16,
+  codeLineHeight: 1.6,
   headingFont: 'Noto Sans SC Variable',
-  fontSize: 16,
-  lineHeight: 1.85,
-  contentWidth: 800,
+  fontSize: 17,
+  lineHeight: 1.7,
+  contentWidth: 680,
   wallpaper: '',
   wallpaperOpacity: 0.45,
   wallpaperBlur: 0,
@@ -19,6 +22,7 @@ export const defaultAppearance: Appearance = {
   wallpaperFit: 'cover',
   wallpaperPosition: 'center',
   editorOpacity: 0.92,
+  sidebarOpacity: 0.96,
 };
 export const defaultSettings: Settings = {
   roots: [],
@@ -29,6 +33,7 @@ export const defaultSettings: Settings = {
   rightVisible: true,
   leftWidth: 254,
   rightWidth: 228,
+  rightGroups: { outline: true, tags: true, backlinks: false },
   toolbarVisible: true,
   toolbarButtons: [
     'heading',
@@ -46,20 +51,7 @@ export const defaultSettings: Settings = {
   ],
   statusVisible: true,
   appearance: defaultAppearance,
-  themes: [
-    { id: 'paper', name: '纸间 · 浅色', appearance: defaultAppearance },
-    {
-      id: 'night',
-      name: '夜读 · 深色',
-      appearance: {
-        ...defaultAppearance,
-        mode: 'dark',
-        background: '#1c2227',
-        foreground: '#e1e6e9',
-        accent: '#87b9a5',
-      },
-    },
-  ],
+  themes: [],
   codeLineNumbers: true,
   codeWrap: true,
   codeFold: true,

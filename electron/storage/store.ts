@@ -99,6 +99,9 @@ export class NoteStore {
       appearance: { ...defaultSettings.appearance, ...saved.appearance },
       graph: { ...structuredClone(defaultSettings.graph), ...saved.graph },
     };
+    // Earlier versions stored individual colors; never replace them with a new built-in palette.
+    if (saved.appearance && !Object.hasOwn(saved.appearance, 'palette'))
+      this.settings.appearance.palette = undefined;
     this.access.excluded = this.settings.excluded;
     const validRoots: string[] = [];
     for (const root of this.settings.roots) {
