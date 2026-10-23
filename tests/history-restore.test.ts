@@ -178,4 +178,76 @@ describe('history restores preserve current resources and relocate references', 
     expect(await readFile(image)).toEqual(Buffer.from([1]));
     expect(await readFile(other)).toEqual(Buffer.from([2]));
   });
+
+  it.each([
+    '[目标](目标.md)\n',
+    '[[目标]]\n',
+    '[目标][ref]\n\n[ref]: 目标.md\n',
+    '![图](图.png)\n[目标](目标.md)\n',
+  ])(
+    'refuses legacy relative note links without origin evidence instead of opening a different same-name note: %j',
+    async (content) => {
+      const oldDirectory = path.join(notes, '旧位置');
+      const newDirectory = path.join(notes, '新位置');
+      await mkdir(oldDirectory);
+      await mkdir(newDirectory);
+      const source = path.join(oldDirectory, 'A.md');
+      const destination = path.join(newDirectory, 'A.md');
+      const originalTarget = path.join(oldDirectory, '目标.md');
+      const otherTarget = path.join(newDirectory, '目标.md');
+      const image = path.join(oldDirectory, '图.png');
+      await writeFile(image, Buffer.from([1, 2, 3]));
+      await writeFile(originalTarget, '原目标');
+      await writeFile(otherTarget, '另一份同名目标');
+      await writeFile(source, content);
+      const baseline = await edit(source, '必须保留的当前正文');
+      await store.moveFile(source, destination);
+      await writeFile(image, Buffer.from([7, 8, 9]));
+      await restartWithLegacyIndex();
+      const histories = await store.listHistory();
+      const assets = await readdir(path.join(notes, 'assets'));
+      const originals = await readdir(oldDirectory);
+      await expect(store.restoreHistory(baseline.id)).rejects.toThrow(
+        /旧版历史未记录原目录.*复制历史正文/,
+      );
+      expect(await readFile(destination, 'utf8')).toBe('必须保留的当前正文');
+      expect(await readFile(originalTarget, 'utf8')).toBe('原目标');
+      expect(await readFile(otherTarget, 'utf8')).toBe('另一份同名目标');
+      expect(await readFile(image)).toEqual(Buffer.from([7, 8, 9]));
+      expect(await readdir(oldDirectory)).toEqual(originals);
+      expect(await store.listHistory()).toEqual(histories);
+      expect(await readdir(path.join(notes, 'assets'))).toEqual(assets);
+    },
+  );
+
+  it('restores legacy text with anchors, external links and code literals without requiring an old directory', async () => {
+    const source = path.join(notes, 'A.md');
+    const destination = path.join(notes, '新位置', 'A.md');
+    const original =
+      '\ufeff# 原文\r\n[段内](#原文)\r\n[网页](https://example.invalid/help)\r\n\r\n```md\r\n[字面](目标.md)\r\n```\r\n';
+    await writeFile(source, original);
+    const baseline = await edit(source, '当前正文');
+    await store.moveFile(source, destination);
+    await restartWithLegacyIndex();
+    await store.restoreHistory(baseline.id);
+    expect(await readFile(destination, 'utf8')).toBe(original);
+  });
+
+  it('rebases a moved note without images when the snapshot records its actual source path', async () => {
+    const oldDirectory = path.join(notes, '旧位置');
+    const newDirectory = path.join(notes, '新位置');
+    await mkdir(oldDirectory);
+    await mkdir(newDirectory);
+    const source = path.join(oldDirectory, 'A.md');
+    const destination = path.join(newDirectory, 'A.md');
+    const target = path.join(oldDirectory, '目标.md');
+    await writeFile(target, '原目标');
+    await writeFile(path.join(newDirectory, '目标.md'), '另一份同名目标');
+    await writeFile(source, '[目标](目标.md)\n');
+    const baseline = await edit(source, '当前正文');
+    await store.moveFile(source, destination);
+    const restored = await store.restoreHistory(baseline.id);
+    const link = extractLinks(restored.content).find((link) => !link.image)!;
+    expect((await store.openLinkedFile(destination, link.target))?.path).toBe(target);
+  });
 });

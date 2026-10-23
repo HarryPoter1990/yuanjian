@@ -831,6 +831,23 @@ export class NoteStore {
         );
       if (!recordedSource && inferredDirectories.size === 1)
         sourcePath = path.join([...inferredDirectories][0], path.basename(file));
+      if (
+        !recordedSource &&
+        inferredDirectories.size === 0 &&
+        extractLinks(content).some((link) => {
+          if (link.image) return false;
+          let target = link.target.split('#')[0];
+          try {
+            target = decodeURIComponent(target);
+          } catch {
+            /* keep literal */
+          }
+          return !!target && !path.isAbsolute(target) && !/^[a-z][a-z\d+.-]*:/i.test(target);
+        })
+      )
+        throw new Error(
+          '旧版历史未记录原目录，无法安全调整相对链接；当前笔记和附件已保留。请复制历史正文核对链接后再恢复。',
+        );
       if (current) await this.history.snapshot(file, current.toString('utf8'), '恢复前');
       const destinations = new Map<string, string>();
       for (const image of images)
