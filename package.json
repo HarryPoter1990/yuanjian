@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write --ignore-unknown src electron tests e2e scripts *.ts *.html *.json",
     "test": "vitest run",
+    "test:headless": "vitest run --exclude tests/editor-browser.test.ts",
+    "verify": "npm run typecheck && npm run test:headless && npm run build",
     "build": "vite build && node scripts/build-electron.mjs && node scripts/licenses.mjs",
     "test:e2e": "playwright test",
     "verify:sticky-ui": "node scripts/verify-sticky-headless.mjs",
@@ -22,7 +24,8 @@
     "verify:sticky-native": "node scripts/check-sticky-native-hit.mjs",
     "verify:heading": "node scripts/check-heading-interactions.mjs",
     "verify:crlf": "node scripts/check-crlf-autosave.mjs",
-    "package": "npm run build && node scripts/package.mjs",
+    "verify:audit": "node scripts/check-audit-interactions.mjs",
+    "package": "npm run verify && node scripts/package.mjs",
     "start": "electron ."
   },
   "dependencies": {

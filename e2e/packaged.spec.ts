@@ -61,7 +61,7 @@ test('packaged executable runs offline and preserves notes, history, fonts and d
     const startupMs = Date.now() - started;
     await expect(page).toHaveTitle('鸢笺 · Yuanjian');
     await expect(page.locator('.app-brand')).toContainText('鸢笺');
-    await expect(page.locator('.app-brand')).toContainText('Yuanjian');
+    await expect(page.locator('.app-brand .iris-logo')).toHaveAttribute('src', './yuanjian.png');
     expect(await app!.evaluate(({ app }) => app.getName())).toBe('鸢笺');
     const memory = await app!.evaluate(({ app }) =>
       app
