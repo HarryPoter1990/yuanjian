@@ -3,6 +3,7 @@ import {
   Compartment,
   EditorSelection,
   EditorState,
+  Text,
   Transaction,
   type Extension,
 } from '@codemirror/state';
@@ -290,12 +291,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     useEffect(() => {
       if (!host.current) return;
       let plainPaste = false;
+      const initialDoc = Text.of(propsRef.current.value.split(/\r\n?|\n/));
       const view = new EditorView({
         parent: host.current,
         state: EditorState.create({
-          doc: propsRef.current.value,
+          doc: initialDoc,
           selection: {
-            anchor: Math.min(propsRef.current.initialCursor ?? 0, propsRef.current.value.length),
+            anchor: Math.min(propsRef.current.initialCursor ?? 0, initialDoc.length),
           },
           extensions: [
             history(),
@@ -443,11 +445,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     useEffect(() => {
       const view = viewRef.current;
-      if (!view || view.state.doc.toString() === props.value) return;
+      if (!view) return;
+      const content = view.state.toText(props.value);
+      if (view.state.doc.eq(content)) return;
       const from = view.state.selection.main.head;
       view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: props.value },
-        selection: { anchor: Math.min(from, props.value.length) },
+        changes: { from: 0, to: view.state.doc.length, insert: content },
+        selection: { anchor: Math.min(from, content.length) },
         annotations: Transaction.addToHistory.of(false),
       });
     }, [props.value]);
