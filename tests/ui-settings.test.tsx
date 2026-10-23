@@ -9,6 +9,8 @@ import type { Settings } from '../src/shared/types';
 
 let host: HTMLDivElement;
 let root: Root;
+let currentSettings: Settings;
+let replaceSettings: (settings: Settings) => void;
 const saved = vi.fn<(settings: Settings) => void>();
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -29,6 +31,8 @@ beforeEach(async () => {
   saved.mockClear();
   function Harness() {
     const [settings, setSettings] = useState(structuredClone(defaultSettings));
+    currentSettings = settings;
+    replaceSettings = setSettings;
     return (
       <SettingsPanel
         settings={settings}
@@ -135,4 +139,12 @@ it('names shortcut inputs in Chinese and exposes a conflict with a per-action re
   await act(async () => result('恢复保存默认快捷键')!.click());
   expect(field.value).toBe(defaultSettings.shortcuts.save);
   expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it('retains the exclusion draft when a settings reply only clones the same saved values', async () => {
+  await type('搜索设置', '索引排除目录');
+  await act(async () => result('编辑与文件 · 索引排除目录')!.click());
+  const draft = defaultSettings.excluded.join('\n') + '\n正在输入';
+  const field = await type('索引排除目录', draft);
+  await act(async () => replaceSettings(structuredClone(currentSettings)));
+  expect(field.value).toBe(draft);
 });

@@ -93,7 +93,8 @@ export function SettingsPanel({
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
-  const [excludedDraft, setExcludedDraft] = useState(settings.excluded.join('\n'));
+  const excludedValue = settings.excluded.join('\n');
+  const [excludedDraft, setExcludedDraft] = useState(excludedValue);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [fontQuery, setFontQuery] = useState('');
   const [original] = useState(() => structuredClone(settings.appearance));
@@ -107,7 +108,7 @@ export function SettingsPanel({
   const searching = Boolean(query.trim());
   const results = searchSettings(query);
   const visible = searching ? 'search' : section;
-  useEffect(() => setExcludedDraft(settings.excluded.join('\n')), [settings.excluded]);
+  useEffect(() => setExcludedDraft(excludedValue), [excludedValue]);
   useEffect(() => {
     if (!highlight || searching) return;
     const target = [
