@@ -1875,9 +1875,6 @@ button.danger {
   .document-heading {
     padding: 0 12px;
   }
-  .mode-button span {
-    display: none;
-  }
   .status-bar > div {
     gap: 8px;
   }
@@ -2262,6 +2259,22 @@ button.danger {
 }
 .mode-button {
   font-size: 12px;
+}
+.document-actions .mode-button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 6px 8px;
+  color: var(--foreground);
+}
+.document-actions .save-button {
+  min-width: 66px;
+  color: var(--accent);
+}
+.toolbar-label {
+  flex: none;
+  margin-right: 8px;
+  font-size: 11px;
+  color: var(--muted);
 }
 .status-bar {
   min-height: 30px;

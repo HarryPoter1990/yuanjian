@@ -774,6 +774,10 @@ export function SettingsPanel({
                 应用快捷键
               </h4>
               <p className="subtle">格式：Ctrl+s、Ctrl+Shift+m。输入框中按下组合键即可记录。</p>
+              <p className="subtle">
+                Ctrl+Tab / Ctrl+Shift+Tab 切换标签，Ctrl+W
+                关闭当前笔记。聚焦标签栏后，可用左右方向键或 Home / End 导航。
+              </p>
               {Object.entries(settings.shortcuts).map(([key, value]) => (
                 <Field
                   key={key}

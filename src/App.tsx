@@ -48,7 +48,13 @@ import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from '
 import { MarkdownEditor } from './editor/MarkdownEditor';
 import type { EditorCommand, MarkdownEditorHandle } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
-import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
+import {
+  DropdownMenu,
+  IconButton,
+  Modal,
+  OperationContext,
+  tabListKeys,
+} from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -589,7 +595,30 @@ export default function App() {
       const action = Object.entries(settings.shortcuts).find(([, shortcut]) =>
         matchesShortcut(event, shortcut),
       )?.[0];
-      if (!action) return;
+      if (!action) {
+        if (!event.ctrlKey || event.altKey || event.metaKey) return;
+        if (event.key === 'Tab') {
+          const count = tabs.length + (graphOpen ? 1 : 0);
+          if (!count) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const current = graphActive ? tabs.length : tabs.findIndex((tab) => tab.id === activeId);
+          const next = (current + (event.shiftKey ? -1 : 1) + count) % count;
+          setGraphActive(next === tabs.length);
+          if (next < tabs.length) {
+            workspace.setActiveId(tabs[next].id);
+            setTimeout(() => editor.current?.focus(), 0);
+          }
+        } else if (event.key.toLowerCase() === 'w' && !event.shiftKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (graphActive) {
+            setGraphOpen(false);
+            setGraphActive(false);
+          } else if (active) void requestClose(active.id);
+        }
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       switch (action) {
@@ -626,6 +655,10 @@ export default function App() {
     workspace.save,
     updateTab,
     setPanel,
+    tabs,
+    activeId,
+    graphOpen,
+    graphActive,
   ]);
   useEffect(() => {
     if (panel !== 'preview' || !active || !preview.current) return;
@@ -888,7 +921,13 @@ export default function App() {
   } as CSSProperties;
   const line = active ? active.content.slice(0, active.cursor).split('\n').length : 1;
   const tabStrip = (
-    <div ref={tabScroller} className="tabs-bar" role="tablist" aria-label="打开的笔记">
+    <div
+      ref={tabScroller}
+      className="tabs-bar"
+      role="tablist"
+      aria-label="打开的笔记"
+      onKeyDown={tabListKeys}
+    >
       {tabs.map((tab) => (
         <div
           className={`document-tab ${!graphActive && tab.id === activeId ? 'active' : ''}`}
@@ -896,7 +935,10 @@ export default function App() {
         >
           <button
             role="tab"
+            id={`document-tab-${tab.id}`}
+            aria-controls="document-panel"
             aria-selected={!graphActive && tab.id === activeId}
+            tabIndex={!graphActive && tab.id === activeId ? 0 : -1}
             title={tab.path || '未命名草稿'}
             onClick={() => {
               workspace.setActiveId(tab.id);
@@ -907,19 +949,31 @@ export default function App() {
             <span>{tab.title}</span>
             {tab.dirty && <i aria-label="有未保存修改" />}
           </button>
-          <IconButton label={`关闭 ${tab.title}`} onClick={() => void requestClose(tab.id)}>
+          <IconButton
+            label={`关闭 ${tab.title}`}
+            tabIndex={!graphActive && tab.id === activeId ? 0 : -1}
+            onClick={() => void requestClose(tab.id)}
+          >
             <X size={13} />
           </IconButton>
         </div>
       ))}
       {graphOpen && (
         <div className={`document-tab ${graphActive ? 'active' : ''}`}>
-          <button role="tab" aria-selected={graphActive} onClick={openGraph}>
+          <button
+            role="tab"
+            id="document-tab-graph"
+            aria-controls="document-panel"
+            aria-selected={graphActive}
+            tabIndex={graphActive ? 0 : -1}
+            onClick={openGraph}
+          >
             <Network size={14} />
             <span>关系图谱</span>
           </button>
           <IconButton
             label="关闭关系图谱"
+            tabIndex={graphActive ? 0 : -1}
             onClick={() => {
               setGraphOpen(false);
               setGraphActive(false);
@@ -1213,6 +1267,9 @@ export default function App() {
                 role="separator"
                 aria-label="调整左侧栏宽度"
                 aria-orientation="vertical"
+                aria-valuemin={175}
+                aria-valuemax={440}
+                aria-valuenow={settings.leftWidth}
                 tabIndex={0}
                 className="panel-resizer"
                 hidden={!panels.left}
@@ -1230,7 +1287,15 @@ export default function App() {
               />
             </>
           }
-          <section className="editor-column" aria-label="笔记编辑区">
+          <section
+            className="editor-column"
+            id="document-panel"
+            role="tabpanel"
+            aria-labelledby={
+              graphActive ? 'document-tab-graph' : active ? `document-tab-${active.id}` : undefined
+            }
+            aria-label="笔记编辑区"
+          >
             {graphActive && graphOpen ? (
               <GraphView
                 index={workspace.index}
@@ -1275,6 +1340,16 @@ export default function App() {
                                 : '另存为'}
                         </span>
                       </button>
+                      <button
+                        className="mode-button"
+                        title={`${active.mode === 'source' ? '切换到即时排版' : '切换到完整源码'} · ${settings.shortcuts.mode}`}
+                        onClick={() =>
+                          updateTab(active.id, { mode: active.mode === 'live' ? 'source' : 'live' })
+                        }
+                      >
+                        {active.mode === 'source' ? <Code2 size={14} /> : <AlignLeft size={14} />}
+                        <span>{active.mode === 'source' ? '源码' : '即时排版'}</span>
+                      </button>
                       <div className="menu-anchor">
                         <IconButton
                           label="笔记操作菜单"
@@ -1284,87 +1359,82 @@ export default function App() {
                           <Ellipsis size={19} />
                         </IconButton>
                         {menu && (
-                          <>
-                            <button
-                              className="menu-dismiss"
-                              aria-label="关闭笔记菜单"
-                              onClick={() => setMenu(false)}
-                            />
-                            <div className="dropdown-menu" role="menu">
-                              {[
-                                [
-                                  '从模板新建',
-                                  () => {
-                                    setJournalChoice(null);
-                                    setNewTemplate(
-                                      settings.templates.find((item) => item.kind === 'note')?.id ||
-                                        '',
-                                    );
-                                    setPanel('new');
-                                  },
-                                ],
-                                ['查找与替换', () => editor.current?.command('replace')],
-                                ['阅读预览', () => setPanel('preview')],
-                                ...(active.path
-                                  ? ([
-                                      ['版本历史', () => setPanel('history')],
-                                      [
-                                        '移动 / 重命名',
-                                        () => {
-                                          setMovePath(active.path!);
-                                          setPanel('move');
-                                        },
-                                      ],
-                                      ...(remoteImages.length
-                                        ? ([
-                                            [
-                                              '网络图片本地化',
-                                              () => {
-                                                setLocalizeTarget('');
-                                                setPanel('localize');
-                                              },
-                                            ],
-                                          ] as [string, () => void][])
-                                        : []),
-                                      ['移入系统回收站', () => setPanel('delete')],
-                                    ] as [string, () => void][])
-                                  : []),
-                                ['导出 PDF', () => void exportNote('pdf')],
-                                ['导出 HTML', () => void exportNote('html')],
-                                ...(active.path
-                                  ? ([
-                                      ['导出 Markdown 与附件 ZIP', () => void exportNote('zip')],
-                                    ] as [string, () => void][])
-                                  : []),
-                                [
-                                  '检查未引用附件',
-                                  () =>
-                                    void run('准备附件检查', async () => {
-                                      await workspace.persistSession();
-                                      setPanel('attachments');
-                                    }),
-                                ],
-                              ].map(([label, action]) => (
-                                <button
-                                  role="menuitem"
-                                  key={String(label)}
-                                  onClick={() => {
-                                    setMenu(false);
-                                    if (typeof action === 'function') action();
-                                  }}
-                                >
-                                  {String(label)}
-                                </button>
-                              ))}
-                            </div>
-                          </>
+                          <DropdownMenu label="笔记操作" onClose={() => setMenu(false)}>
+                            {[
+                              [
+                                '从模板新建',
+                                () => {
+                                  setJournalChoice(null);
+                                  setNewTemplate(
+                                    settings.templates.find((item) => item.kind === 'note')?.id ||
+                                      '',
+                                  );
+                                  setPanel('new');
+                                },
+                              ],
+                              ['查找与替换', () => editor.current?.command('replace')],
+                              ['阅读预览', () => setPanel('preview')],
+                              ...(active.path
+                                ? ([
+                                    ['版本历史', () => setPanel('history')],
+                                    [
+                                      '移动 / 重命名',
+                                      () => {
+                                        setMovePath(active.path!);
+                                        setPanel('move');
+                                      },
+                                    ],
+                                    ...(remoteImages.length
+                                      ? ([
+                                          [
+                                            '网络图片本地化',
+                                            () => {
+                                              setLocalizeTarget('');
+                                              setPanel('localize');
+                                            },
+                                          ],
+                                        ] as [string, () => void][])
+                                      : []),
+                                    ['移入系统回收站', () => setPanel('delete')],
+                                  ] as [string, () => void][])
+                                : []),
+                              ['导出 PDF', () => void exportNote('pdf')],
+                              ['导出 HTML', () => void exportNote('html')],
+                              ...(active.path
+                                ? ([['导出 Markdown 与附件 ZIP', () => void exportNote('zip')]] as [
+                                    string,
+                                    () => void,
+                                  ][])
+                                : []),
+                              [
+                                '检查未引用附件',
+                                () =>
+                                  void run('准备附件检查', async () => {
+                                    await workspace.persistSession();
+                                    setPanel('attachments');
+                                  }),
+                              ],
+                            ].map(([label, action]) => (
+                              <button
+                                role="menuitem"
+                                key={String(label)}
+                                onClick={() => {
+                                  setMenu(false);
+                                  if (typeof action === 'function') action();
+                                }}
+                              >
+                                {String(label)}
+                              </button>
+                            ))}
+                          </DropdownMenu>
                         )}
                       </div>
                     </div>
                   </div>
                   {settings.toolbarVisible && (
-                    <div className="editor-toolbar">
+                    <div className="editor-toolbar" role="toolbar" aria-label="编辑格式">
                       <div className="toolbar-formatting">
+                        <span className="toolbar-label">格式</span>
                         <IconButton label="撤销" onClick={() => editor.current?.command('undo')}>
                           <Undo2 size={16} />
                         </IconButton>
@@ -1432,15 +1502,6 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <button
-                        className="mode-button"
-                        onClick={() =>
-                          updateTab(active.id, { mode: active.mode === 'live' ? 'source' : 'live' })
-                        }
-                      >
-                        {active.mode === 'source' ? <Code2 size={14} /> : <AlignLeft size={14} />}
-                        <span>{active.mode === 'source' ? '源码' : '即时排版'}</span>
-                      </button>
                     </div>
                   )}
                   <div className="editor-surface">
@@ -1509,6 +1570,9 @@ export default function App() {
                 role="separator"
                 aria-label="调整右侧栏宽度"
                 aria-orientation="vertical"
+                aria-valuemin={175}
+                aria-valuemax={440}
+                aria-valuenow={settings.rightWidth}
                 tabIndex={0}
                 className="panel-resizer"
                 hidden={!panels.right}

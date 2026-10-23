@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CalendarDays,
   ChevronDown,
@@ -14,7 +14,7 @@ import {
 } from '../ui/icons';
 import type { FileEntry, NoteMeta, SearchHit, Settings } from '../shared/types';
 import { dateKey, errorText, fileName } from '../ui/model';
-import { Empty, IconButton } from './Controls';
+import { Empty, IconButton, tabListKeys } from './Controls';
 
 type View = 'files' | 'search' | 'tags' | 'calendar';
 interface Props {
@@ -48,6 +48,7 @@ export function Sidebar({
 }: Props) {
   const [view, setView] = useState<View>('files');
   const [query, setQuery] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
   const [scope, setScope] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -101,7 +102,7 @@ export function Sidebar({
   const selectedNotes = index.filter((note) => fileName(note.path).includes(selected));
   return (
     <aside className="sidebar left-sidebar" aria-label="笔记导航" hidden={hidden}>
-      <div className="sidebar-switch" role="tablist" aria-label="导航类型">
+      <div className="sidebar-switch" role="tablist" aria-label="导航类型" onKeyDown={tabListKeys}>
         {(
           [
             ['files', Folder, '文件'],
@@ -113,9 +114,16 @@ export function Sidebar({
           <button
             key={key}
             role="tab"
+            id={`sidebar-tab-${key}`}
+            aria-controls="sidebar-panel"
             aria-selected={view === key}
+            tabIndex={view === key ? 0 : -1}
             title={label}
-            onClick={() => setView(key)}
+            onClick={(event) => {
+              setView(key);
+              if (key === 'search' && event.detail > 0)
+                requestAnimationFrame(() => searchInput.current?.focus());
+            }}
           >
             <Icon size={17} />
             <span>{label}</span>
@@ -139,7 +147,12 @@ export function Sidebar({
           )}
         </div>
       </div>
-      <div className="sidebar-body">
+      <div
+        className="sidebar-body"
+        id="sidebar-panel"
+        role="tabpanel"
+        aria-labelledby={`sidebar-tab-${view}`}
+      >
         {
           <div hidden={view !== 'files'}>
             {settings.roots.length === 0 && (
@@ -189,7 +202,7 @@ export function Sidebar({
             <div className="input-with-icon">
               <Search size={15} />
               <input
-                autoFocus
+                ref={searchInput}
                 aria-label="跨文件搜索"
                 placeholder="搜索笔记"
                 value={query}

@@ -7,6 +7,7 @@ import {
   useState,
   type ButtonHTMLAttributes,
   type ReactNode,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from '../ui/icons';
@@ -16,6 +17,25 @@ export const OperationContext = createContext<{
   notice: { id: string; message: string; error?: boolean } | null;
   shortcuts?: Record<string, string>;
 }>({ busy: '', notice: null });
+
+export function tabListKeys(event: ReactKeyboardEvent<HTMLElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return;
+  const tabs = [
+    ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'),
+  ];
+  const index = tabs.indexOf(event.target as HTMLButtonElement);
+  if (index < 0 || !tabs.length) return;
+  event.preventDefault();
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].click();
+  tabs[next].focus();
+}
 
 export function IconButton({
   label,
@@ -134,7 +154,7 @@ export function DropdownMenu({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement;
-    ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
     return () => {
       if (
         previous instanceof HTMLElement &&

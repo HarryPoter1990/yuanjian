@@ -881,6 +881,114 @@ describe('desktop session and save lifecycle', () => {
     await act(async () => button?.blur());
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
+  it('keeps the source mode switch next to the save state when formatting controls are hidden', async () => {
+    await mount();
+    const settings = { ...structuredClone(defaultSettings), toolbarVisible: false };
+    api.bootstrap = vi.fn(async () => ({
+      settings,
+      session: { tabs: [asTab(note)], activeId: note.id },
+      fonts: [],
+      dataDirectory: 'D:\\data',
+      version: 'test',
+    }));
+    await act(async () => root.render(<App />));
+    expect(host.querySelector('.editor-toolbar')).toBeNull();
+    const mode = host.querySelector<HTMLButtonElement>('.document-actions .mode-button')!;
+    expect(mode.textContent).toBe('即时排版');
+    await act(async () => mode.click());
+    expect(mode.textContent).toBe('源码');
+  });
+  it('focuses the note menu, moves to its last action and restores the trigger with Escape', async () => {
+    await mount();
+    await act(async () => root.render(<App />));
+    const trigger = host.querySelector<HTMLButtonElement>('[aria-label="笔记操作菜单"]')!;
+    await act(async () => {
+      trigger.focus();
+      trigger.click();
+    });
+    const menu = host.querySelector('[role="menu"][aria-label="笔记操作"]')!;
+    expect(document.activeElement).toBe(menu.querySelector('[role="menuitem"]'));
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
+      ),
+    );
+    expect(document.activeElement).toBe([...menu.querySelectorAll('[role="menuitem"]')].at(-1));
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      ),
+    );
+    expect(host.querySelector('[aria-label="笔记操作"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+  it('cycles note tabs with arrows and Ctrl+Tab while Ctrl+W protects an unsaved draft', async () => {
+    const draft = {
+      ...asTab(note),
+      id: 'second',
+      title: '第二份草稿',
+      path: null,
+      content: '必须保留的草稿',
+      dirty: true,
+    };
+    await mount({ tabs: [asTab(note), draft], activeId: note.id });
+    await act(async () => root.render(<App />));
+    const current = host.querySelector<HTMLButtonElement>(
+      '.tabs-bar [role="tab"][aria-selected="true"]',
+    )!;
+    await act(async () => {
+      current.focus();
+      current.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    expect(document.activeElement?.textContent).toContain('第二份草稿');
+    expect(
+      host.querySelector('.tabs-bar [role="tab"][aria-selected="true"]')?.textContent,
+    ).toContain('第二份草稿');
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(
+      host.querySelector('.tabs-bar [role="tab"][aria-selected="true"]')?.textContent,
+    ).toContain('学习');
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(host.querySelector('dialog')?.textContent).toContain('第二份草稿');
+    expect(
+      host.querySelector('.tabs-bar [role="tab"][aria-selected="true"]')?.textContent,
+    ).toContain('第二份草稿');
+  });
+  it('moves sidebar navigation with arrow keys and keeps one tab in the focus order', async () => {
+    await mount();
+    await act(async () => root.render(<App />));
+    const first = host.querySelector<HTMLButtonElement>('.sidebar-switch [role="tab"]')!;
+    await act(async () => {
+      first.focus();
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    expect(document.activeElement?.textContent).toBe('搜索');
+    expect(host.querySelectorAll('.sidebar-switch [role="tab"][tabindex="0"]')).toHaveLength(1);
+  });
   it('protects unsubmitted modal input and restores focus after an explicit discard', async () => {
     await mount();
     const trigger = document.createElement('button');

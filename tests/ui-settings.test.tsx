@@ -5,10 +5,11 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { SettingsPanel } from '../src/components/SettingsPanel';
 import { defaultSettings } from '../src/shared/defaults';
 import { searchSettings } from '../src/ui/settingsSearch';
+import type { Settings } from '../src/shared/types';
 
 let host: HTMLDivElement;
 let root: Root;
-let saved: ReturnType<typeof vi.fn>;
+const saved = vi.fn<(settings: Settings) => void>();
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   window.matchMedia = () => ({ matches: false }) as MediaQueryList;
@@ -25,7 +26,7 @@ beforeEach(async () => {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  saved = vi.fn();
+  saved.mockClear();
   function Harness() {
     const [settings, setSettings] = useState(structuredClone(defaultSettings));
     return (
