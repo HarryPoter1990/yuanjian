@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { createMarkdownParser, renderMarkdown, safeImageUrl } from '../src/editor/renderer';
 import { markdownBlocks, livePreviewField, previewConfig } from '../src/editor/live-preview';
-import { parseTable, serializeTable, splitTableRow } from '../src/editor/table';
+import {
+  parseTable,
+  serializeTable,
+  serializeTableCell,
+  splitTableRow,
+  tableCellRange,
+} from '../src/editor/table';
 import { richTextToMarkdown } from '../src/editor/clipboard';
 import { extractHeadings } from '../src/shared/markdown';
 
@@ -150,6 +156,51 @@ describe('source-preserving block decorations', () => {
 });
 
 describe('table and rich text conversion', () => {
+  it.each([
+    '| old | stay |',
+    'old | stay',
+    '| old | stay',
+    'old | stay |',
+    '  |   old  | stay |  ',
+    '| a\\|b | stay |',
+    '| `a|b` | stay |',
+    '| ``a`|b`` | stay |',
+  ])('locates just the first source cell in %s', (row) => {
+    const source = `| A | B |\n| --- | --- |\n${row}`;
+    const range = tableCellRange(source, 1, 0)!;
+    const original = parseTable(source)!;
+    expect(source.slice(range.from, range.to)).toBe(original.rows[1][0]);
+    const changed = source.slice(0, range.from) + 'new' + source.slice(range.to);
+    expect(parseTable(changed)?.rows[1]).toEqual(['new', 'stay']);
+    expect(changed.slice(range.from + 3)).toBe(source.slice(range.to));
+  });
+  it.each(['|  | stay |', ' | | stay | ', '|   old   | stay |'])(
+    'keeps empty-cell whitespace and neighboring source untouched: %s',
+    (row) => {
+      const source = `| A | B |\n| --- | --- |\n${row}`;
+      const range = tableCellRange(source, 1, 0)!;
+      const changed = source.slice(0, range.from) + 'new' + source.slice(range.to);
+      expect(parseTable(changed)?.rows[1]).toEqual(['new', 'stay']);
+      expect(changed.slice(0, range.from)).toBe(source.slice(0, range.from));
+      expect(changed.slice(range.from + 3)).toBe(source.slice(range.to));
+    },
+  );
+  it.each([0, 1, 2, 3, 4])(
+    'escapes a cell pipe after %i backslashes according to parity',
+    (count) => {
+      const prefix = `a${'\\'.repeat(count)}`;
+      const escaped = serializeTableCell(prefix + '|b');
+      expect(escaped).toBe(prefix + (count % 2 ? '' : '\\') + '|b');
+      expect(splitTableRow(`| ${escaped} | stay |`)).toEqual([escaped, 'stay']);
+    },
+  );
+  it('treats the final pipe after an even number of backslashes as the row edge', () => {
+    const cell = 'a' + '\\'.repeat(2);
+    expect(splitTableRow(`| ${cell}|`)).toEqual([cell]);
+    const source = `| A |\n| --- |\n| ${cell}|`;
+    const range = tableCellRange(source, 1, 0)!;
+    expect(source.slice(range.from, range.to)).toBe(cell);
+  });
   it('keeps escaped pipes and edits only a table serialization', () => {
     expect(splitTableRow('| a\\|b | `c|d` |')).toEqual(['a\\|b', '`c|d`']);
     const table = parseTable('| 姓名 | 分数 |\n| :--- | ---: |\n| 小明 | 95 |');

@@ -134,17 +134,18 @@ class PreviewWidget extends WidgetType {
     };
     for (const image of root.querySelectorAll('img')) image.addEventListener('load', refresh);
     void hydrateMarkdown(root, this.config.resolveAssetAsync).then(refresh);
-    for (const [index, checkbox] of Array.from(
+    for (const checkbox of Array.from(
       root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
-    ).entries()) {
+    )) {
       checkbox.disabled = false;
       checkbox.addEventListener('change', () => {
-        const matches = Array.from(
-          this.block.source.matchAll(/^(?:\s*[-+*]|\s*\d+[.)])\s+\[([ xX])\]/gm),
-        );
-        const match = matches[index];
-        if (!match || match.index === undefined) return;
-        const from = Number(root.dataset.sourceFrom) + match.index + match[0].lastIndexOf('[') + 1;
+        const offset = Number(checkbox.dataset.taskOffset);
+        const from = Number(root.dataset.sourceFrom) + offset;
+        if (
+          !Number.isInteger(offset) ||
+          !/^\[[ xX]\]$/.test(view.state.doc.sliceString(from - 1, from + 2))
+        )
+          return;
         view.dispatch({
           changes: { from, to: from + 1, insert: checkbox.checked ? 'x' : ' ' },
           userEvent: 'input.task',

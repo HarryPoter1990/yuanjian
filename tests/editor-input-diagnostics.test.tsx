@@ -160,10 +160,13 @@ describe('input diagnostics', () => {
         cell.focus();
         cell.value = '候选文字';
         cell.dispatchEvent(new Event('input', { bubbles: true }));
-        cell.dispatchEvent(event);
       });
-      expect(view.state.doc.toString()).toBe(source);
-      expect(onChange).not.toHaveBeenCalled();
+      const typed = source.replace('旧值', '候选文字');
+      expect(view.state.doc.toString()).toBe(typed);
+      const changesBeforeKey = onChange.mock.calls.length;
+      await act(async () => cell.dispatchEvent(event));
+      expect(view.state.doc.toString()).toBe(typed);
+      expect(onChange).toHaveBeenCalledTimes(changesBeforeKey);
       expect(document.activeElement).toBe(cell);
       expect(cell.value).toBe('候选文字');
       expect(event.defaultPrevented).toBe(false);

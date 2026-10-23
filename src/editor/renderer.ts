@@ -186,14 +186,25 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     return `<img${source} data-asset-src="${escapeHtml(reference)}" alt="${escapeHtml(token.content)}" loading="lazy">`;
   };
   md.core.ruler.after('inline', 'task_lists', (state) => {
+    let listDepth = 0;
+    const lines = state.src.split('\n');
+    const starts = [0];
+    for (const line of lines) starts.push(starts[starts.length - 1] + line.length + 1);
     for (const token of state.tokens) {
+      if (token.type === 'list_item_open') listDepth++;
+      if (token.type === 'list_item_close') listDepth--;
+      if (!listDepth) continue;
       if (token.type !== 'inline' || !token.children) continue;
       const first = token.children[0];
-      const match = first?.type === 'text' && first.content.match(/^\[([ xX])\]\s/);
+      const match = first?.type === 'text' && token.content.match(/^\[([ xX])\]\s/);
       if (match) {
+        const line = token.map?.[0];
+        const within = line === undefined ? -1 : lines[line].indexOf(token.content.split('\n')[0]);
+        if (line === undefined || within < 0) continue;
+        const offset = starts[line] + within + 1;
         first.content = first.content.slice(match[0].length);
         const checkbox = new state.Token('html_inline', '', 0);
-        checkbox.content = `<input type="checkbox" disabled${match[1] !== ' ' ? ' checked' : ''} aria-label="任务状态"> `;
+        checkbox.content = `<input type="checkbox" data-task-offset="${offset}" disabled${match[1] !== ' ' ? ' checked' : ''} aria-label="任务状态"> `;
         token.children.unshift(checkbox);
       }
     }
@@ -220,7 +231,7 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
   const html = createMarkdownParser(options).render(withoutFrontmatter(markdown));
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, svg: true, mathMl: true },
-    ADD_ATTR: ['data-code', 'data-mermaid', 'data-asset-src', 'loading'],
+    ADD_ATTR: ['data-code', 'data-mermaid', 'data-asset-src', 'data-task-offset', 'loading'],
     ALLOWED_URI_REGEXP:
       /^(?:(?:https?|mailto|tel|blob|note-asset):|data:image\/(?:png|jpe?g|gif|webp|avif);|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
   });

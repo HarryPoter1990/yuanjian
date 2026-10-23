@@ -1,5 +1,13 @@
 import { WidgetType, type EditorView } from '@codemirror/view';
-import { parseTable, serializeTable, type Alignment } from './table';
+import {
+  parseTable,
+  serializeTable,
+  serializeTableCell,
+  tableCellRange,
+  type Alignment,
+} from './table';
+
+const gridStates = new WeakMap<HTMLElement, { update(source: string): boolean }>();
 
 export class TableWidget extends WidgetType {
   constructor(
@@ -13,7 +21,8 @@ export class TableWidget extends WidgetType {
     return this.source === other.source && this.from === other.from && this.to === other.to;
   }
   updateDOM(container: HTMLElement, _view: EditorView, previous: TableWidget): boolean {
-    if (this.source !== previous.source) return false;
+    if (this.source !== previous.source && !gridStates.get(container)?.update(this.source))
+      return false;
     container.dataset.tableFrom = String(this.from);
     container.dataset.tableTo = String(this.to);
     return true;
@@ -27,14 +36,39 @@ export class TableWidget extends WidgetType {
     container.setAttribute('aria-label', 'Markdown 表格网格编辑');
     const table = parseTable(this.source);
     if (!table) return container;
+    let currentSource = this.source;
+    const inputs: HTMLInputElement[][] = [];
+    gridStates.set(container, {
+      update(source) {
+        const next = parseTable(source);
+        if (
+          !next ||
+          next.rows.length !== inputs.length ||
+          next.alignments.length !== inputs[0]?.length
+        )
+          return false;
+        if (source === currentSource) return true;
+        currentSource = source;
+        table.rows = next.rows;
+        table.alignments = next.alignments;
+        inputs.forEach((row, r) =>
+          row.forEach((input, c) => {
+            if (input.value !== table.rows[r][c]) input.value = table.rows[r][c];
+            input.style.textAlign = table.alignments[c] === 'none' ? 'left' : table.alignments[c];
+          }),
+        );
+        return true;
+      },
+    });
     let rowIndex = 0;
     let columnIndex = 0;
     const commit = (): void => {
       const keepFocus = container.contains(document.activeElement);
       const from = Number(container.dataset.tableFrom);
       const to = Number(container.dataset.tableTo);
-      if (view.state.doc.sliceString(from, to) !== this.source) return;
+      if (view.state.doc.sliceString(from, to) !== currentSource) return;
       const insert = serializeTable(table);
+      currentSource = insert;
       view.dispatch({ changes: { from, to, insert }, userEvent: 'input.table' });
       if (keepFocus)
         queueMicrotask(() =>
@@ -99,40 +133,39 @@ export class TableWidget extends WidgetType {
     const grid = document.createElement('table');
     grid.style.minWidth = `${table.alignments.length * 128}px`;
     table.rows.forEach((row, rowNumber) => {
+      inputs[rowNumber] = [];
       const tr = document.createElement('tr');
       row.forEach((value, columnNumber) => {
         const td = document.createElement(rowNumber === 0 ? 'th' : 'td');
         const input = document.createElement('input');
         input.value = value;
+        let originalValue = value;
         input.setAttribute('aria-label', `表格第 ${rowNumber + 1} 行第 ${columnNumber + 1} 列`);
         input.style.textAlign =
           table.alignments[columnNumber] === 'none' ? 'left' : table.alignments[columnNumber];
         input.addEventListener('focus', () => {
           rowIndex = rowNumber;
           columnIndex = columnNumber;
+          originalValue = input.value;
         });
-        input.addEventListener('input', () => {
+        const writeCell = () => {
           table.rows[rowNumber][columnNumber] = input.value;
-        });
+          const range = tableCellRange(currentSource, rowNumber, columnNumber);
+          const from = Number(container.dataset.tableFrom);
+          const to = Number(container.dataset.tableTo);
+          if (!range || view.state.doc.sliceString(from, to) !== currentSource) return;
+          const insert = serializeTableCell(input.value);
+          if (currentSource.slice(range.from, range.to) === insert) return;
+          currentSource =
+            currentSource.slice(0, range.from) + insert + currentSource.slice(range.to);
+          view.dispatch({
+            changes: { from: from + range.from, to: from + range.to, insert },
+            userEvent: 'input.table',
+          });
+        };
+        input.addEventListener('input', writeCell);
         input.dataset.row = String(rowNumber);
         input.dataset.column = String(columnNumber);
-        input.addEventListener('blur', (event) => {
-          if (input.value === value) return;
-          const next =
-            event.relatedTarget instanceof HTMLInputElement &&
-            container.contains(event.relatedTarget)
-              ? { row: event.relatedTarget.dataset.row, column: event.relatedTarget.dataset.column }
-              : null;
-          commit();
-          if (next)
-            queueMicrotask(() =>
-              view.dom
-                .querySelector<HTMLInputElement>(
-                  `[data-table-from="${container.dataset.tableFrom}"] input[data-row="${next.row}"][data-column="${next.column}"]`,
-                )
-                ?.focus(),
-            );
-        });
         input.addEventListener('keydown', (event) => {
           if (event.isComposing || event.keyCode === 229) return;
           if (event.key === 'Enter') {
@@ -140,13 +173,14 @@ export class TableWidget extends WidgetType {
             input.blur();
           }
           if (event.key === 'Escape') {
-            input.value = value;
-            table.rows[rowNumber][columnNumber] = value;
+            input.value = originalValue;
+            writeCell();
             input.blur();
             view.focus();
           }
         });
         td.append(input);
+        inputs[rowNumber][columnNumber] = input;
         tr.append(td);
       });
       grid.append(tr);
