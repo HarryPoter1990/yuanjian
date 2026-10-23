@@ -107,6 +107,7 @@ try {
       input.focus();
       input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
       input.value = 'zhong';
+      input.setSelectionRange(3, 3);
       input.dispatchEvent(
         new InputEvent('input', {
           bubbles: true,
@@ -115,6 +116,7 @@ try {
           isComposing: true,
         }),
       );
+      const sourceBeforeKey = window.view.state.doc.toString();
       const key = new KeyboardEvent('keydown', {
         key: 'Enter',
         keyCode: 229,
@@ -127,6 +129,9 @@ try {
         remainedFocused: document.activeElement === input,
         prevented: key.defaultPrevented,
         source: window.view.state.doc.toString(),
+        sourceBeforeKey,
+        sameNode: input.isConnected,
+        caret: [input.selectionStart, input.selectionEnd],
       };
     });
   const expectedProse = prose.slice(0, expectedPosition) + '插入' + prose.slice(expectedPosition);
@@ -135,7 +140,7 @@ try {
     imeScope: 'Synthetic composition events only; physical Windows IME not verified.',
     preview: { point, expectedPosition, actualPosition, expectedProse, actualProse },
     positions,
-    ime: { ...ime, expectedSource: table, expectedFocus: true },
+    ime: { ...ime, expectedSource: table.replace('| 旧 |', '| zhong |'), expectedFocus: true },
     errors,
   };
   await writeFile(path.join(output, 'result.json'), JSON.stringify(results, null, 2));
@@ -159,11 +164,7 @@ try {
     failures.push(error);
   }
   try {
-    assert.equal(
-      ime.remainedFocused,
-      true,
-      'composition Enter must not blur or commit a table input',
-    );
+    assert.equal(ime.remainedFocused, true, 'composition Enter must not blur the table input');
   } catch (error) {
     failures.push(error);
   }
@@ -173,7 +174,18 @@ try {
     failures.push(error);
   }
   try {
-    assert.equal(ime.source, table, 'in-progress composition must not modify the document');
+    assert.equal(
+      ime.sourceBeforeKey,
+      table.replace('| 旧 |', '| zhong |'),
+      'cell input must enter the document immediately',
+    );
+    assert.equal(
+      ime.source,
+      ime.sourceBeforeKey,
+      'composition Enter must not add a document change',
+    );
+    assert.equal(ime.sameNode, true, 'input updates must preserve the active DOM node');
+    assert.deepEqual(ime.caret, [3, 3], 'input updates must preserve the native cell caret');
   } catch (error) {
     failures.push(error);
   }

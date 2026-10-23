@@ -134,8 +134,19 @@ try {
   for (const key of ['Enter', 'Escape']) {
     await reset(table, 'live');
     const cell = page.getByRole('textbox', { name: '表格第 2 行第 1 列', exact: true });
-    await cell.fill('候选文字');
+    await cell.focus();
     const composing = await cell.evaluate((element, key) => {
+      element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+      element.value = '候选文字';
+      element.setSelectionRange(2, 2);
+      element.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          inputType: 'insertCompositionText',
+          data: '候选文字',
+          isComposing: true,
+        }),
+      );
       const event = new KeyboardEvent('keydown', {
         key,
         keyCode: 229,
@@ -148,14 +159,50 @@ try {
         prevented: event.defaultPrevented,
         focused: document.activeElement === element,
         value: element.value,
+        caret: [element.selectionStart, element.selectionEnd],
       };
     }, key);
-    assert.deepEqual(composing, { prevented: false, focused: true, value: '候选文字' });
-    assert.equal(await page.evaluate(() => window.editorInputFixture.state().source), table);
+    assert.deepEqual(composing, {
+      prevented: false,
+      focused: true,
+      value: '候选文字',
+      caret: [2, 2],
+    });
+    // Cell input is the document truth immediately; composing keys must not undo it or blur.
+    assert.equal(
+      await page.evaluate(() => window.editorInputFixture.state().source),
+      table.replace('旧值', '候选文字'),
+    );
+    const completed = await cell.evaluate((element) => {
+      const sameInput = element;
+      element.dispatchEvent(
+        new CompositionEvent('compositionend', { bubbles: true, data: '最终文字' }),
+      );
+      element.value = '最终文字';
+      element.setSelectionRange(3, 3);
+      element.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          inputType: 'insertText',
+          data: '最终文字',
+          isComposing: false,
+        }),
+      );
+      return {
+        sameNode: element.isConnected && document.activeElement === sameInput,
+        value: element.value,
+        caret: [element.selectionStart, element.selectionEnd],
+      };
+    });
+    assert.deepEqual(completed, { sameNode: true, value: '最终文字', caret: [3, 3] });
+    assert.equal(
+      await page.evaluate(() => window.editorInputFixture.state().source),
+      table.replace('旧值', '最终文字'),
+    );
     await page.keyboard.press(key);
     await expect
       .poll(() => page.evaluate(() => window.editorInputFixture.state().source))
-      .toBe(key === 'Enter' ? table.replace('旧值', '候选文字') : table);
+      .toBe(key === 'Enter' ? table.replace('旧值', '最终文字') : table);
     results.push({
       name: `table ${key} composing guard and normal key`,
       syntheticCompositionOnly: true,
