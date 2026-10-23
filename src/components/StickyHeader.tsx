@@ -27,6 +27,7 @@ export function StickyHeader({
   const [menu, setMenu] = useState<'notes' | 'more' | null>(null);
   return (
     <header className="sticky-header" aria-label="便笺标题栏">
+      <div className="sticky-drag-handle" title="按住此处拖动便笺" aria-hidden="true" />
       <div className="menu-anchor sticky-title-anchor">
         <button
           className="sticky-title"

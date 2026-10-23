@@ -224,10 +224,77 @@ try {
       ),
     ).toBe(true);
   };
+  const dragGeometry = [];
+  const checkStickyGrabArea = async () => {
+    const geometry = await page.evaluate(() => {
+      const header = document.querySelector('.sticky-header');
+      const grip = header.querySelector('.sticky-drag-handle');
+      if (!grip) throw new Error('Sticky window is missing its drag handle');
+      const box = (element) => {
+        const { left, right, top, bottom, width, height } = element.getBoundingClientRect();
+        return { left, right, top, bottom, width, height };
+      };
+      const dragAt = (x, y) => {
+        let drag = false;
+        for (
+          let element = document.elementFromPoint(x, y);
+          element;
+          element = element.parentElement
+        ) {
+          const region = getComputedStyle(element).getPropertyValue('-webkit-app-region');
+          if (region === 'no-drag') return false;
+          if (region === 'drag') drag = true;
+        }
+        return drag;
+      };
+      const gripBox = box(grip);
+      const headerBox = box(header);
+      const controls = [...header.querySelectorAll('button')].map((element) => {
+        const bounds = box(element);
+        return {
+          ...bounds,
+          label: element.getAttribute('aria-label'),
+          drag: dragAt((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2),
+        };
+      });
+      return {
+        width: innerWidth,
+        header: headerBox,
+        grip: gripBox,
+        fullGripDraggable: [0.2, 0.5, 0.8].every((fraction) =>
+          [0.1, 0.5, 0.9].every((x) =>
+            dragAt(gripBox.left + gripBox.width * x, gripBox.top + gripBox.height * fraction),
+          ),
+        ),
+        controls,
+        controlsDoNotOverlap: controls.every(
+          (control, index) =>
+            control.left >= gripBox.right &&
+            control.right <= headerBox.right - 138 &&
+            controls.every(
+              (other, otherIndex) =>
+                index === otherIndex || control.right <= other.left || control.left >= other.right,
+            ),
+        ),
+        bodyDraggable: dragAt(40, headerBox.bottom + 80),
+        fits: document.documentElement.scrollWidth <= innerWidth,
+      };
+    });
+    expect(geometry.grip.width).toBeGreaterThanOrEqual(32);
+    expect(geometry.grip.height).toBeGreaterThanOrEqual(geometry.header.height - 1);
+    expect(geometry.fullGripDraggable).toBe(true);
+    expect(geometry.controls).toHaveLength(4);
+    expect(geometry.controls.every((control) => control.width >= 24 && !control.drag)).toBe(true);
+    expect(geometry.controlsDoNotOverlap).toBe(true);
+    expect(geometry.bodyDraggable).toBe(false);
+    expect(geometry.fits).toBe(true);
+    dragGeometry.push(geometry);
+  };
   await enter();
   await page.setViewportSize({ width: 420, height: 640 });
   await expect(page.locator('.app')).toHaveAttribute('data-window-mode', 'sticky');
   await checkSameEditor();
+  await checkStickyGrabArea();
   await expect(page.getByRole('button', { name: '便笺始终置顶', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -301,6 +368,15 @@ try {
   await page.setViewportSize({ width: 320, height: 280 });
   await expect(page.getByRole('button', { name: '返回完整窗口', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '便笺更多操作', exact: true })).toBeVisible();
+  await checkStickyGrabArea();
+  await page.getByRole('button', { name: '切换便笺笔记', exact: true }).click();
+  await expect(page.getByRole('menu', { name: '便笺笔记', exact: true })).toBeVisible();
+  await page
+    .getByRole('menu', { name: '便笺笔记', exact: true })
+    .getByRole('menuitem')
+    .filter({ hasText: '便笺验收' })
+    .click();
+  await expect(page.locator('.cm-content')).toContainText('便笺验收');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(output, 'sticky-small.png') });
   await page.setViewportSize({ width: 420, height: 640 });
@@ -348,6 +424,7 @@ try {
     failedModeChangeProtected: true,
     settingsWrites: fixtureState.settingsWrites.length,
     dividerGeometry,
+    dragGeometry,
     modeCalls: fixtureState.modeCalls,
     errors,
   };
