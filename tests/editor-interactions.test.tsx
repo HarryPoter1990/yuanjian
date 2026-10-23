@@ -379,6 +379,9 @@ describe('mounted CodeMirror editor', () => {
     ).find((button) => button.textContent === '居中');
     await act(async () => align?.click());
     expect(editor().state.doc.toString()).toContain(':---:');
+    expect(
+      host.querySelector<HTMLInputElement>('[aria-label="表格第 1 行第 1 列"]')?.style.textAlign,
+    ).toBe('center');
     expect(editor().state.doc.toString().startsWith('开头  不改\n\n')).toBe(true);
     expect(editor().state.doc.toString().endsWith('\n\n结尾  不改')).toBe(true);
     await act(async () => reference.current?.command('undo'));

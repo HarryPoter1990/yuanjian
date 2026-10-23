@@ -68,18 +68,20 @@ function preview(value: string): HTMLElement {
   return block;
 }
 describe('preview selection and heading prefixes', () => {
-  it.each([1, 2, 3, 4, 5, 6])('reserves the editable H%i prefix in its preview', async (level) => {
-    const prefix = `${'#'.repeat(level)} `;
-    const source = `${prefix}标题\n\n尾段`;
-    const { view, onChange } = await mount(source);
-    const marker = host.querySelector(`h${level} .markdown-heading-prefix`);
-    expect(marker?.textContent).toBe(prefix);
-    expect(marker?.getAttribute('aria-hidden')).toBe('true');
-    await act(async () => view.dispatch({ selection: { anchor: 1 } }));
-    expect(host.querySelector(`.cm-heading-source-${level}`)?.textContent).toBe(`${prefix}标题`);
-    expect(view.state.doc.toString()).toBe(source);
-    expect(onChange).not.toHaveBeenCalled();
-  });
+  it.each([1, 2, 3, 4, 5, 6])(
+    'reveals H%i markers only while its source is active',
+    async (level) => {
+      const prefix = `${'#'.repeat(level)} `;
+      const source = `${prefix}标题\n\n尾段`;
+      const { view, onChange } = await mount(source);
+      expect(host.querySelector('.markdown-heading-prefix,.markdown-heading-suffix')).toBeNull();
+      expect(host.querySelector(`h${level}`)?.textContent).toBe('标题');
+      await act(async () => view.dispatch({ selection: { anchor: 1 } }));
+      expect(host.querySelector(`.cm-heading-source-${level}`)?.textContent).toBe(`${prefix}标题`);
+      expect(view.state.doc.toString()).toBe(source);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
   it.each([false, true])(
     'retains a heading drag range and its reversed=%s direction',
     async (reversed) => {
@@ -100,11 +102,11 @@ describe('preview selection and heading prefixes', () => {
       expect(onChange).not.toHaveBeenCalled();
     },
   );
-  it('reserves closing marks and extra leading separator spaces without changing source', async () => {
+  it('omits marker spacing in reading output without changing source', async () => {
     const source = '  ###   标题  ###  \n\n尾段';
     const { view } = await mount(source);
-    expect(host.querySelector('.markdown-heading-prefix')?.textContent).toBe('  ###   ');
-    expect(host.querySelector('.markdown-heading-suffix')?.textContent).toBe('  ###  ');
+    expect(host.querySelector('.markdown-heading-prefix,.markdown-heading-suffix')).toBeNull();
+    expect(host.querySelector('h3')?.textContent).toBe('标题');
     expect(view.state.doc.toString()).toBe(source);
   });
   it.each([false, true])(

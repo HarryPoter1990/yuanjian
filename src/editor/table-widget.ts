@@ -47,10 +47,11 @@ export class TableWidget extends WidgetType {
           next.alignments.length !== inputs[0]?.length
         )
           return false;
-        if (source === currentSource) return true;
-        currentSource = source;
-        table.rows = next.rows;
-        table.alignments = next.alignments;
+        if (source !== currentSource) {
+          currentSource = source;
+          table.rows = next.rows;
+          table.alignments = next.alignments;
+        }
         inputs.forEach((row, r) =>
           row.forEach((input, c) => {
             if (input.value !== table.rows[r][c]) input.value = table.rows[r][c];

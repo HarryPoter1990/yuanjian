@@ -143,14 +143,26 @@ try {
             const r = document.createRange();
             r.setStart(node, 0);
             r.setEnd(node, 1);
+            const paragraph = document.querySelector('.markdown-preview-block p');
+            const paragraphRange = document.createRange();
+            paragraphRange.selectNodeContents(paragraph);
             return {
               first: r.getBoundingClientRect().toJSON(),
+              paragraph: paragraphRange.getBoundingClientRect().toJSON(),
               box: el.parentElement.getBoundingClientRect().toJSON(),
               font: getComputedStyle(el).font,
               marker: marker?.textContent,
             };
           });
-          assert.equal(before.marker, prefix, 'preview must reserve the real editable prefix');
+          assert.equal(
+            before.marker,
+            undefined,
+            'reading headings must not reserve Markdown markers',
+          );
+          assert.ok(
+            Math.abs(before.first.x - before.paragraph.x) < 1,
+            `H${level}, width ${width}: reading text must align with body text ${JSON.stringify(before)}`,
+          );
           await page.mouse.click(
             before.first.x + before.first.width / 2,
             before.first.y + before.first.height / 2,
@@ -167,15 +179,8 @@ try {
               font: getComputedStyle(el).font,
             };
           }, prefix.length);
-          for (const key of ['x', 'y'])
-            assert.ok(
-              Math.abs(before.first[key] - after.first[key]) < 1,
-              `H${level}, width ${width}: text ${key} must stay aligned ${JSON.stringify({ before, after })}`,
-            );
-          assert.ok(
-            Math.abs(before.box.height - after.box.height) < 1,
-            `H${level}, width ${width}: outer height must stay stable ${JSON.stringify({ profile, before, after })}`,
-          );
+          // The approved design reveals markers on entry; wrapping may change once.
+          // Idle stability and exact selection remain checked below.
           assert.equal(before.font, after.font);
           assert.equal((await state()).source, source);
           geometry.push({ profile: profile.name, width, level, variant, before, after });

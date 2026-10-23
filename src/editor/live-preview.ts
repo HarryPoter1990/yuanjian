@@ -1,4 +1,11 @@
-import { Facet, StateField, type EditorState, type Range, type RangeSet } from '@codemirror/state';
+import {
+  Facet,
+  StateEffect,
+  StateField,
+  type EditorState,
+  type Range,
+  type RangeSet,
+} from '@codemirror/state';
 import {
   BlockWrapper,
   Decoration,
@@ -7,12 +14,13 @@ import {
   WidgetType,
   type DecorationSet,
 } from '@codemirror/view';
-import { createMarkdownParser, hydrateMarkdown, renderMarkdown } from './renderer';
+import { createMarkdownParser, hydrateMarkdown, renderParsedMarkdown } from './renderer';
 import { TableWidget } from './table-widget';
 import type { RenderOptions } from './types';
 import { activeMathRange } from './completion';
 import { MathPreviewWidget } from './math-preview';
 import { previewSourcePosition } from './preview-source-position';
+import { inspectFrontmatter } from './frontmatter';
 
 export interface PreviewConfig extends RenderOptions {
   mode: 'live' | 'source';
@@ -29,27 +37,104 @@ export interface MarkdownBlock {
   type: string;
   source: string;
   headingLevel?: number;
+  tokens: ReturnType<typeof parser.parse>;
+  environment: object;
+  semanticKey: string;
+  error?: string;
 }
 const parser = createMarkdownParser();
 
 export function markdownBlocks(state: EditorState): MarkdownBlock[] {
   const source = state.doc.toString();
-  return parser
-    .parse(source, {})
-    .filter((token) => token.level === 0 && token.map && token.nesting !== -1)
-    .map((token) => {
-      const map = token.map;
-      if (!map) throw new Error('Expected mapped token');
-      const from = state.doc.line(Math.min(state.doc.lines, map[0] + 1)).from;
-      const to = state.doc.line(Math.max(1, Math.min(state.doc.lines, map[1]))).to;
-      return {
-        from,
-        to,
-        type: token.type,
-        source: state.doc.sliceString(from, to),
-        headingLevel: token.type === 'heading_open' ? Number(token.tag.slice(1)) : undefined,
-      };
+  const properties = inspectFrontmatter(source);
+  const environment = {};
+  const parsed = parser.parse(
+    properties
+      ? source.slice(0, properties.end).replace(/[^\n]/g, ' ') + source.slice(properties.end)
+      : source,
+    environment,
+  );
+  const blocks: MarkdownBlock[] = [];
+  if (properties) {
+    const to = state.doc.lineAt(Math.max(0, properties.end - 1)).to;
+    blocks.push({
+      from: 0,
+      to,
+      type: 'frontmatter',
+      source: source.slice(0, to),
+      tokens: [],
+      environment,
+      semanticKey: properties.error ?? '',
+      error: properties.error ?? undefined,
     });
+  }
+  parsed.forEach((token, index) => {
+    if (token.level !== 0 || !token.map || token.nesting === -1) return;
+    const map = token.map;
+    if (!map) throw new Error('Expected mapped token');
+    const from = state.doc.line(Math.min(state.doc.lines, map[0] + 1)).from;
+    const to = state.doc.line(Math.max(1, Math.min(state.doc.lines, map[1]))).to;
+    let end = index + 1;
+    if (token.nesting === 1) {
+      while (end < parsed.length && !(parsed[end].level === 0 && parsed[end].nesting === -1)) end++;
+      end++;
+    }
+    const tokens = parsed.slice(index, end);
+    blocks.push({
+      from,
+      to,
+      type: token.type,
+      source: state.doc.sliceString(from, to),
+      headingLevel: token.type === 'heading_open' ? Number(token.tag.slice(1)) : undefined,
+      tokens,
+      environment,
+      semanticKey: JSON.stringify(
+        tokens.map((item) => [
+          item.type,
+          item.attrs,
+          item.children?.map((child) => [child.type, child.attrs]),
+        ]),
+      ),
+    });
+  });
+  return blocks;
+}
+
+const expandFrontmatter = StateEffect.define<boolean>();
+class FrontmatterWidget extends WidgetType {
+  constructor(readonly block: MarkdownBlock) {
+    super();
+  }
+  eq(other: FrontmatterWidget): boolean {
+    return this.block.source === other.block.source && this.block.error === other.block.error;
+  }
+  toDOM(view: EditorView): HTMLElement {
+    const root = document.createElement('div');
+    root.className = 'markdown-frontmatter';
+    if (this.block.error) {
+      root.classList.add('markdown-frontmatter-error');
+      root.setAttribute('aria-label', 'YAML 属性错误');
+      root.setAttribute('role', 'status');
+      root.textContent = this.block.error;
+    } else {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-label', '展开原始 YAML 属性');
+      button.textContent = '属性 · 展开原始 YAML';
+      button.addEventListener('click', () => {
+        view.dispatch({
+          effects: expandFrontmatter.of(true),
+          selection: { anchor: Math.min(this.block.to, this.block.from + 4) },
+        });
+        view.focus();
+      });
+      root.append(button);
+    }
+    return root;
+  }
+  ignoreEvent(): boolean {
+    return true;
+  }
 }
 
 function sourcePosition(view: EditorView, node: Node | null, offset: number): number | null {
@@ -93,11 +178,16 @@ class PreviewWidget extends WidgetType {
       this.block.from === other.block.from &&
       this.block.to === other.block.to &&
       this.block.source === other.block.source &&
+      this.block.semanticKey === other.block.semanticKey &&
       this.config === other.config
     );
   }
   updateDOM(root: HTMLElement, _view: EditorView, previous: PreviewWidget): boolean {
-    if (this.block.source !== previous.block.source || this.config !== previous.config)
+    if (
+      this.block.source !== previous.block.source ||
+      this.block.semanticKey !== previous.block.semanticKey ||
+      this.config !== previous.config
+    )
       return false;
     root.dataset.sourceFrom = String(this.block.from);
     root.dataset.sourceTo = String(this.block.to);
@@ -109,26 +199,7 @@ class PreviewWidget extends WidgetType {
     root.contentEditable = 'false';
     root.dataset.sourceFrom = String(this.block.from);
     root.dataset.sourceTo = String(this.block.to);
-    root.innerHTML = renderMarkdown(this.block.source, this.config);
-    const headingPrefix = this.block.headingLevel
-      ? this.block.source.match(/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/)?.[0]
-      : undefined;
-    if (headingPrefix) {
-      const marker = document.createElement('span');
-      marker.className = 'markdown-heading-prefix';
-      marker.setAttribute('aria-hidden', 'true');
-      marker.textContent = headingPrefix;
-      const heading = root.querySelector(`h${this.block.headingLevel}`);
-      heading?.prepend(marker);
-      const closing = this.block.source.match(/[ \t]+#+[ \t]*$/);
-      if (closing?.index !== undefined) {
-        const suffix = document.createElement('span');
-        suffix.className = 'markdown-heading-suffix';
-        suffix.setAttribute('aria-hidden', 'true');
-        suffix.textContent = this.block.source.slice(Math.max(headingPrefix.length, closing.index));
-        heading?.append(suffix);
-      }
-    }
+    root.innerHTML = renderParsedMarkdown(this.block.tokens, this.config, this.block.environment);
     const refresh = (): void => {
       if (root.isConnected) view.requestMeasure();
     };
@@ -137,6 +208,7 @@ class PreviewWidget extends WidgetType {
     for (const checkbox of Array.from(
       root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
     )) {
+      checkbox.dataset.taskOffset = String(Number(checkbox.dataset.taskOffset) - this.block.from);
       checkbox.disabled = false;
       checkbox.addEventListener('change', () => {
         const offset = Number(checkbox.dataset.taskOffset);
@@ -274,13 +346,31 @@ class PreviewWidget extends WidgetType {
   }
 }
 
-function buildDecorations(state: EditorState, blocks: MarkdownBlock[]) {
+function buildDecorations(state: EditorState, blocks: MarkdownBlock[], metadataExpanded: boolean) {
   const config = state.facet(previewConfig);
   const ranges: Range<Decoration>[] = [];
   const wrappers: Range<BlockWrapper>[] = [];
   if (config.mode === 'live')
     for (const block of blocks) {
       if (block.from >= block.to) continue;
+      if (block.type === 'frontmatter') {
+        if (block.error)
+          ranges.push(
+            Decoration.widget({
+              block: true,
+              side: -1,
+              widget: new FrontmatterWidget(block),
+            }).range(block.from),
+          );
+        else if (!metadataExpanded)
+          ranges.push(
+            Decoration.replace({ block: true, widget: new FrontmatterWidget(block) }).range(
+              block.from,
+              block.to,
+            ),
+          );
+        continue;
+      }
       const active = state.selection.ranges.some(
         (selection) => selection.from <= block.to && selection.to >= block.from,
       );
@@ -392,16 +482,32 @@ export const livePreviewField = StateField.define<{
   blocks: MarkdownBlock[];
   decorations: DecorationSet;
   wrappers: RangeSet<BlockWrapper>;
+  metadataExpanded: boolean;
 }>({
   create(state) {
     const blocks = markdownBlocks(state);
-    return { blocks, ...buildDecorations(state, blocks) };
+    return { blocks, metadataExpanded: false, ...buildDecorations(state, blocks, false) };
   },
   update(value, transaction) {
-    if (!transaction.docChanged && !transaction.selection && !transaction.reconfigured)
+    if (
+      !transaction.docChanged &&
+      !transaction.selection &&
+      !transaction.reconfigured &&
+      !transaction.effects.some((effect) => effect.is(expandFrontmatter))
+    )
       return value;
     const blocks = transaction.docChanged ? markdownBlocks(transaction.state) : value.blocks;
-    return { blocks, ...buildDecorations(transaction.state, blocks) };
+    let metadataExpanded = value.metadataExpanded;
+    for (const effect of transaction.effects)
+      if (effect.is(expandFrontmatter)) metadataExpanded = effect.value;
+    const properties = blocks.find((block) => block.type === 'frontmatter');
+    if (!properties || transaction.state.selection.main.from > properties.to)
+      metadataExpanded = false;
+    return {
+      blocks,
+      metadataExpanded,
+      ...buildDecorations(transaction.state, blocks, metadataExpanded),
+    };
   },
   provide: (field) => [
     EditorView.decorations.from(field, (value) => value.decorations),

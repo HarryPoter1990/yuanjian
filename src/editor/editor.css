@@ -116,12 +116,26 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
-.markdown-heading-prefix,
-.markdown-heading-suffix {
-  visibility: hidden;
+.markdown-frontmatter {
+  padding: 4px 0;
+  color: var(--muted, #717a82);
+  font: 12px/1.6 var(--ui-font, system-ui);
 }
-.markdown-heading-prefix {
-  white-space: pre;
+.markdown-frontmatter > button {
+  border: 1px solid var(--border, #8884);
+  border-radius: 5px;
+  padding: 4px 9px;
+  color: inherit;
+  background: var(--surface, #8881);
+  font: inherit;
+  cursor: pointer;
+}
+.markdown-frontmatter > button:focus-visible {
+  outline: 2px solid var(--accent, #3b756b);
+  outline-offset: 2px;
+}
+.markdown-frontmatter-error {
+  color: var(--danger, #a54c45);
 }
 .markdown-preview-block > :is(h1, h2, h3, h4, h5, h6) {
   white-space: break-spaces;

@@ -6,6 +6,7 @@ import type { RenderOptions } from './types';
 import { headingId } from '../shared/markdown';
 import { withoutFrontmatter } from './frontmatter';
 import { iconMarkup } from '../ui/icon-markup';
+import { isEscaped } from './completion';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -73,7 +74,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
   md.inline.ruler.after('escape', 'inline_math', (state, silent) => {
     if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
     let end = state.pos + 1;
-    while ((end = state.src.indexOf('$', end)) >= 0 && state.src[end - 1] === '\\') end++;
+    while ((end = state.src.indexOf('$', end)) >= 0 && isEscaped(state.src, end)) end++;
     if (end < 0 || end === state.pos + 1 || /\n/.test(state.src.slice(state.pos + 1, end)))
       return false;
     if (!silent) {
@@ -214,7 +215,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     state.tokens.forEach((token, index) => {
       if (token.type !== 'heading_open') return;
       const title = (state.tokens[index + 1]?.children ?? [])
-        .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
+        .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
         .map((child) => child.content)
         .join('');
       const id = headingId(title);
@@ -229,6 +230,19 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
 /** Raw HTML is disabled at parse time; generated HTML is sanitized at this boundary. */
 export function renderMarkdown(markdown: string, options: RenderOptions = {}): string {
   const html = createMarkdownParser(options).render(withoutFrontmatter(markdown));
+  return sanitizeMarkdownHtml(html);
+}
+
+export function renderParsedMarkdown(
+  tokens: ReturnType<MarkdownIt['parse']>,
+  options: RenderOptions = {},
+  environment: object = {},
+): string {
+  const parser = createMarkdownParser(options);
+  return sanitizeMarkdownHtml(parser.renderer.render(tokens, parser.options, environment));
+}
+
+function sanitizeMarkdownHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, svg: true, mathMl: true },
     ADD_ATTR: ['data-code', 'data-mermaid', 'data-asset-src', 'data-task-offset', 'loading'],
