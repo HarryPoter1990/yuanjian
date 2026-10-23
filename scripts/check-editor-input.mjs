@@ -86,7 +86,7 @@ try {
       code.slice(0, offset) + '\nnext' + code.slice(offset),
     );
 
-    for (const count of [0, 1, 2, 3]) {
+    for (const count of [0, 1, 2, 3, 4]) {
       const source = `费用：${'\\'.repeat(count)}`;
       await reset(source, mode);
       await page.keyboard.type('$');
@@ -107,6 +107,19 @@ try {
     await reset('$x$ 后文', mode, 2, 6);
     await page.keyboard.type('$');
     await check('replace closing dollar and selected following text', mode, '$x$', 3);
+    for (const source of ['$a$$b$', '`$` 普通文字 ', '`$$`\n\n普通文字 ']) {
+      await reset(source, mode);
+      const context = await page.evaluate(() => window.editorInputFixture.math());
+      assert.equal(context.inside, false, `closed/code math context in ${source}`);
+      assert.deepEqual(context.renderedFormulas, source === '$a$$b$' ? ['a', 'b'] : []);
+      await page.keyboard.type('$');
+      await check(`start a formula after ${source}`, mode, source + '$$', source.length + 1);
+      await page.keyboard.type('x$');
+      await check(`finish a formula after ${source}`, mode, source + '$x$', source.length + 3);
+      const finished = await page.evaluate(() => window.editorInputFixture.math());
+      assert.equal(finished.inside, false);
+      assert.deepEqual(finished.renderedFormulas, source === '$a$$b$' ? ['a', 'b', 'x'] : ['x']);
+    }
     const unfinishedCode = '```js\nconst x = \n```';
     await reset(unfinishedCode, mode, unfinishedCode.indexOf('\n```'));
     await page.keyboard.type('$');

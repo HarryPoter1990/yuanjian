@@ -77,19 +77,9 @@ export function isEscaped(text: string, position: number): boolean {
 
 export function inMath(state: EditorState, position: number): boolean {
   if (inCode(state, position)) return false;
-  const before = state.doc.sliceString(0, position);
-  const fences = before.match(/^\s*(```|~~~).*$/gm) ?? [];
-  if (fences.length % 2) return false;
-  const blocks = Array.from(before.matchAll(/\$\$/g)).filter(
-    (match) => !isEscaped(before, match.index),
-  ).length;
-  if (blocks % 2) return true;
-  const line = state.doc.lineAt(position);
-  const lineBefore = line.text.slice(0, position - line.from);
-  const inline = Array.from(lineBefore.matchAll(/\$/g)).filter(
-    (match) => !isEscaped(lineBefore, match.index),
+  return mathRanges(state).some(
+    (range) => position > range.from && (range.closed ? position < range.to : position <= range.to),
   );
-  return inline.length % 2 === 1;
 }
 
 export function mathCompletionSource(
@@ -134,33 +124,57 @@ export interface MathRange {
   to: number;
 }
 
+interface FormulaRange extends MathRange {
+  closed: boolean;
+}
+
+// Read delimiters in source order: an inline closing '$' must be consumed before
+// testing the next '$' as an opener. Separate '$$' counting loses this context.
+function mathRanges(state: EditorState): FormulaRange[] {
+  const text = state.doc.toString();
+  const ranges: FormulaRange[] = [];
+  let opening: { from: number; size: number } | null = null;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === '\n' && opening?.size === 1) {
+      ranges.push({
+        source: text.slice(opening.from + 1, index),
+        from: opening.from,
+        to: index,
+        closed: false,
+      });
+      opening = null;
+    }
+    if (text[index] !== '$' || isEscaped(text, index) || inCode(state, index + 1)) continue;
+    if (!opening) {
+      const size = text[index + 1] === '$' ? 2 : 1;
+      opening = { from: index, size };
+      index += size - 1;
+    } else if (opening.size === 1 || text[index + 1] === '$') {
+      ranges.push({
+        source: text.slice(opening.from + opening.size, index),
+        from: opening.from,
+        to: index + opening.size,
+        closed: true,
+      });
+      index += opening.size - 1;
+      opening = null;
+    }
+  }
+  if (opening)
+    ranges.push({
+      source: text.slice(opening.from + opening.size),
+      from: opening.from,
+      to: text.length,
+      closed: false,
+    });
+  return ranges;
+}
+
 export function activeMathRange(state: EditorState): MathRange | null {
   const position = state.selection.main.head;
   if (inCode(state, position)) return null;
-  const text = state.doc.toString();
-  const delimiters = Array.from(text.matchAll(/\$\$/g)).filter(
-    (match) => !isEscaped(text, match.index) && !inCode(state, match.index),
-  );
-  for (let index = 0; index + 1 < delimiters.length; index += 2) {
-    const from = delimiters[index].index;
-    const end = delimiters[index + 1].index;
-    if (position >= from && position <= end + 2)
-      return { source: text.slice(from + 2, end), from, to: end + 2 };
-  }
-  const line = state.doc.lineAt(position);
-  const offset = position - line.from;
-  const inline = Array.from(line.text.matchAll(/\$/g)).filter(
-    (match) => !isEscaped(line.text, match.index),
-  );
-  for (let index = 0; index + 1 < inline.length; index += 2) {
-    const from = inline[index].index;
-    const end = inline[index + 1].index;
-    if (end > from + 1 && offset >= from && offset <= end + 1)
-      return {
-        source: line.text.slice(from + 1, end),
-        from: line.from + from,
-        to: line.from + end + 1,
-      };
+  for (const { source, from, to, closed } of mathRanges(state)) {
+    if (closed && source && position >= from && position <= to) return { source, from, to };
   }
   return null;
 }

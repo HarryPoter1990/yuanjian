@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { MarkdownEditor } from '../../src/editor/MarkdownEditor';
 import { defaultSettings } from '../../src/shared/defaults';
+import { activeMathRange, inMath } from '../../src/editor/completion';
+import { createMarkdownParser } from '../../src/editor/renderer';
 import '../../src/styles/app.css';
 
 const reference = createRef();
@@ -40,6 +42,18 @@ window.editorInputFixture = {
       source: view.state.doc.toString(),
       selection: view.state.selection.toJSON(),
       focused: view.hasFocus,
+    };
+  },
+  math() {
+    const state = reference.current.getView().state;
+    return {
+      inside: inMath(state, state.selection.main.head),
+      preview: activeMathRange(state),
+      renderedFormulas: createMarkdownParser()
+        .parse(state.doc.toString(), {})
+        .flatMap((token) => token.children ?? [token])
+        .filter((token) => ['inline_math', 'block_math'].includes(token.type))
+        .map((token) => token.content),
     };
   },
 };
