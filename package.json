@@ -1,7 +1,7 @@
 {
   "name": "local-notes-desktop",
   "productName": "鸢笺",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "本地优先、自由打开文件的 Markdown 笔记软件",
