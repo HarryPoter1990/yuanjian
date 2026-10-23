@@ -9,6 +9,7 @@ const settings = structuredClone(defaultSettings);
 settings.autoSave = false;
 if (location.search.includes('toolbar-hidden')) settings.toolbarVisible = false;
 let source = '# 自建交互验收\n\n| 项目 | 值 |\n| --- | --- |\n| 旧值 | 内容 |\n\n结束。';
+if (location.search.includes('metadata')) source = '---\ntags: [自建]\n---\n\n' + source;
 if (location.search.includes('crlf')) source = source.replaceAll('\n', '\r\n');
 const tab = {
   id: 'D:/generated-audit/中文 笔记.md',
@@ -19,7 +20,7 @@ const tab = {
   hash: 'initial',
   modifiedAt: 1,
   dirty: false,
-  cursor: source.length,
+  cursor: location.search.includes('metadata-zero') ? 0 : source.length,
   scrollTop: 0,
   mode: 'live',
 };

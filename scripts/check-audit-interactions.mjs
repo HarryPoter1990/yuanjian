@@ -162,9 +162,11 @@ try {
       const input = page.getByRole('textbox', { name: '索引排除目录', exact: true });
       await input.fill((await input.inputValue()) + '\n必须保留的新目录');
       await page.evaluate(() => window.auditFixture.closeRequested());
-    await expect(
-      page.getByRole('dialog', { name: '设置', exact: true }).locator('.modal-feedback.inline-error'),
-    ).toContainText('关闭前保存失败，窗口已保留：自建设置写入失败');
+      await expect(
+        page
+          .getByRole('dialog', { name: '设置', exact: true })
+          .locator('.modal-feedback.inline-error'),
+      ).toContainText('关闭前保存失败，窗口已保留：自建设置写入失败');
       assert.equal(await page.evaluate(() => window.auditFixture.closed), false);
       assert.ok((await input.inputValue()).includes('必须保留的新目录'));
     },
@@ -181,6 +183,36 @@ try {
     assert.equal(association.count, 1);
     assert.equal(association.resolved, true);
   });
+  await check(
+    'metadata-focus-reveals-source-before-delete',
+    async (page) => {
+      const before = await page.evaluate(() => window.auditFixture.document());
+      await page.locator('.cm-content').focus();
+      await expect(page.locator('.cm-content')).toContainText('tags: [自建]');
+      await page.keyboard.press('Delete');
+      assert.equal(await page.evaluate(() => window.auditFixture.document()), before.slice(1));
+    },
+    '?metadata-zero',
+  );
+  await check(
+    'metadata-keyboard-navigation-reveals-source',
+    async (page) => {
+      const before = await page.evaluate(() => window.auditFixture.document());
+      await expect(
+        page.getByRole('button', { name: '展开原始 YAML 属性', exact: true }),
+      ).toBeVisible();
+      await page.locator('.cm-content').focus();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('.cm-content')).toContainText('tags: [自建]');
+      await page.keyboard.press('Delete');
+      assert.equal(
+        await page.evaluate(() => window.auditFixture.document()),
+        before.slice(0, 1) + before.slice(2),
+      );
+    },
+    '?metadata',
+  );
   await check('note-menu-keyboard-and-focus-return', async (page) => {
     const trigger = page.getByRole('button', { name: '笔记操作菜单', exact: true });
     await trigger.focus();
