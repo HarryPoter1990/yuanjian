@@ -415,9 +415,12 @@ export default function App() {
       error('原编辑标签已切换，正文未修改。请重新选择插入位置。');
       return;
     }
+    const requested = view.state.toText(linkRequest.content);
+    const latest = workspace.getTab(linkRequest.tabId);
     if (
-      workspace.getTab(linkRequest.tabId)?.content !== linkRequest.content ||
-      view.state.doc.toString() !== linkRequest.content
+      !latest ||
+      !view.state.toText(latest.content).eq(requested) ||
+      !view.state.doc.eq(requested)
     ) {
       error('选择链接期间正文发生了变化，原文已保留。请重新选择插入位置。');
       return;

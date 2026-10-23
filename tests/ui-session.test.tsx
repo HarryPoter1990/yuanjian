@@ -27,6 +27,7 @@ const editorCalls = vi.hoisted(() => ({
 }));
 vi.mock('../src/editor/MarkdownEditor', async () => {
   const { forwardRef, useImperativeHandle } = await import('react');
+  const { EditorState } = await import('@codemirror/state');
   return {
     MarkdownEditor: forwardRef(function TestEditor(
       props: { value: string; onLink?(target: string): void },
@@ -48,11 +49,10 @@ vi.mock('../src/editor/MarkdownEditor', async () => {
         },
         getView() {
           return {
-            state: {
-              selection: { main: { from: editorCalls.from, to: editorCalls.to } },
-              sliceDoc: (from: number, to: number) => props.value.slice(from, to),
-              doc: { toString: () => props.value },
-            },
+            state: EditorState.create({
+              doc: props.value,
+              selection: { anchor: editorCalls.from, head: editorCalls.to },
+            }),
             dispatch: editorCalls.dispatch,
           };
         },
@@ -770,6 +770,96 @@ describe('desktop session and save lifecycle', () => {
     expect(editorCalls.insert).toHaveBeenCalledWith('[选中文字](sub/目标.md)');
     expect(api.saveFile).not.toHaveBeenCalled();
   });
+  it.each(['\r\n', '\r'])(
+    'inserts a link into unchanged %j text using editor positions',
+    async (ending) => {
+      await mount();
+      const source = { ...note, content: ['首行', '选中词', '末段'].join(ending) };
+      const settings = { ...structuredClone(defaultSettings), autoSave: false };
+      api.bootstrap = vi.fn(async () => ({
+        settings,
+        session: { tabs: [asTab(source)], activeId: source.id },
+        fonts: [],
+        dataDirectory: 'D:\\data',
+        version: 'test',
+      }));
+      api.openFile = vi.fn(async () => source);
+      editorCalls.from = 3;
+      editorCalls.to = 6;
+      await act(async () => root.render(<App />));
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="链接"]')?.click());
+      const target = host.querySelector<HTMLInputElement>('[aria-label="链接目标"]');
+      if (!target) throw new Error('missing link target');
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          target,
+          'https://example.com/',
+        );
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () =>
+        host
+          .querySelector<HTMLFormElement>('dialog form')
+          ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+      );
+      expect(editorCalls.insert).toHaveBeenCalledWith('[选中词](https://example.com/)');
+      expect(editorCalls.dispatch).toHaveBeenCalledWith({ selection: { anchor: 3, head: 6 } });
+      expect(api.saveFile).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { savedContent: '首行\r\n选中词\r\n末段', allowed: true },
+    { savedContent: '首行\n正文已改变\n末段', allowed: false },
+  ])(
+    'rechecks a save reply during link selection without rejecting line endings: $allowed',
+    async ({ savedContent, allowed }) => {
+      await mount();
+      const source = { ...note, content: '首行\n选中词\n末段' };
+      const settings = { ...structuredClone(defaultSettings), autoSave: false };
+      api.bootstrap = vi.fn(async () => ({
+        settings,
+        session: { tabs: [asTab(source)], activeId: source.id },
+        fonts: [],
+        dataDirectory: 'D:\\data',
+        version: 'test',
+      }));
+      api.openFile = vi.fn(async () => source);
+      let finish!: (outcome: SaveOutcome) => void;
+      api.saveFile = vi.fn(
+        () =>
+          new Promise<SaveOutcome>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      editorCalls.from = 3;
+      editorCalls.to = 6;
+      await act(async () => root.render(<App />));
+      await act(async () => host.querySelector<HTMLButtonElement>('.save-button')?.click());
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="链接"]')?.click());
+      await act(async () =>
+        finish({ status: 'saved', note: { ...source, content: savedContent, hash: 'saved' } }),
+      );
+      const target = host.querySelector<HTMLInputElement>('[aria-label="链接目标"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          target,
+          'https://example.com/',
+        );
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () =>
+        host
+          .querySelector<HTMLFormElement>('dialog form')
+          ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+      );
+      if (allowed)
+        expect(editorCalls.insert).toHaveBeenCalledWith('[选中词](https://example.com/)');
+      else {
+        expect(editorCalls.insert).not.toHaveBeenCalled();
+        expect(host.textContent).toContain('正文发生了变化');
+      }
+    },
+  );
   it('shows Chinese operation tooltips and the configured shortcut on keyboard focus', async () => {
     await mount();
     await act(async () =>
