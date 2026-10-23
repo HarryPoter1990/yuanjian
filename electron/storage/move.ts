@@ -29,10 +29,12 @@ export class MoveStore {
     from: string,
     to: string,
     index: NoteMeta[],
+    preservedImages?: ReadonlySet<string>,
   ): Promise<string> {
     const tokens = linkTargetRanges(content);
     let rewritten = content;
     for (const token of tokens.reverse()) {
+      if (token.image && preservedImages?.has(token.target)) continue;
       const wiki = token.wiki;
       const raw = token.target;
       if (!raw || /^#|^[a-z][a-z\d+.-]*:/i.test(raw)) continue;
@@ -51,6 +53,7 @@ export class MoveStore {
         const direct = [target, `${target}.md`];
         const candidate = index.find((item) => direct.includes(item.path));
         if (candidate) target = candidate.path;
+        else if (direct.includes(from)) target = from;
         else {
           const key = decoded.replace(/\\/g, '/').replace(/\.md$/i, '').toLocaleLowerCase();
           const matches = index.filter((item) =>
@@ -82,6 +85,15 @@ export class MoveStore {
       rewritten = rewritten.slice(0, token.from) + replacement + rewritten.slice(token.to);
     }
     return rewritten;
+  }
+  async rebase(
+    content: string,
+    from: string,
+    to: string,
+    preservedImages: ReadonlySet<string>,
+  ): Promise<string> {
+    if (from === to) return content;
+    return this.rewrite(content, from, to, from, to, await this.store.getIndex(), preservedImages);
   }
   async move(from: string, destination?: string): Promise<MoveOutcome | null> {
     from = await this.store.authorize(from);

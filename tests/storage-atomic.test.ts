@@ -88,4 +88,27 @@ describe('atomic-save failure handling', () => {
     expect(await readFile(from, 'utf8')).toBe('# 原文');
     await expect(readFile(to)).rejects.toThrow();
   });
+  it('keeps the current note and shared image when the restored note refuses atomic replacement', async () => {
+    const file = path.join(root, '恢复.md');
+    const image = path.join(root, 'assets', '图.png');
+    await mkdir(path.dirname(image));
+    await writeFile(image, Buffer.from([1, 2, 3]));
+    await writeFile(file, '![图](assets/图.png)\n');
+    const note = (await store.openFile(file))!;
+    await store.saveFile({
+      path: file,
+      content: '当前文字',
+      baseContent: note.content,
+      hash: note.hash,
+      title: note.title,
+    });
+    const baseline = (await store.listHistory(file)).find(
+      (entry) => entry.reason === '修改前基线',
+    )!;
+    await writeFile(image, Buffer.from([7, 8, 9]));
+    faults.failTarget = file;
+    await expect(store.restoreHistory(baseline.id)).rejects.toThrow('simulated filesystem refusal');
+    expect(await readFile(file, 'utf8')).toBe('当前文字');
+    expect(await readFile(image)).toEqual(Buffer.from([7, 8, 9]));
+  });
 });

@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { NoteStore } from '../electron/storage/store';
+import { extractLinks } from '../src/shared/markdown';
 
 describe('moves, recovery and attachments', () => {
   let sandbox: string;
@@ -80,8 +81,14 @@ describe('moves, recovery and attachments', () => {
       (entry) => entry.reason === '修改前基线',
     )!;
     await writeFile(image, Buffer.from([7, 8, 9]));
-    await store.restoreHistory(baseline.id);
-    expect(await readFile(image)).toEqual(Buffer.from([1, 2, 3]));
+    const restored = await store.restoreHistory(baseline.id);
+    expect(await readFile(image)).toEqual(Buffer.from([7, 8, 9]));
+    const restoredImage = await store.resolveAssetPath(
+      extractLinks(restored.content).find((link) => link.image)!.target,
+      file,
+    );
+    expect(restoredImage).not.toBe(image);
+    expect(await readFile(restoredImage)).toEqual(Buffer.from([1, 2, 3]));
     expect((await store.listHistory(file)).some((entry) => entry.reason === '恢复前')).toBe(true);
   });
   it('expires deleted-note history and preserves the latest history of existing notes', async () => {

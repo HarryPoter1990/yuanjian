@@ -10,10 +10,12 @@ interface ImageCopy {
   original: string;
   blob: string;
   bytes: number;
+  targets?: string[];
 }
 interface StoredEntry extends HistoryEntry {
   images: ImageCopy[];
   contentHash: string;
+  sourcePath?: string;
 }
 interface HistoryOptions {
   directory: string;
@@ -44,8 +46,16 @@ export class HistoryStore {
       this.entries.some(
         (entry) =>
           !/^[\da-f-]{36}$/.test(entry.id) ||
+          (entry.sourcePath !== undefined &&
+            (typeof entry.sourcePath !== 'string' || !path.isAbsolute(entry.sourcePath))) ||
           !Array.isArray(entry.images) ||
-          entry.images.some((image) => !/^[\da-f]{64}$/.test(image.blob)),
+          entry.images.some(
+            (image) =>
+              !/^[\da-f]{64}$/.test(image.blob) ||
+              (image.targets !== undefined &&
+                (!Array.isArray(image.targets) ||
+                  image.targets.some((target) => typeof target !== 'string'))),
+          ),
       )
     )
       throw new Error('历史索引损坏，原文件已保留');
@@ -67,16 +77,18 @@ export class HistoryStore {
         continue;
       try {
         const original = await this.options.resolveAsset(link.target, file);
-        if (
-          !imageExtensions.has(path.extname(original).toLowerCase()) ||
-          images.some((image) => image.original === original)
-        )
+        if (!imageExtensions.has(path.extname(original).toLowerCase())) continue;
+        const existing = images.find((image) => image.original === original);
+        if (existing) {
+          const targets = (existing.targets ??= []);
+          if (!targets.includes(link.target)) targets.push(link.target);
           continue;
+        }
         const bytes = await readFile(original);
         const blob = hash(bytes);
         if (!(await readOptional(this.blobPath(blob))))
           await atomicWrite(this.blobPath(blob), bytes);
-        images.push({ original, blob, bytes: bytes.length });
+        images.push({ original, blob, bytes: bytes.length, targets: [link.target] });
       } catch (error) {
         if (!isMissing(error) && error instanceof Error && !/授权/.test(error.message)) throw error;
       }
@@ -93,6 +105,7 @@ export class HistoryStore {
     const entry: StoredEntry = {
       id: replace?.id ?? randomUUID(),
       path: file,
+      sourcePath: file,
       createdAt: now,
       pinned: false,
       reason,
@@ -111,21 +124,27 @@ export class HistoryStore {
     return this.entries
       .filter((entry) => !file || entry.path === file)
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map(({ images: _images, contentHash: _hash, ...entry }) => entry);
+      .map(({ images: _images, contentHash: _hash, sourcePath: _sourcePath, ...entry }) => entry);
   }
   async read(id: string): Promise<{ content: string; entry: HistoryEntry }> {
     const found = this.entries.find((entry) => entry.id === id);
     if (!found) throw new Error('历史版本不存在');
-    const { images: _images, contentHash: _hash, ...entry } = found;
+    const { images: _images, contentHash: _hash, sourcePath: _sourcePath, ...entry } = found;
     return { content: await readFile(this.textPath(id), 'utf8'), entry };
   }
-  async imageCopies(id: string): Promise<{ original: string; bytes: Buffer }[]> {
+  sourcePath(id: string): string | undefined {
+    const found = this.entries.find((entry) => entry.id === id);
+    if (!found) throw new Error('历史版本不存在');
+    return found.sourcePath;
+  }
+  async imageCopies(id: string): Promise<{ original: string; bytes: Buffer; targets: string[] }[]> {
     const found = this.entries.find((entry) => entry.id === id);
     if (!found) throw new Error('历史版本不存在');
     return Promise.all(
       found.images.map(async (image) => ({
         original: image.original,
         bytes: await readFile(this.blobPath(image.blob)),
+        targets: image.targets ?? [],
       })),
     );
   }
@@ -140,7 +159,11 @@ export class HistoryStore {
     await this.persist();
   }
   async moved(from: string, to: string): Promise<void> {
-    for (const entry of this.entries) if (entry.path === from) entry.path = to;
+    for (const entry of this.entries)
+      if (entry.path === from) {
+        entry.sourcePath ??= from;
+        entry.path = to;
+      }
     await this.persist();
   }
   stats(warning?: string): HistoryStats {

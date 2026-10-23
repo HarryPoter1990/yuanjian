@@ -71,9 +71,15 @@ export function replaceImageTargets(
   content: string,
   replacements: ReadonlyMap<string, string>,
 ): string {
+  const normalized = new Map(
+    [...replacements].map(([target, value]) => [
+      markdown.normalizeLink(markdown.utils.unescapeAll(target)),
+      value,
+    ]),
+  );
   const lookup = (target: string): string | undefined =>
     replacements.get(target) ??
-    replacements.get(markdown.normalizeLink(markdown.utils.unescapeAll(target)));
+    normalized.get(markdown.normalizeLink(markdown.utils.unescapeAll(target)));
   const edits: { from: number; to: number; value: string }[] = [];
   for (const range of linkTargetRanges(content)) {
     if (!range.image) continue;

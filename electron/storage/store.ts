@@ -1,4 +1,14 @@
-import { copyFile, link, mkdir, readFile, readdir, rm, stat, unlink } from 'node:fs/promises';
+import {
+  copyFile,
+  link,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { diff3Merge, diffComm } from 'node-diff3';
@@ -34,6 +44,7 @@ import {
 import { HistoryStore } from './history';
 import { AttachmentStore } from './attachments';
 import { MoveStore } from './move';
+import { replaceImageTargets } from './markdown-ranges';
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
 interface SavedFormat {
@@ -714,15 +725,136 @@ export class NoteStore {
   pruneHistory(): Promise<HistoryStats> {
     return this.queue.run(() => this.history.prune());
   }
+  private async restoreImage(original: string, bytes: Buffer): Promise<string> {
+    const file = await this.approveFile(original);
+    await mkdir(path.dirname(file), { recursive: true });
+    const extension = path.extname(file);
+    const recovered = `${path.basename(file, extension)}-restored-${hash(bytes).slice(0, 10)}`;
+    let number = 0;
+    for (;;) {
+      const candidate = await canonical(
+        number === 0
+          ? file
+          : path.join(
+              path.dirname(file),
+              `${recovered}${number > 1 ? `-${number}` : ''}${extension}`,
+            ),
+      );
+      if (path.dirname(candidate) !== path.dirname(file)) {
+        number++;
+        continue;
+      }
+      const existing = await readOptional(candidate);
+      if (existing) {
+        if (hash(existing) === hash(bytes)) return this.approveFile(candidate);
+        number++;
+        continue;
+      }
+      await this.approveFile(candidate);
+      try {
+        await writeFile(candidate, bytes, { flag: 'wx' });
+        return this.approveFile(candidate);
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+      }
+    }
+  }
   async restoreHistory(id: string): Promise<NoteDocument> {
     return this.queue.run(async () => {
       const { entry, content } = await this.history.read(id);
       const file = await this.authorize(entry.path);
+      const recordedSource = this.history.sourcePath(id);
+      let sourcePath = recordedSource ?? file;
+      const images = await this.history.imageCopies(id);
       const current = await readOptional(file);
+      const bindings: { target: string; image: (typeof images)[number] }[] = [];
+      const inferredDirectories = new Set<string>();
+      for (const link of extractLinks(content).filter((link) => link.image)) {
+        if (
+          /^[a-z][a-z\d+.-]*:/i.test(link.target) &&
+          !path.isAbsolute(link.target) &&
+          !link.target.startsWith('file:')
+        )
+          continue;
+        let target = link.target.split('#')[0];
+        try {
+          target = target.startsWith('file:') ? fileURLToPath(target) : decodeURIComponent(target);
+        } catch {
+          /* keep literal */
+        }
+        const original = await canonical(path.resolve(path.dirname(sourcePath), target));
+        let image =
+          images.find((item) => item.targets.includes(link.target)) ??
+          images.find((item) => item.original === original);
+        const relativeParts = path
+          .normalize(target)
+          .split(path.sep)
+          .filter((part) => part !== '.' && part !== '');
+        const suffix = relativeParts.filter((part) => part !== '..').join(path.sep);
+        const endsWithTarget = (original: string): boolean => {
+          const tail = path.sep + suffix;
+          return process.platform === 'win32'
+            ? original.toLocaleLowerCase().endsWith(tail.toLocaleLowerCase())
+            : original.endsWith(tail);
+        };
+        if (!image) {
+          // Legacy indexes kept image origins but not Markdown targets or the note's original directory.
+          let matches = images.filter((item) => endsWithTarget(item.original));
+          if (!matches.length)
+            matches = images.filter(
+              (item) => path.basename(item.original) === path.basename(target),
+            );
+          if (matches.length > 1)
+            throw new Error(
+              '旧版历史的图片引用存在歧义，当前笔记和附件已保留；请复制历史正文后手动选择图片',
+            );
+          if (matches.length === 1) image = matches[0];
+        }
+        if (!image) continue;
+        bindings.push({ target: link.target, image });
+        if (
+          !recordedSource &&
+          !path.isAbsolute(target) &&
+          relativeParts.length > 1 &&
+          !relativeParts.includes('..') &&
+          endsWithTarget(image.original)
+        ) {
+          let directory = image.original;
+          for (let index = 0; index < relativeParts.length; index++)
+            directory = path.dirname(directory);
+          inferredDirectories.add(directory);
+        }
+      }
+      if (inferredDirectories.size > 1)
+        throw new Error(
+          '旧版历史的原目录无法安全确定，当前笔记和附件已保留；请复制历史正文后手动恢复',
+        );
+      if (!recordedSource && inferredDirectories.size === 1)
+        sourcePath = path.join([...inferredDirectories][0], path.basename(file));
       if (current) await this.history.snapshot(file, current.toString('utf8'), '恢复前');
-      for (const image of await this.history.imageCopies(id))
-        await atomicWrite(await this.approveFile(image.original), image.bytes);
-      await atomicWrite(file, content);
+      const destinations = new Map<string, string>();
+      for (const image of images)
+        destinations.set(image.original, await this.restoreImage(image.original, image.bytes));
+      const replacements = new Map<string, string>();
+      for (const { target, image } of bindings) {
+        const reference = path
+          .relative(path.dirname(file), destinations.get(image.original)!)
+          .split(path.sep)
+          .map(encodeURIComponent)
+          .join('/');
+        const fragment = target.includes('#') ? target.slice(target.indexOf('#')) : '';
+        replacements.set(target, reference + fragment);
+      }
+      const restored = await this.moves.rebase(
+        replaceImageTargets(content, replacements),
+        sourcePath,
+        file,
+        new Set(replacements.values()),
+      );
+      const latest = await readOptional(file);
+      if ((latest ? hash(latest) : '') !== (current ? hash(current) : ''))
+        throw new Error('恢复期间文件已被其他程序修改，当前内容已保留，请重试');
+      await atomicWrite(file, restored);
       this.changed([file]);
       return this.readNote(file);
     });
