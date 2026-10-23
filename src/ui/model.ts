@@ -1,5 +1,6 @@
 import type { Appearance, NoteDocument, SaveOutcome, TabState } from '../shared/types';
 import { builtinPalettes } from '../shared/palettes';
+import { diff3Merge } from 'node-diff3';
 
 export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const dark = appearance.mode === 'dark' || (appearance.mode === 'system' && systemDark);
@@ -69,19 +70,49 @@ export function asTab(note: NoteDocument): TabState {
     mode: 'live',
   };
 }
-export function acceptSave(tab: TabState, submitted: string, outcome: SaveOutcome): TabState {
-  if (outcome.status !== 'saved' || !outcome.note) return tab;
+export interface SaveAcceptance {
+  tab: TabState;
+  conflict?: NonNullable<SaveOutcome['conflict']>;
+}
+export function acceptSave(tab: TabState, submitted: string, outcome: SaveOutcome): SaveAcceptance {
+  if (outcome.status !== 'saved' || !outcome.note) return { tab };
   const note = outcome.note;
-  const content = tab.content === submitted ? note.content : tab.content;
+  const normalize = (value: string) => value.replace(/\r\n?/g, '\n');
+  let content = normalize(tab.content) === normalize(submitted) ? note.content : tab.content;
+  if (content !== note.content && normalize(note.content) !== normalize(submitted)) {
+    // Later keystrokes and the completed disk merge both descend from the submitted text.
+    const result = diff3Merge(
+      normalize(content).split('\n'),
+      normalize(submitted).split('\n'),
+      normalize(note.content).split('\n'),
+    );
+    if (result.some((region) => region.conflict)) {
+      if (!note.path) throw new Error('已保存文档缺少文件位置，编辑内容已保留');
+      return {
+        tab: { ...tab, path: note.path, title: note.title, dirty: true },
+        conflict: {
+          path: note.path,
+          base: submitted,
+          ours: tab.content,
+          theirs: note.content,
+          hash: note.hash,
+        },
+      };
+    }
+    content = result.flatMap((region) => region.ok ?? []).join('\n');
+  }
+  const dirty = normalize(content) !== normalize(note.content);
   return {
-    ...tab,
-    path: note.path,
-    title: note.title,
-    hash: note.hash,
-    modifiedAt: note.modifiedAt,
-    baseContent: note.content,
-    content,
-    dirty: content !== note.content,
+    tab: {
+      ...tab,
+      path: note.path,
+      title: note.title,
+      hash: note.hash,
+      modifiedAt: note.modifiedAt,
+      baseContent: note.content,
+      content: dirty ? content : note.content,
+      dirty,
+    },
   };
 }
 export function matchesShortcut(

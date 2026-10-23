@@ -39,6 +39,7 @@ export function useWorkspace() {
   const current = useRef({ tabs, activeId, settings, conflict });
   current.current = { tabs, activeId, settings, conflict };
   const pendingSaves = useRef(new Map<string, Promise<boolean>>());
+  const externalReads = useRef(new Map<string, symbol>());
   const savedSettings = useRef('');
   const sessionWrite = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(true);
@@ -144,12 +145,28 @@ export function useWorkspace() {
             title: tab.title,
           });
           if (outcome.status === 'conflict' && outcome.conflict) {
-            setConflict({ tabId: id, detail: outcome.conflict });
+            const latest = current.current.tabs.find((item) => item.id === id);
+            const next = {
+              tabId: id,
+              detail: { ...outcome.conflict, ours: latest?.content ?? outcome.conflict.ours },
+            };
+            current.current.conflict = next;
+            setConflict(next);
             notify('文件在外部发生了不同修改，请比较后保留内容。', true);
             return false;
           }
           if (outcome.status !== 'saved') return false;
-          updateTab(id, (latest) => acceptSave(latest, tab.content, outcome));
+          const latest = current.current.tabs.find((item) => item.id === id);
+          if (!latest) return true;
+          const accepted = acceptSave(latest, tab.content, outcome);
+          updateTab(id, accepted.tab);
+          if (accepted.conflict) {
+            const next = { tabId: id, detail: accepted.conflict };
+            current.current.conflict = next;
+            setConflict(next);
+            notify('保存期间的新输入与合并结果冲突，双方内容已保留，请比较后处理。', true);
+            return false;
+          }
           if (explicit) notify(outcome.merged ? '已合并外部修改并保存' : '已保存');
           void refresh().catch((error) => notify(errorText(error), true));
           return true;
@@ -286,19 +303,32 @@ export function useWorkspace() {
         void refresh().catch((error) => notify(errorText(error), true));
         for (const tab of current.current.tabs) {
           if (!tab.path || !paths.includes(tab.path)) continue;
+          const readId = Symbol();
+          externalReads.current.set(tab.id, readId);
           if (tab.dirty) {
-            void saveRef.current(tab.id);
+            if (current.current.conflict?.tabId === tab.id) continue;
+            if (current.current.settings?.autoSave) void saveRef.current(tab.id);
+            else notify('文件在外部发生变化；自动保存已关闭，本地修改已保留。');
             continue;
           }
           void window.notes
             .openFile(tab.path)
             .then((note) => {
-              if (note)
+              if (note && mounted.current && externalReads.current.get(tab.id) === readId)
                 updateTab(tab.id, (latest) =>
-                  latest.dirty ? latest : { ...latest, ...note, baseContent: note.content },
+                  latest.dirty || latest.path !== tab.path || latest.hash !== tab.hash
+                    ? latest
+                    : { ...latest, ...note, baseContent: note.content },
                 );
             })
-            .catch((error) => notify(`外部文件更新失败：${errorText(error)}`, true));
+            .catch((error) => {
+              if (mounted.current && externalReads.current.get(tab.id) === readId)
+                notify(`外部文件更新失败：${errorText(error)}`, true);
+            })
+            .finally(() => {
+              if (externalReads.current.get(tab.id) === readId)
+                externalReads.current.delete(tab.id);
+            });
         }
       }),
       window.notes.onOpenRequested((path) => {

@@ -30,7 +30,7 @@ describe('UI document model', () => {
   });
   it('does not lose edits made while an earlier save is in flight', () => {
     const tab = { ...asTab(note), content: '更新后的第二次输入', dirty: true };
-    const saved = acceptSave(tab, '第一次输入', {
+    const { tab: saved } = acceptSave(tab, '第一次输入', {
       status: 'saved',
       note: { ...note, content: '第一次输入', hash: 'after' },
     });
@@ -42,15 +42,35 @@ describe('UI document model', () => {
   });
   it('accepts a clean merged save and leaves cancelled/conflicting saves intact', () => {
     const tab = { ...asTab(note), content: '我的修改', dirty: true };
-    const merged = acceptSave(tab, tab.content, {
+    const { tab: merged } = acceptSave(tab, tab.content, {
       status: 'saved',
       note: { ...note, content: '我的修改\n外部修改' },
       merged: true,
     });
     expect(merged.content).toBe('我的修改\n外部修改');
     expect(merged.dirty).toBe(false);
-    expect(acceptSave(tab, tab.content, { status: 'cancelled' })).toBe(tab);
-    expect(acceptSave(tab, tab.content, { status: 'conflict' })).toBe(tab);
+    expect(acceptSave(tab, tab.content, { status: 'cancelled' }).tab).toBe(tab);
+    expect(acceptSave(tab, tab.content, { status: 'conflict' }).tab).toBe(tab);
+  });
+  it('treats CRLF and LF as the same document when accepting a save', () => {
+    const tab = { ...asTab(note), content: '第一行\n第二行\n', dirty: true };
+    const saved = acceptSave(tab, '第一行\r\n第二行\r\n', {
+      status: 'saved',
+      note: { ...note, content: '第一行\r\n第二行\r\n', hash: 'saved' },
+    });
+    expect(saved.conflict).toBeUndefined();
+    expect(saved.tab.dirty).toBe(false);
+    expect(saved.tab.content).toBe('第一行\r\n第二行\r\n');
+  });
+  it('does not mark lone-CR document normalization as a later edit', () => {
+    const tab = { ...asTab(note), content: '第一行\n第二行\n', dirty: true };
+    const saved = acceptSave(tab, '第一行\r第二行\r', {
+      status: 'saved',
+      note: { ...note, content: '第一行\r第二行\r', hash: 'saved' },
+    });
+    expect(saved.conflict).toBeUndefined();
+    expect(saved.tab.dirty).toBe(false);
+    expect(saved.tab.content).toBe('第一行\r第二行\r');
   });
   it('matches exact modifiers and respects local calendar dates', () => {
     expect(
