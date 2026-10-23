@@ -509,7 +509,7 @@ export const livePreviewField = StateField.define<{
   metadataExpanded: boolean;
 }>({
   create(state) {
-    const blocks = markdownBlocks(state);
+    const blocks = state.facet(previewConfig).mode === 'live' ? markdownBlocks(state) : [];
     return { blocks, metadataExpanded: false, ...buildDecorations(state, blocks, false) };
   },
   update(value, transaction) {
@@ -520,13 +520,19 @@ export const livePreviewField = StateField.define<{
       !transaction.effects.some((effect) => effect.is(expandFrontmatter))
     )
       return value;
-    const blocks = transaction.docChanged ? markdownBlocks(transaction.state) : value.blocks;
+    const live = transaction.state.facet(previewConfig).mode === 'live';
+    const enteringLive = live && transaction.startState.facet(previewConfig).mode !== 'live';
+    const blocks = !live
+      ? []
+      : transaction.docChanged || enteringLive
+        ? markdownBlocks(transaction.state)
+        : value.blocks;
     let metadataExpanded = value.metadataExpanded;
     for (const effect of transaction.effects)
       if (effect.is(expandFrontmatter)) metadataExpanded = effect.value;
     const properties = blocks.find((block) => block.type === 'frontmatter');
     if (
-      transaction.selection &&
+      (transaction.selection || enteringLive) &&
       properties &&
       transaction.state.selection.main.from <= properties.to
     )
