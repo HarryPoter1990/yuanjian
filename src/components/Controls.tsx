@@ -299,7 +299,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="setting-field">
+    <div className="setting-field" data-setting-label={label} tabIndex={-1}>
       <div>
         <span className="field-label">{label}</span>
         {description && <p>{description}</p>}

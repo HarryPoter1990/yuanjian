@@ -2371,6 +2371,66 @@ button.danger {
 .settings-categories-toggle {
   display: none;
 }
+.settings-search-bar {
+  flex-shrink: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-search-bar .text-button {
+  margin-right: 10px;
+  font-size: 12px;
+}
+.settings-search-results > button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  width: 100%;
+  padding: 14px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  justify-items: start;
+}
+.settings-search-results > button > span,
+.settings-search-results > button > strong {
+  grid-column: 1;
+}
+.settings-search-results > button > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.settings-search-results > button > .setting-result-category {
+  font-size: 11px;
+}
+.settings-search-results > button > svg {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  align-self: center;
+}
+[data-setting-highlighted='true'] {
+  background: var(--selected);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.shortcut-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.shortcut-control > input {
+  flex: 1;
+  min-width: 100px;
+  width: 150px;
+}
+.shortcut-control > p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .toast-region {
   left: auto;
   right: 18px;

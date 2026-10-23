@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -23,20 +23,36 @@ import { defaultAppearance, defaultSettings } from '../shared/defaults';
 import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
+import { searchSettings, settingsGroups as groups } from '../ui/settingsSearch';
 
-const groups = [
-  {
-    id: 'appearance',
-    label: '外观与主题',
-    keywords: '颜色 深色 浅色 主题 壁纸 透明 模糊 字号 行距 宽度',
-  },
-  { id: 'fonts', label: '字体管理', keywords: '系统 字体 导入 下载 正文 标题 界面 代码' },
-  { id: 'editor', label: '编辑与文件', keywords: '自动 保存 代码 行号 折叠 换行 附件 目录 排除' },
-  { id: 'layout', label: '界面与快捷键', keywords: '按钮 工具栏 区块 侧栏 状态 快捷键' },
-  { id: 'history', label: '历史与恢复', keywords: '历史 容量 天数 清理 统计 图片 文字' },
-  { id: 'templates', label: '模板与片段', keywords: '模板 公式 片段 补全' },
-  { id: 'journal', label: '日记与周期', keywords: '日记 周记 月记 目录 命名 日期' },
-] as const;
+const appearanceLabels = {
+  fontSize: '正文字号',
+  lineHeight: '行距',
+  codeFontSize: '代码字号',
+  codeLineHeight: '代码行距',
+  contentWidth: '正文宽度',
+  wallpaperOpacity: '壁纸透明度',
+  wallpaperBlur: '模糊',
+  wallpaperBrightness: '亮度',
+  editorOpacity: '正文底色透明度',
+  sidebarOpacity: '侧栏底色透明度',
+};
+const shortcutLabels: Record<string, string> = {
+  save: '保存',
+  new: '新建',
+  open: '打开',
+  find: '查找',
+  settings: '设置',
+  mode: '切换源码',
+};
+const shortcutKey = (value: string) =>
+  value
+    .toLowerCase()
+    .split('+')
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .sort()
+    .join('+');
 const toolbarLabels: Record<string, string> = {
   heading: '标题',
   bold: '粗体',
@@ -75,6 +91,9 @@ export function SettingsPanel({
 }: Props) {
   const [section, setSection] = useState('appearance');
   const [query, setQuery] = useState('');
+  const [highlight, setHighlight] = useState('');
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [excludedDraft, setExcludedDraft] = useState(settings.excluded.join('\n'));
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [fontQuery, setFontQuery] = useState('');
   const [original] = useState(() => structuredClone(settings.appearance));
@@ -84,14 +103,24 @@ export function SettingsPanel({
   const [message, setMessage] = useState('');
   const [stats, setStats] = useState<HistoryStats | null>(null);
   const [templateId, setTemplateId] = useState(settings.templates[0]?.id || '');
-  const filtered = groups.filter(
-    (group) => !query || `${group.label} ${group.keywords}`.includes(query),
-  );
-  const visible = query
-    ? filtered.some((group) => group.id === section)
-      ? section
-      : filtered[0]?.id
-    : section;
+  const [recordingShortcut, setRecordingShortcut] = useState('');
+  const searching = Boolean(query.trim());
+  const results = searchSettings(query);
+  const visible = searching ? 'search' : section;
+  useEffect(() => setExcludedDraft(settings.excluded.join('\n')), [settings.excluded]);
+  useEffect(() => {
+    if (!highlight || searching) return;
+    const target = [
+      ...(contentRef.current?.querySelectorAll<HTMLElement>('[data-setting-label]') || []),
+    ].find((element) => element.dataset.settingLabel === highlight);
+    if (!target) return;
+    target.dataset.settingHighlighted = 'true';
+    target.scrollIntoView?.({ block: 'center' });
+    target.focus({ preventScroll: true });
+    return () => {
+      delete target.dataset.settingHighlighted;
+    };
+  }, [highlight, searching, section]);
   const appearance = settings.appearance;
   const colors = appearanceColors(
     appearance,
@@ -158,7 +187,7 @@ export function SettingsPanel({
     <label className="range-control">
       <input
         type="range"
-        aria-label={key}
+        aria-label={appearanceLabels[key]}
         min={min}
         max={max}
         step={step}
@@ -176,9 +205,35 @@ export function SettingsPanel({
       title="设置"
       onClose={onClose}
       busy={Boolean(busy)}
-      pending={themeName !== '我的主题' && Boolean(themeName.trim())}
+      pending={
+        (themeName !== '我的主题' && Boolean(themeName.trim())) ||
+        excludedDraft !== settings.excluded.join('\n')
+      }
       wide
     >
+      <div className="settings-search-bar">
+        <div className="input-with-icon">
+          <Search size={15} />
+          <input
+            aria-label="搜索设置"
+            placeholder="搜索具体设置，如自动保存、代码字号…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && query) {
+                event.preventDefault();
+                event.stopPropagation();
+                setQuery('');
+              }
+            }}
+          />
+          {query && (
+            <button className="text-button" aria-label="清除设置搜索" onClick={() => setQuery('')}>
+              清除
+            </button>
+          )}
+        </div>
+      </div>
       <div className="settings-layout">
         <button
           className="settings-categories-toggle"
@@ -194,21 +249,14 @@ export function SettingsPanel({
           className={`settings-nav ${categoriesOpen ? 'settings-nav-open' : ''}`}
           aria-label="设置分组"
         >
-          <div className="input-with-icon">
-            <Search size={14} />
-            <input
-              aria-label="搜索设置"
-              placeholder="搜索设置…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          {filtered.map((group) => (
+          {groups.map((group) => (
             <button
               key={group.id}
               className={visible === group.id ? 'active' : ''}
               onClick={() => {
                 setSection(group.id);
+                setQuery('');
+                setHighlight('');
                 setCategoriesOpen(false);
               }}
             >
@@ -231,8 +279,35 @@ export function SettingsPanel({
             )}
           </div>
         </nav>
-        <div className="settings-content">
-          {!visible && <p className="empty-state">没有匹配的设置。</p>}
+        <div ref={contentRef} className="settings-content">
+          {searching && (
+            <div className="settings-search-results">
+              <h3>搜索设置</h3>
+              <p className="section-description" role="status">
+                找到 {results.length} 项设置
+              </p>
+              {results.map((item) => (
+                <button
+                  key={`${item.section}:${item.label}`}
+                  aria-label={`${item.group} · ${item.label}`}
+                  onClick={() => {
+                    setSection(item.section);
+                    setQuery('');
+                    setCategoriesOpen(false);
+                    setHighlight(item.target);
+                  }}
+                >
+                  <span className="setting-result-category">{item.group}</span>
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                  <ChevronRight size={16} />
+                </button>
+              ))}
+              {!results.length && (
+                <p className="empty-state">没有匹配的设置。试试设置名称或用途。</p>
+              )}
+            </div>
+          )}
           {visible === 'appearance' && (
             <>
               <h3>
@@ -281,7 +356,7 @@ export function SettingsPanel({
                     ['foreground', '文字色'],
                   ] as const
                 ).map(([key, label]) => (
-                  <label key={key}>
+                  <label key={key} data-setting-label={label} tabIndex={-1}>
                     {label}
                     <input
                       aria-label={label}
@@ -378,7 +453,9 @@ export function SettingsPanel({
               )}
               <Field label="正文底色透明度">{number('editorOpacity', 0, 1, 0.05)}</Field>
               <Field label="侧栏底色透明度">{number('sidebarOpacity', 0, 1, 0.05)}</Field>
-              <h4>已保存的主题</h4>
+              <h4 data-setting-label="已保存的主题" tabIndex={-1}>
+                已保存的主题
+              </h4>
               <div className="theme-list">
                 {settings.themes.map((theme) => (
                   <button
@@ -468,7 +545,7 @@ export function SettingsPanel({
                   </select>
                 </Field>
               ))}
-              <div className="font-actions">
+              <div className="font-actions" data-setting-label="导入字体 / ZIP" tabIndex={-1}>
                 <div className="input-with-icon">
                   <Search size={14} />
                   <input
@@ -536,7 +613,9 @@ export function SettingsPanel({
                   </div>
                 ))}
               </div>
-              <h4>可按需下载的开源字体</h4>
+              <h4 data-setting-label="可按需下载的开源字体" tabIndex={-1}>
+                可按需下载的开源字体
+              </h4>
               {catalog.map((font) => (
                 <div className="catalog-row" key={font.id}>
                   <div>
@@ -620,8 +699,13 @@ export function SettingsPanel({
                 <textarea
                   aria-label="索引排除目录"
                   rows={5}
-                  value={settings.excluded.join('\n')}
-                  onChange={(e) => patch({ excluded: e.target.value.split('\n').filter(Boolean) })}
+                  value={excludedDraft}
+                  onChange={(e) => setExcludedDraft(e.target.value)}
+                  onBlur={() => {
+                    const excluded = excludedDraft.split(/\r?\n/).filter(Boolean);
+                    setExcludedDraft(excluded.join('\n'));
+                    if (excluded.join('\n') !== settings.excluded.join('\n')) patch({ excluded });
+                  }}
                 />
               </Field>
               <Field label="附件目录规则" description="相对笔记所在目录，如 assets。">
@@ -652,7 +736,9 @@ export function SettingsPanel({
                   />
                 </Field>
               ))}
-              <h4>工具栏按钮</h4>
+              <h4 data-setting-label="工具栏按钮" tabIndex={-1}>
+                工具栏按钮
+              </h4>
               <div className="check-grid">
                 {Object.entries(toolbarLabels).map(([key, label]) => (
                   <label key={key}>
@@ -684,51 +770,84 @@ export function SettingsPanel({
               >
                 恢复全部默认区块和按钮
               </button>
-              <h4>应用快捷键</h4>
+              <h4 data-setting-label="应用快捷键" tabIndex={-1}>
+                应用快捷键
+              </h4>
               <p className="subtle">格式：Ctrl+s、Ctrl+Shift+m。输入框中按下组合键即可记录。</p>
               {Object.entries(settings.shortcuts).map(([key, value]) => (
                 <Field
                   key={key}
-                  label={
-                    (
-                      {
-                        save: '保存',
-                        new: '新建',
-                        open: '打开',
-                        find: '查找',
-                        settings: '设置',
-                        mode: '切换源码',
-                      } as Record<string, string>
-                    )[key] || key
+                  label={shortcutLabels[key] || key}
+                  description={
+                    recordingShortcut === key
+                      ? '正在录制：请按下组合键，Tab 移到下一项。'
+                      : undefined
                   }
                 >
-                  <input
-                    aria-label={`${key} 快捷键`}
-                    value={value}
-                    onChange={(e) =>
-                      patch({ shortcuts: { ...settings.shortcuts, [key]: e.target.value } })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Tab') return;
-                      if (e.ctrlKey || e.metaKey || e.altKey) {
-                        e.preventDefault();
-                        if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+                  <div className="shortcut-control">
+                    <input
+                      aria-label={`${shortcutLabels[key] || key}快捷键`}
+                      value={value}
+                      onFocus={() => setRecordingShortcut(key)}
+                      onBlur={() => setRecordingShortcut('')}
+                      onChange={(e) =>
+                        patch({ shortcuts: { ...settings.shortcuts, [key]: e.target.value } })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Tab') return;
+                        if (e.ctrlKey || e.metaKey || e.altKey) {
+                          e.preventDefault();
+                          if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+                          patch({
+                            shortcuts: {
+                              ...settings.shortcuts,
+                              [key]: [
+                                e.ctrlKey || e.metaKey ? 'Ctrl' : '',
+                                e.altKey ? 'Alt' : '',
+                                e.shiftKey ? 'Shift' : '',
+                                e.key.toLowerCase(),
+                              ]
+                                .filter(Boolean)
+                                .join('+'),
+                            },
+                          });
+                        }
+                      }}
+                    />
+                    <button
+                      aria-label={`恢复${shortcutLabels[key] || key}默认快捷键`}
+                      disabled={
+                        !defaultSettings.shortcuts[key] || value === defaultSettings.shortcuts[key]
+                      }
+                      onClick={() =>
                         patch({
                           shortcuts: {
                             ...settings.shortcuts,
-                            [key]: [
-                              e.ctrlKey || e.metaKey ? 'Ctrl' : '',
-                              e.altKey ? 'Alt' : '',
-                              e.shiftKey ? 'Shift' : '',
-                              e.key.toLowerCase(),
-                            ]
-                              .filter(Boolean)
-                              .join('+'),
+                            [key]: defaultSettings.shortcuts[key],
                           },
-                        });
+                        })
                       }
-                    }}
-                  />
+                    >
+                      恢复默认
+                    </button>
+                    {value.trim() &&
+                      Object.entries(settings.shortcuts).some(
+                        ([other, binding]) =>
+                          other !== key && shortcutKey(binding) === shortcutKey(value),
+                      ) && (
+                        <p className="inline-error" role="alert">
+                          与
+                          {Object.entries(settings.shortcuts)
+                            .filter(
+                              ([other, binding]) =>
+                                other !== key && shortcutKey(binding) === shortcutKey(value),
+                            )
+                            .map(([other]) => `“${shortcutLabels[other] || other}”`)
+                            .join('、')}
+                          使用相同组合键，请重新录制或恢复默认。
+                        </p>
+                      )}
+                  </div>
                 </Field>
               ))}
             </>
@@ -773,7 +892,11 @@ export function SettingsPanel({
                     <strong>{bytesLabel(stats.imageBytes)}</strong>
                     <small>去重图片</small>
                   </div>
-                  <progress max={settings.historyLimitMB * 1024 * 1024} value={stats.totalBytes} />
+                  <progress
+                    aria-label="历史占用容量"
+                    max={settings.historyLimitMB * 1024 * 1024}
+                    value={stats.totalBytes}
+                  />
                   <p>
                     {bytesLabel(stats.totalBytes)} / {settings.historyLimitMB} MB
                   </p>
@@ -784,6 +907,7 @@ export function SettingsPanel({
                 存在的笔记至少保留最近版本和固定版本；已删除笔记从删除日起计时，容量不足时可能提前淘汰。
               </p>
               <button
+                data-setting-label="按当前规则清理历史"
                 disabled={Boolean(busy)}
                 onClick={() =>
                   void run('清理历史', async () => setStats(await window.notes.pruneHistory()))
@@ -796,7 +920,9 @@ export function SettingsPanel({
           {visible === 'templates' && (
             <>
               <h3>模板与片段</h3>
-              <h4>笔记模板</h4>
+              <h4 data-setting-label="笔记模板" tabIndex={-1}>
+                笔记模板
+              </h4>
               <div className="inline-form">
                 <select
                   aria-label="选择模板"
@@ -867,7 +993,9 @@ export function SettingsPanel({
                   </button>
                 </div>
               )}
-              <h4>公式片段</h4>
+              <h4 data-setting-label="公式片段" tabIndex={-1}>
+                公式片段
+              </h4>
               {settings.snippets.map((snippet, i) => (
                 <div className="snippet-editor" key={i}>
                   <div className="inline-form">
