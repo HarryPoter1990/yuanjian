@@ -116,6 +116,16 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
+.markdown-heading-prefix,
+.markdown-heading-suffix {
+  visibility: hidden;
+}
+.markdown-heading-prefix {
+  white-space: pre;
+}
+.markdown-preview-block > :is(h1, h2, h3, h4, h5, h6) {
+  white-space: break-spaces;
+}
 .markdown-rendered {
   font-family: var(--body-font, inherit);
   line-height: inherit;

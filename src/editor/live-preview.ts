@@ -52,6 +52,35 @@ export function markdownBlocks(state: EditorState): MarkdownBlock[] {
     });
 }
 
+function sourcePosition(view: EditorView, node: Node | null, offset: number): number | null {
+  if (!node || !view.contentDOM.contains(node)) return null;
+  const element = node instanceof Element ? node : node.parentElement;
+  const preview = element?.closest<HTMLElement>('.markdown-preview-block');
+  if (preview) {
+    const from = Number(preview.dataset.sourceFrom);
+    const to = Number(preview.dataset.sourceTo);
+    const block = view.state
+      .field(livePreviewField)
+      .blocks.find((candidate) => candidate.from === from && candidate.to === to);
+    if (!block) return null;
+    const position = previewSourcePosition(preview, block.source, node, offset);
+    return position === null ? null : from + position;
+  }
+  if (!element?.closest('.cm-line')) return null;
+  return view.posAtDOM(node, offset);
+}
+
+function sourcePositionAtPoint(view: EditorView, event: MouseEvent): number | null {
+  const document = view.contentDOM.ownerDocument;
+  const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
+  const range = !caret ? document.caretRangeFromPoint?.(event.clientX, event.clientY) : null;
+  return sourcePosition(
+    view,
+    caret?.offsetNode ?? range?.startContainer ?? null,
+    caret?.offset ?? range?.startOffset ?? 0,
+  );
+}
+
 class PreviewWidget extends WidgetType {
   constructor(
     readonly block: MarkdownBlock,
@@ -81,6 +110,25 @@ class PreviewWidget extends WidgetType {
     root.dataset.sourceFrom = String(this.block.from);
     root.dataset.sourceTo = String(this.block.to);
     root.innerHTML = renderMarkdown(this.block.source, this.config);
+    const headingPrefix = this.block.headingLevel
+      ? this.block.source.match(/^[ \t]{0,3}#{1,6}(?:[ \t]+|$)/)?.[0]
+      : undefined;
+    if (headingPrefix) {
+      const marker = document.createElement('span');
+      marker.className = 'markdown-heading-prefix';
+      marker.setAttribute('aria-hidden', 'true');
+      marker.textContent = headingPrefix;
+      const heading = root.querySelector(`h${this.block.headingLevel}`);
+      heading?.prepend(marker);
+      const closing = this.block.source.match(/[ \t]+#+[ \t]*$/);
+      if (closing?.index !== undefined) {
+        const suffix = document.createElement('span');
+        suffix.className = 'markdown-heading-suffix';
+        suffix.setAttribute('aria-hidden', 'true');
+        suffix.textContent = this.block.source.slice(Math.max(headingPrefix.length, closing.index));
+        heading?.append(suffix);
+      }
+    }
     const refresh = (): void => {
       if (root.isConnected) view.requestMeasure();
     };
@@ -132,27 +180,89 @@ class PreviewWidget extends WidgetType {
       languageLabel?.replaceWith(toolbar);
       root.querySelector('details')?.addEventListener('toggle', refresh);
     }
+    root.addEventListener('mousedown', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.button !== 0 ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        target?.closest('a,button,input,select,summary,label')
+      )
+        return;
+      const anchor = sourcePositionAtPoint(view, event);
+      if (anchor === null) return;
+      const document = root.ownerDocument;
+      const controller = new AbortController();
+      const signal = controller.signal;
+      const originalDoc = view.state.doc;
+      document.defaultView?.addEventListener('blur', () => controller.abort(), {
+        once: true,
+        signal,
+      });
+      document.addEventListener(
+        'keydown',
+        (key) => {
+          if (key.key === 'Escape') controller.abort();
+        },
+        { signal },
+      );
+      // A pending focus/layout correction may reset the native anchor while a widget is dragged.
+      document.addEventListener(
+        'mouseup',
+        (release) => {
+          controller.abort();
+          if (
+            !view.dom.isConnected ||
+            view.state.doc !== originalDoc ||
+            Math.hypot(release.clientX - event.clientX, release.clientY - event.clientY) <= 3
+          )
+            return;
+          const head = sourcePositionAtPoint(view, release);
+          if (head === null || head === anchor) return;
+          release.preventDefault();
+          view.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+          view.focus();
+        },
+        { once: true, signal },
+      );
+    });
     root.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('button,input,select,summary,label')) return;
       const link = target?.closest('a');
+      if (link && event.detail === 0) {
+        event.preventDefault();
+        this.config.onLink?.(link.getAttribute('href') ?? '');
+        return;
+      }
+      const selected = root.ownerDocument.getSelection();
+      if (
+        selected &&
+        !selected.isCollapsed &&
+        selected.anchorNode &&
+        selected.focusNode &&
+        view.contentDOM.contains(selected.anchorNode) &&
+        view.contentDOM.contains(selected.focusNode)
+      ) {
+        event.preventDefault();
+        const anchor = sourcePosition(view, selected.anchorNode, selected.anchorOffset);
+        const head = sourcePosition(view, selected.focusNode, selected.focusOffset);
+        // Keep unsupported rendered selections intact instead of moving their cursor to the block start.
+        if (anchor === null || head === null || anchor === head) return;
+        view.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+        view.focus();
+        return;
+      }
       if (link) {
         event.preventDefault();
         this.config.onLink?.(link.getAttribute('href') ?? '');
         return;
       }
-      if (target?.closest('button,input,select,summary,label')) return;
       event.preventDefault();
       // Keep CodeMirror's original document and history; only expose the selected source block.
-      const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
-      const range = !caret ? document.caretRangeFromPoint?.(event.clientX, event.clientY) : null;
-      const node = caret?.offsetNode ?? range?.startContainer;
-      const offset = previewSourcePosition(
-        root,
-        this.block.source,
-        node,
-        caret?.offset ?? range?.startOffset ?? 0,
-      );
-      const position = Number(root.dataset.sourceFrom) + (offset ?? 0);
+      const position = sourcePositionAtPoint(view, event) ?? Number(root.dataset.sourceFrom);
       view.dispatch({ selection: { anchor: position }, scrollIntoView: false });
       view.focus();
     });
