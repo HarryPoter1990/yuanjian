@@ -259,7 +259,8 @@ try {
         });
         const first = await page.screenshot({ clip: bounds, caret: 'initial' });
         let stableFrames = 0,
-          roundingNoisePixels = 0;
+          rawChangedPixels = 0,
+          maxChannelDelta = 0;
         for (let frame = 0; frame < 24; frame++) {
           await page.waitForTimeout(110);
           const image = await page.screenshot({ clip: bounds, caret: 'initial' });
@@ -328,7 +329,8 @@ try {
             `source text pixels must stay stable: ${reducedMotion}, wallpaper=${wallpaper}`,
           );
           stableFrames++;
-          roundingNoisePixels += difference.changedPixels;
+          rawChangedPixels += difference.changedPixels;
+          maxChannelDelta = Math.max(maxChannelDelta, difference.maxChannelDelta);
         }
         const dom = await page.evaluate(() => {
           window.headingObserver.disconnect();
@@ -360,7 +362,9 @@ try {
           reducedMotion,
           wallpaper,
           stableFrames,
-          roundingNoisePixels,
+          rawChangedPixels,
+          maxChannelDelta,
+          noiseSkipped: rawChangedPixels > 0,
           ...dom,
         });
       }
