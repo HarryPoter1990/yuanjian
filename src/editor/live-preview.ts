@@ -434,6 +434,30 @@ const codeScrollMeasurements = ViewPlugin.define((view) => {
   return { destroy: () => view.contentDOM.removeEventListener('scroll', scroll, true) };
 });
 
+const frontmatterFocus = EditorView.domEventHandlers({
+  focus(_event, view) {
+    // Focus can be restored during a DOM update; reveal before the next input task.
+    queueMicrotask(() => {
+      if (
+        !view.dom.isConnected ||
+        !view.hasFocus ||
+        view.state.facet(previewConfig).mode !== 'live'
+      )
+        return;
+      const current = view.state.field(livePreviewField);
+      const properties = current.blocks.find(
+        (block) => block.type === 'frontmatter' && !block.error,
+      );
+      if (
+        !current.metadataExpanded &&
+        properties &&
+        view.state.selection.main.from <= properties.to
+      )
+        view.dispatch({ effects: expandFrontmatter.of(true) });
+    });
+  },
+});
+
 const codeScrollMeasureKey = {};
 const codeCursorScrolling = EditorView.scrollHandler.of((view, range, options) => {
   const at = view.domAtPos(range.head);
@@ -501,6 +525,12 @@ export const livePreviewField = StateField.define<{
     for (const effect of transaction.effects)
       if (effect.is(expandFrontmatter)) metadataExpanded = effect.value;
     const properties = blocks.find((block) => block.type === 'frontmatter');
+    if (
+      transaction.selection &&
+      properties &&
+      transaction.state.selection.main.from <= properties.to
+    )
+      metadataExpanded = true;
     if (!properties || transaction.state.selection.main.from > properties.to)
       metadataExpanded = false;
     return {
@@ -514,5 +544,6 @@ export const livePreviewField = StateField.define<{
     EditorView.blockWrappers.from(field, (value) => value.wrappers),
     codeScrollMeasurements,
     codeCursorScrolling,
+    frontmatterFocus,
   ],
 });

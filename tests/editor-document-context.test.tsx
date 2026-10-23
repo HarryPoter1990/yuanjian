@@ -141,6 +141,62 @@ describe('document context in live editing', () => {
     await act(async () => view.dispatch({ selection: { anchor: source.length } }));
     expect(host.querySelector('[aria-label="展开原始 YAML 属性"]')).not.toBeNull();
   });
+  it.each(['Delete', 'Backspace', 'text'])(
+    'reveals raw properties before initial-cursor %s editing without moving the caret',
+    async (key) => {
+      const source = '---\ntags: [学习]\n---\n\n尾段';
+      const { view, onChange } = await mount(source, 0);
+      expect(host.querySelector('[aria-label="展开原始 YAML 属性"]')).not.toBeNull();
+      await act(async () => view.focus());
+      expect(view.state.selection.main.head).toBe(0);
+      expect(
+        [...host.querySelectorAll('.cm-line')].some((line) => line.textContent === 'tags: [学习]'),
+      ).toBe(true);
+      expect(onChange).not.toHaveBeenCalled();
+      await act(async () => {
+        if (key === 'text') ref.current!.insert('字');
+        else
+          view.contentDOM.dispatchEvent(
+            new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+          );
+      });
+      expect(view.state.doc.toString()).toBe(
+        key === 'Delete' ? source.slice(1) : key === 'text' ? '字' + source : source,
+      );
+    },
+  );
+  it('reveals properties when keyboard navigation enters their source before deletion', async () => {
+    const source = '---\ntags: [学习]\n---\n\n尾段';
+    const { view, onChange } = await mount(source);
+    await act(async () => view.focus());
+    expect(host.querySelector('[aria-label="展开原始 YAML 属性"]')).not.toBeNull();
+    await act(async () =>
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Home',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    await act(async () =>
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(view.state.selection.main.head).toBe(1);
+    expect(
+      [...host.querySelectorAll('.cm-line')].some((line) => line.textContent === 'tags: [学习]'),
+    ).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () =>
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(view.state.doc.toString()).toBe('--\ntags: [学习]\n---\n\n尾段');
+  });
   it('keeps invalid YAML visible with an error and never rewrites its source', async () => {
     const source = '---\ntags: [未闭合\n---\n\n尾段';
     const { view, onChange } = await mount(source);
