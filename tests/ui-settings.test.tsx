@@ -113,7 +113,7 @@ it('every indexed setting leads to a rendered target with a stable name', async 
   }
 });
 
-it('retains an unfinished exclusion line and commits parsed names only when leaving the field', async () => {
+it('retains unfinished exclusion lines while making directory edits available to the existing save lifecycle', async () => {
   await type('搜索设置', '索引排除目录');
   await act(async () => result('编辑与文件 · 索引排除目录')!.click());
   const before = defaultSettings.excluded.join('\n');
@@ -121,6 +121,9 @@ it('retains an unfinished exclusion line and commits parsed names only when leav
   expect(field.value).toBe(before + '\n');
   expect(saved).not.toHaveBeenCalled();
   await type('索引排除目录', before + '\n新排除目录');
+  expect(saved).toHaveBeenLastCalledWith(
+    expect.objectContaining({ excluded: [...defaultSettings.excluded, '新排除目录'] }),
+  );
   await act(async () => {
     field.focus();
     host.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!.focus();

@@ -201,6 +201,62 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe('desktop session and save lifecycle', () => {
+  it.each([false, true])(
+    'preserves exclusion edits through a native close without blurring the settings field (write failure: %s)',
+    async (fails) => {
+      await mount(undefined, (api) => {
+        if (fails)
+          api.saveSettings = vi.fn(async () => {
+            throw Error('设置无法保存');
+          });
+      });
+      await act(async () => root.render(<App />));
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="打开设置"]')!.click(),
+      );
+      const search = host.querySelector<HTMLInputElement>('[aria-label="搜索设置"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          search,
+          '索引排除目录',
+        );
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="编辑与文件 · 索引排除目录"]')!.click(),
+      );
+      const field = host.querySelector<HTMLTextAreaElement>('[aria-label="索引排除目录"]')!;
+      await act(async () => {
+        field.focus();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          field,
+          field.value + '\n未提交目录',
+        );
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(document.activeElement).toBe(field);
+      await act(async () => onClose());
+      expect(api.saveSettings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ excluded: expect.arrayContaining(['未提交目录']) }),
+      );
+      if (fails) expect(api.closeReady).not.toHaveBeenCalled();
+      else expect(api.closeReady).toHaveBeenCalledTimes(1);
+      expect(field.value).toContain('未提交目录');
+    },
+  );
+  it('links the document panel to a tab whose real file path contains spaces and Unicode', async () => {
+    const documentNote = {
+      ...note,
+      id: 'D:\\Chinese Notes\\中文 笔记.md',
+      path: 'D:\\Chinese Notes\\中文 笔记.md',
+    };
+    await mount({ tabs: [asTab(documentNote)], activeId: documentNote.id });
+    await act(async () => root.render(<App />));
+    const panel = host.querySelector<HTMLElement>('#document-panel')!;
+    const labels = panel.getAttribute('aria-labelledby')!.split(/\s+/);
+    expect(labels).toHaveLength(1);
+    expect(document.getElementById(labels[0])).toBe(host.querySelector('.tabs-bar [role="tab"]'));
+  });
   it('keeps the startup connection diagnostic visible when the preload bridge is missing', async () => {
     await mount();
     Reflect.deleteProperty(window, 'notes');

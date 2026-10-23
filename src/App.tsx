@@ -101,6 +101,7 @@ const buttons: { id: EditorCommand | 'image'; title: string; icon: typeof Bold }
   { id: 'image', title: '插入图片', icon: ImagePlus },
   { id: 'diagram', title: '流程图', icon: Network },
 ];
+const tabLabelId = (id: string) => `document-tab-note-${encodeURIComponent(id)}`;
 export default function App() {
   const workspace = useWorkspace();
   const { settings, tabs, activeId, notify, updateTab } = workspace;
@@ -935,7 +936,7 @@ export default function App() {
         >
           <button
             role="tab"
-            id={`document-tab-${tab.id}`}
+            id={tabLabelId(tab.id)}
             aria-controls="document-panel"
             aria-selected={!graphActive && tab.id === activeId}
             tabIndex={!graphActive && tab.id === activeId ? 0 : -1}
@@ -1292,7 +1293,7 @@ export default function App() {
             id="document-panel"
             role="tabpanel"
             aria-labelledby={
-              graphActive ? 'document-tab-graph' : active ? `document-tab-${active.id}` : undefined
+              graphActive ? 'document-tab-graph' : active ? tabLabelId(active.id) : undefined
             }
             aria-label="笔记编辑区"
           >

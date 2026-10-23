@@ -53,6 +53,7 @@ const shortcutKey = (value: string) =>
     .filter(Boolean)
     .sort()
     .join('+');
+const excludedLines = (value: string) => value.split(/\r?\n/).filter(Boolean);
 const toolbarLabels: Record<string, string> = {
   heading: '标题',
   bold: '粗体',
@@ -108,7 +109,11 @@ export function SettingsPanel({
   const searching = Boolean(query.trim());
   const results = searchSettings(query);
   const visible = searching ? 'search' : section;
-  useEffect(() => setExcludedDraft(excludedValue), [excludedValue]);
+  useEffect(() => {
+    setExcludedDraft((draft) =>
+      excludedLines(draft).join('\n') === excludedValue ? draft : excludedValue,
+    );
+  }, [excludedValue]);
   useEffect(() => {
     if (!highlight || searching) return;
     const target = [
@@ -206,10 +211,7 @@ export function SettingsPanel({
       title="设置"
       onClose={onClose}
       busy={Boolean(busy)}
-      pending={
-        (themeName !== '我的主题' && Boolean(themeName.trim())) ||
-        excludedDraft !== settings.excluded.join('\n')
-      }
+      pending={themeName !== '我的主题' && Boolean(themeName.trim())}
       wide
     >
       <div className="settings-search-bar">
@@ -696,16 +698,19 @@ export function SettingsPanel({
                   onChange={(showAllFiles) => patch({ showAllFiles })}
                 />
               </Field>
-              <Field label="索引排除目录" description="每行一个目录名。">
+              <Field label="索引排除目录" description="每行一个目录名，修改会自动保存。">
                 <textarea
                   aria-label="索引排除目录"
                   rows={5}
                   value={excludedDraft}
-                  onChange={(e) => setExcludedDraft(e.target.value)}
+                  onChange={(e) => {
+                    const draft = e.target.value;
+                    setExcludedDraft(draft);
+                    const excluded = excludedLines(draft);
+                    if (excluded.join('\n') !== excludedValue) patch({ excluded });
+                  }}
                   onBlur={() => {
-                    const excluded = excludedDraft.split(/\r?\n/).filter(Boolean);
-                    setExcludedDraft(excluded.join('\n'));
-                    if (excluded.join('\n') !== settings.excluded.join('\n')) patch({ excluded });
+                    setExcludedDraft(excludedLines(excludedDraft).join('\n'));
                   }}
                 />
               </Field>
