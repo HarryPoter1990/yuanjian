@@ -1,11 +1,5 @@
 import { WidgetType, type EditorView } from '@codemirror/view';
-import {
-  parseTable,
-  serializeTable,
-  serializeTableCell,
-  tableCellRange,
-  type Alignment,
-} from './table';
+import { parseTable, serializeTable, tableCellChange, type Alignment } from './table';
 
 const gridStates = new WeakMap<HTMLElement, { update(source: string): boolean }>();
 
@@ -150,17 +144,17 @@ export class TableWidget extends WidgetType {
           originalValue = input.value;
         });
         const writeCell = () => {
-          table.rows[rowNumber][columnNumber] = input.value;
-          const range = tableCellRange(currentSource, rowNumber, columnNumber);
           const from = Number(container.dataset.tableFrom);
           const to = Number(container.dataset.tableTo);
-          if (!range || view.state.doc.sliceString(from, to) !== currentSource) return;
-          const insert = serializeTableCell(input.value);
-          if (currentSource.slice(range.from, range.to) === insert) return;
+          if (view.state.doc.sliceString(from, to) !== currentSource) return;
+          const change = tableCellChange(currentSource, rowNumber, columnNumber, input.value);
+          if (!change) return;
+          table.rows[rowNumber][columnNumber] = input.value;
+          if (currentSource.slice(change.from, change.to) === change.insert) return;
           currentSource =
-            currentSource.slice(0, range.from) + insert + currentSource.slice(range.to);
+            currentSource.slice(0, change.from) + change.insert + currentSource.slice(change.to);
           view.dispatch({
-            changes: { from: from + range.from, to: from + range.to, insert },
+            changes: { from: from + change.from, to: from + change.to, insert: change.insert },
             userEvent: 'input.table',
           });
         };
@@ -169,6 +163,30 @@ export class TableWidget extends WidgetType {
         input.dataset.column = String(columnNumber);
         input.addEventListener('keydown', (event) => {
           if (event.isComposing || event.keyCode === 229) return;
+          if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            const columns = table.alignments.length;
+            const next = rowNumber * columns + columnNumber + (event.shiftKey ? -1 : 1);
+            if (next < 0) return;
+            event.preventDefault();
+            if (next < table.rows.length * columns) {
+              inputs[Math.floor(next / columns)][next % columns].focus();
+            } else {
+              const from = Number(container.dataset.tableFrom);
+              const to = Number(container.dataset.tableTo);
+              if (view.state.doc.sliceString(from, to) !== currentSource) return;
+              view.dispatch({
+                changes: { from: to, insert: '\n| ' + Array(columns).fill('').join(' | ') + ' |' },
+                userEvent: 'input.table',
+              });
+              queueMicrotask(() =>
+                view.dom
+                  .querySelector<HTMLInputElement>(
+                    `[data-table-from="${from}"] input[data-row="${table.rows.length}"][data-column="0"]`,
+                  )
+                  ?.focus(),
+              );
+            }
+          }
           if (event.key === 'Enter') {
             event.preventDefault();
             input.blur();

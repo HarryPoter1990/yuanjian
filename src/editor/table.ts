@@ -17,7 +17,7 @@ export function tableCellRange(
   let end = line.trimEnd().length;
   let slashes = 0;
   for (let index = end - 2; index >= 0 && line[index] === '\\'; index--) slashes++;
-  if (line[end - 1] === '|' && slashes % 2 === 0) end--;
+  if (end > start && line[end - 1] === '|' && slashes % 2 === 0) end--;
   let cellStart = start,
     cellIndex = 0,
     codeTicks = 0;
@@ -58,6 +58,31 @@ export const serializeTableCell = (value: string): string =>
       /(\\*)\|/g,
       (_match, slashes: string) => slashes + (slashes.length % 2 ? '' : '\\') + '|',
     );
+
+/** Short body rows have visible empty cells even when their delimiters are not in the source yet. */
+export function tableCellChange(source: string, row: number, column: number, value: string) {
+  const range = tableCellRange(source, row, column);
+  const insert = serializeTableCell(value);
+  if (range) return { ...range, insert };
+  const lines = source.split('\n');
+  const lineIndex = row === 0 ? 0 : row + 1;
+  const line = lines[lineIndex];
+  if (line === undefined || row < 1 || column < 0) return null;
+  const count = splitTableRow(line).length;
+  if (column < count) return null;
+  const edge = line.trimEnd().length;
+  const trimmed = line.trim();
+  let slashes = 0;
+  for (let index = trimmed.length - 2; index >= 0 && trimmed[index] === '\\'; index--) slashes++;
+  const closing =
+    trimmed.length > (trimmed.startsWith('|') ? 1 : 0) &&
+    trimmed.endsWith('|') &&
+    slashes % 2 === 0;
+  const padding = ' |'.repeat(column - count + (closing ? 0 : 1));
+  const offset =
+    lines.slice(0, lineIndex).reduce((length, text) => length + text.length + 1, 0) + edge;
+  return { from: offset, to: offset, insert: padding + ' ' + insert + (closing ? ' |' : '') };
+}
 
 export function splitTableRow(line: string): string[] {
   let source = line.trim();
