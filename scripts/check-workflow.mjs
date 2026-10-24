@@ -372,6 +372,34 @@ try {
     await page.keyboard.press('Alt+ArrowRight');
     await expect(tab(page, 'Gamma')).toHaveAttribute('aria-selected', 'true');
   });
+  await check('editor-context-copy-cut-and-paste', async (page) => {
+    await page.keyboard.press('Control+Shift+m');
+    await page.locator('.cm-content').focus();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.press('Shift+Home');
+    const lastLine = page.locator('.cm-content .cm-line').last();
+    await lastLine.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^复制(?:\s|$)/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.copied.at(-1)))
+      .toBe('结束。');
+    await lastLine.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^剪切(?:\s|$)/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.document()))
+      .not.toContain('结束。');
+    await page.locator('.cm-content .cm-line').last().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^粘贴为纯文本/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.document()))
+      .toContain('剪贴板纯文字');
+    await page.locator('.cm-content .cm-line').last().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /^粘贴(?:\s|$)/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.document()))
+      .toContain('**富文本**');
+    await expect(page.locator('.cm-content')).toBeFocused();
+  });
   for (const width of [1440, 800, 600])
     await check(
       `header-${width}`,
