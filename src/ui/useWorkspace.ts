@@ -24,7 +24,9 @@ export interface Conflict {
   tabId: string;
   detail: NonNullable<SaveOutcome['conflict']>;
 }
-export function useWorkspace() {
+export function useWorkspace(onExternalOpen?: () => void) {
+  const externalOpen = useRef(onExternalOpen);
+  externalOpen.current = onExternalOpen;
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState('');
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -447,6 +449,7 @@ export function useWorkspace() {
         }
       }),
       window.notes.onOpenRequested((path) => {
+        externalOpen.current?.();
         void open(path);
       }),
       window.notes.onProgress((value) => setProgress(value)),

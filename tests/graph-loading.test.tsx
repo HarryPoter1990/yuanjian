@@ -17,6 +17,8 @@ vi.mock('../src/editor/MarkdownEditor', async () => {
     MarkdownEditor: forwardRef(function Fixture(props: { value: string }, ref) {
       useImperativeHandle(ref, () => ({
         getHeadingLevel: () => 0,
+        getScrollAnchor: () => undefined,
+        restorePosition() {},
         setHeading() {},
         getView: () => null,
         getCursor: () => 0,

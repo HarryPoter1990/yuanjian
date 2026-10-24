@@ -50,6 +50,7 @@ import { MarkdownEditor } from './editor/MarkdownEditor';
 import type {
   EditorCommand,
   EditorSession,
+  EditorScrollAnchor,
   MarkdownEditorHandle,
   HeadingLevel,
 } from './editor/types';
@@ -59,6 +60,14 @@ import { Sidebar } from './components/Sidebar';
 import { DocumentTabs } from './components/DocumentTabs';
 import { tabLabelId, viewKey } from './ui/viewTabs';
 import { useTabClosing, type CloseDecision } from './ui/useTabClosing';
+import {
+  createNavigationHistory,
+  pushNavigation,
+  stepNavigation,
+  removeNavigationNote,
+  resolveNavigationPosition,
+  type NavigationPosition,
+} from './ui/navigationHistory';
 import { TabContextMenu } from './components/TabContextMenu';
 import { HeadingMenu } from './components/HeadingMenu';
 import { presentMoveOutcome } from './ui/moveFeedback';
@@ -110,7 +119,7 @@ const buttons: { id: EditorCommand | 'image'; title: string; icon: typeof Bold }
   { id: 'diagram', title: '流程图', icon: Network },
 ];
 export default function App() {
-  const workspace = useWorkspace();
+  const workspace = useWorkspace(() => cancelNavigation());
   const {
     settings,
     tabs,
@@ -156,14 +165,25 @@ export default function App() {
     command?: EditorCommand;
     cursor?: number;
     scrollTop?: number;
+    scrollAnchor?: EditorScrollAnchor;
   } | null>(null);
   const [quickOpenBusy, setQuickOpenBusy] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
   const closeConfirmation = useRef<((decision: CloseDecision) => void) | null>(null);
   const recentClosed = useRef<
-    { path: string; cursor: number; scrollTop: number; mode: TabState['mode'] }[]
+    {
+      path: string;
+      cursor: number;
+      scrollTop: number;
+      scrollAnchor?: EditorScrollAnchor;
+      mode: TabState['mode'];
+    }[]
   >([]);
   const [recentClosedCount, setRecentClosedCount] = useState(0);
+  const navigation = useRef(createNavigationHistory());
+  const navigating = useRef(false);
+  const navigationSource = useRef<string | null>(null);
+  const navigationVersion = useRef(0);
   const reopening = useRef(false);
   const closingViews = useRef(false);
   const [tabContext, setTabContext] = useState<{ view: ViewTab; x: number; y: number } | null>(
@@ -219,16 +239,19 @@ export default function App() {
   );
   const setPanel = useCallback(
     (next: Panel) => {
+      if (next) cancelNavigation();
       if (next && !['close', 'link'].includes(next)) void inFullWindow(() => setPanelState(next));
       else setPanelState(next);
     },
     [inFullWindow],
   );
-  const openGraph = () =>
+  const openGraph = () => {
+    cancelNavigation();
     void inFullWindow(() => {
       setGraphOpen(true);
       setGraphActive(true);
     });
+  };
   useEffect(() => {
     if (!sticky) return;
     setGraphActive(false);
@@ -241,6 +264,7 @@ export default function App() {
   async function changeWindowMode(mode: 'full' | 'sticky') {
     if (windowMode.pending || workspace.closing) return;
     if (mode === 'sticky' && (busy || panel || workspace.conflict)) return;
+    cancelNavigation();
     if (await windowMode.change(mode)) {
       setGraphActive(false);
       setTimeout(() => editor.current?.focus(), 0);
@@ -406,27 +430,132 @@ export default function App() {
       if (!editor.current?.getView()) return;
       if (pendingLine.command) editor.current.command(pendingLine.command);
       else if (pendingLine.line) editor.current.scrollToLine(pendingLine.line);
-      else {
-        const view = editor.current.getView()!;
-        if (pendingLine.cursor !== undefined)
-          view.dispatch({
-            selection: { anchor: Math.max(0, Math.min(view.state.doc.length, pendingLine.cursor)) },
-          });
-        if (pendingLine.scrollTop !== undefined) view.scrollDOM.scrollTop = pendingLine.scrollTop;
-        editor.current.focus();
-      }
+      else if (
+        pendingLine.cursor !== undefined ||
+        pendingLine.scrollTop !== undefined ||
+        pendingLine.scrollAnchor
+      ) {
+        editor.current.restorePosition(
+          pendingLine.cursor ?? editor.current.getCursor(),
+          pendingLine.scrollTop ?? editor.current.getScroll(),
+          pendingLine.scrollAnchor,
+        );
+      } else editor.current.focus();
       setPendingLine(null);
     } else if (pendingLine && activeId !== pendingLine.id) {
       setPendingLine(null);
     }
   }, [pendingLine, activeId, graphActive]);
+  function cancelNavigation() {
+    navigationVersion.current++;
+    navigating.current = false;
+  }
+  function positionFor(id = activeRef.current?.id): NavigationPosition | null {
+    if (!id) return null;
+    const tab = workspace.getTab(id);
+    if (!tab) return null;
+    const live = activeRef.current?.id === id ? editor.current : null;
+    const session = editorSessions.current.get(id);
+    const storedAnchor =
+      session &&
+      typeof session.state.doc === 'string' &&
+      session.state.doc.replace(/\r\n?/g, '\n') === tab.content.replace(/\r\n?/g, '\n')
+        ? session.scrollAnchor
+        : undefined;
+    return {
+      noteId: id,
+      path: tab.path,
+      cursor: live?.getCursor() ?? tab.cursor,
+      scrollTop: live?.getScroll() ?? tab.scrollTop,
+      scrollAnchor: live ? live.getScrollAnchor() : storedAnchor,
+    };
+  }
+  function rememberNavigation(leaving: NavigationPosition | null, target: NavigationPosition) {
+    let history = navigation.current;
+    if (leaving && history.entries[history.index]?.noteId !== leaving.noteId)
+      history = pushNavigation(history, null, leaving);
+    navigation.current = pushNavigation(history, leaving, target);
+  }
+  function activateNote(id: string, leaving = positionFor(), line?: number) {
+    const target = positionFor(id);
+    if (!target) return;
+    if (line) {
+      const source = workspace.getTab(id)!.content.replace(/\r\n?/g, '\n').split('\n');
+      target.cursor = source
+        .slice(0, Math.max(0, Math.min(source.length - 1, line - 1)))
+        .reduce((sum, text) => sum + text.length + 1, 0);
+    }
+    cancelNavigation();
+    rememberNavigation(leaving, target);
+    workspace.setActiveId(id);
+    setPendingLine({ id, line });
+  }
+  useEffect(() => {
+    if (graphActive) return;
+    if (navigating.current) {
+      if (activeId !== navigationSource.current) cancelNavigation();
+      else return;
+    }
+    const position = positionFor();
+    if (!position) return;
+    const history = navigation.current;
+    if (history.entries[history.index]?.noteId !== position.noteId)
+      navigation.current = pushNavigation(history, null, position);
+    else {
+      const entries = [...history.entries];
+      entries[history.index] = position;
+      navigation.current = { ...history, entries };
+    }
+  }, [activeId, active?.cursor, active?.scrollTop, graphActive]);
+  async function navigateHistory(direction: -1 | 1) {
+    if (navigating.current) return;
+    const leaving = positionFor();
+    let base = navigation.current;
+    if (leaving && base.entries[base.index]?.noteId !== leaving.noteId)
+      base = pushNavigation(base, null, leaving);
+    let candidate = stepNavigation(base, leaving, direction);
+    let target = candidate.target && resolveNavigationPosition(candidate.target, tabs);
+    while (candidate.target && !target) {
+      base = removeNavigationNote(base, candidate.target.noteId);
+      candidate = stepNavigation(base, leaving, direction);
+      target = candidate.target && resolveNavigationPosition(candidate.target, tabs);
+    }
+    navigation.current = base;
+    if (!target) return;
+    const version = ++navigationVersion.current;
+    navigating.current = true;
+    navigationSource.current = leaving?.noteId ?? null;
+    try {
+      let id = workspace.getTab(target.noteId)?.id;
+      if (!id && target.path) {
+        const note = await window.notes.openFile(target.path);
+        if (version !== navigationVersion.current || !note) return;
+        id = workspace.openDocument(note);
+      }
+      if (!id || version !== navigationVersion.current) return;
+      const position = { ...target, noteId: id, path: workspace.getTab(id)?.path ?? target.path };
+      const entries = [...candidate.history.entries];
+      entries[candidate.history.index] = position;
+      navigation.current = { ...candidate.history, entries };
+      navigationSource.current = id;
+      workspace.setActiveId(id);
+      setPendingLine({
+        id,
+        cursor: position.cursor,
+        scrollTop: position.scrollTop,
+        scrollAnchor: position.scrollAnchor,
+      });
+    } catch (reason) {
+      if (version === navigationVersion.current) error(`位置导航失败：${errorText(reason)}`);
+    } finally {
+      if (version === navigationVersion.current) navigating.current = false;
+    }
+  }
   const open = useCallback(
     async (path?: string, line?: number) => {
+      const leaving = positionFor();
       const id = await workspace.open(path);
-      if (id) {
-        setGraphActive(false);
-        if (line) setPendingLine({ id, line });
-      }
+      if (id) activateNote(id, leaving, line);
       return id;
     },
     [workspace.open],
@@ -434,16 +563,16 @@ export default function App() {
   async function chooseQuickOpen(target: QuickOpenTarget) {
     if (quickOpenBusy) return;
     setQuickOpenBusy(true);
+    const leaving = positionFor();
     try {
       const id =
         target.kind === 'tab'
           ? workspace.getTab(target.id)
             ? target.id
             : null
-          : await open(target.path);
+          : await workspace.open(target.path);
       if (!id) return;
-      workspace.setActiveId(id);
-      setPendingLine({ id });
+      activateNote(id, leaving);
       setPanel(null);
     } finally {
       setQuickOpenBusy(false);
@@ -491,6 +620,7 @@ export default function App() {
     setPanel('link');
   }
   function format(command: EditorCommand | 'image') {
+    if (command === 'find' || command === 'replace') cancelNavigation();
     if (command === 'image') imageInput.current?.click();
     else if (command === 'link') beginLink();
     else editor.current?.command(command);
@@ -546,6 +676,7 @@ export default function App() {
       notify('请先保存笔记，再打开相对链接。');
       return;
     }
+    const leaving = positionFor();
     await run('打开链接', async () => {
       const resolved = await window.notes.resolveLink(active.path!, target);
       if (resolved.external) {
@@ -579,7 +710,7 @@ export default function App() {
                 (item) =>
                   item.text === readable(targetHeading) || item.id === readable(targetHeading),
               );
-            if (heading) setPendingLine({ id, line: heading.line });
+            activateNote(id, leaving, heading ? heading.line : undefined);
             return;
           }
         }
@@ -591,17 +722,15 @@ export default function App() {
         );
         return;
       }
-      const openedId = await open(resolved.path);
-      if (resolved.heading && openedId) {
+      const openedId = await workspace.open(resolved.path);
+      if (openedId) {
         const note = workspace.getTab(openedId);
         const heading =
           note &&
           extractHeadings(note.content).find(
             (item) => item.text === resolved.heading || item.id === resolved.heading,
           );
-        if (heading) {
-          setPendingLine({ id: openedId, line: heading.line });
-        }
+        activateNote(openedId, leaving, heading ? heading.line : undefined);
       }
     });
   }
@@ -624,14 +753,32 @@ export default function App() {
         setPanel('close');
       }),
     onClosed: (tab) => {
-      const live = activeRef.current?.id === tab.id ? editor.current : null;
+      cancelNavigation();
+      const position = positionFor(tab.id);
+      if (!tab.path) navigation.current = removeNavigationNote(navigation.current, tab.id);
+      else {
+        const history = navigation.current;
+        navigation.current = {
+          ...history,
+          entries: history.entries.map((entry, index) =>
+            entry.noteId === tab.id
+              ? {
+                  ...entry,
+                  path: tab.path,
+                  ...(index === history.index && position ? position : {}),
+                }
+              : entry,
+          ),
+        };
+      }
       if (tab.path) {
         recentClosed.current = [
           ...recentClosed.current.slice(-19),
           {
             path: tab.path,
-            cursor: live?.getCursor() ?? tab.cursor,
-            scrollTop: live?.getScroll() ?? tab.scrollTop,
+            cursor: position?.cursor ?? tab.cursor,
+            scrollTop: position?.scrollTop ?? tab.scrollTop,
+            scrollAnchor: position?.scrollAnchor,
             mode: tab.mode,
           },
         ];
@@ -646,8 +793,10 @@ export default function App() {
     closingViews.current = true;
     try {
       for (const view of views) {
-        if (view.kind === 'graph') setGraphOpen(false);
-        else if (!(await requestClose(view.id))) break;
+        if (view.kind === 'graph') {
+          cancelNavigation();
+          setGraphOpen(false);
+        } else if (!(await requestClose(view.id))) break;
       }
     } finally {
       closingViews.current = false;
@@ -667,7 +816,12 @@ export default function App() {
       if (!id) return;
       if (!existing) editorSessions.current.delete(id);
       updateTab(id, { cursor: target.cursor, scrollTop: target.scrollTop, mode: target.mode });
-      setPendingLine({ id, cursor: target.cursor, scrollTop: target.scrollTop });
+      setPendingLine({
+        id,
+        cursor: target.cursor,
+        scrollTop: target.scrollTop,
+        scrollAnchor: target.scrollAnchor,
+      });
       recentClosed.current = recentClosed.current.filter((item) => item !== target);
       setRecentClosedCount(recentClosed.current.length);
     } finally {
@@ -727,8 +881,9 @@ export default function App() {
     });
   }
   const newNote = useCallback(() => {
-    workspace.newDraft();
-    setGraphActive(false);
+    const leaving = positionFor();
+    const id = workspace.newDraft();
+    activateNote(id, leaving);
   }, [workspace.newDraft]);
   useEffect(() => {
     if (!settings) return;
@@ -749,15 +904,15 @@ export default function App() {
           );
           const next = (current + (event.shiftKey ? -1 : 1) + count) % count;
           const target = viewOrder[next];
-          if (target.kind === 'graph') setGraphActive(true);
+          if (target.kind === 'graph') openGraph();
           else {
-            workspace.setActiveId(target.id);
-            setPendingLine({ id: target.id });
+            activateNote(target.id);
           }
         } else if (event.key.toLowerCase() === 'w' && !event.shiftKey) {
           event.preventDefault();
           event.stopPropagation();
           if (graphActive) {
+            cancelNavigation();
             setGraphOpen(false);
             setGraphActive(false);
           } else if (active) void requestClose(active.id);
@@ -776,6 +931,12 @@ export default function App() {
         case 'open':
           void open();
           break;
+        case 'back':
+          void navigateHistory(-1);
+          break;
+        case 'forward':
+          void navigateHistory(1);
+          break;
         case 'reopen':
           void reopenLastClosed();
           break;
@@ -784,6 +945,7 @@ export default function App() {
           break;
         case 'find':
         case 'replace':
+          cancelNavigation();
           if (!active) {
             notify('请先打开一篇笔记再查找。');
             break;
@@ -1092,11 +1254,13 @@ export default function App() {
       }}
       onSelect={(view) => {
         if (view.kind === 'graph') openGraph();
-        else workspace.setActiveId(view.id);
+        else activateNote(view.id);
       }}
       onClose={(view) => {
-        if (view.kind === 'graph') setGraphOpen(false);
-        else void requestClose(view.id);
+        if (view.kind === 'graph') {
+          cancelNavigation();
+          setGraphOpen(false);
+        } else void requestClose(view.id);
       }}
       onNew={newNote}
       onReorder={workspace.reorderViews}
@@ -1259,9 +1423,7 @@ export default function App() {
               Boolean(busy || panel || workspace.conflict || workspace.closing)
             }
             onSelect={(id) => {
-              workspace.setActiveId(id);
-              setGraphActive(false);
-              setTimeout(() => editor.current?.focus(), 0);
+              activateNote(id);
             }}
             onPin={() => void windowMode.pin()}
             onFull={() => void changeWindowMode('full')}
@@ -1701,8 +1863,7 @@ export default function App() {
                         key={`${heading.line}:${i}`}
                         style={{ paddingLeft: 12 + (heading.level - 1) * 12 }}
                         onClick={() => {
-                          setGraphActive(false);
-                          if (active) setPendingLine({ id: active.id, line: heading.line });
+                          if (active) activateNote(active.id, positionFor(), heading.line);
                         }}
                       >
                         {heading.text || '未命名标题'}

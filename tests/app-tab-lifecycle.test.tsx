@@ -20,6 +20,17 @@ const first = { ...makeDraft('# Alpha\n\n原文A', 'Alpha'), id: 'A', cursor: 0 
 const second = { ...makeDraft('# Beta\n\n原文B', 'Beta'), id: 'B', cursor: 0 };
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // jsdom has no layout; model a scrollable long-document viewport for measured restoration.
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.classList.contains('cm-scroller') ? 10000 : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.classList.contains('cm-scroller') ? 600 : 0;
+  });
   Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] });
   Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
     configurable: true,
@@ -48,6 +59,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 async function mount(
@@ -109,7 +121,12 @@ async function clickText(text: string) {
   expect(button).toBeDefined();
   await act(async () => button!.click());
 }
-const named = { ...first, path: 'D:/generated/Alpha.md', dirty: false };
+const named = {
+  ...first,
+  content: first.content + '\n\n' + Array.from({ length: 80 }, (_, i) => `段落 ${i}`).join('\n\n'),
+  path: 'D:/generated/Alpha.md',
+  dirty: false,
+};
 it('reopens a closed saved note at its last position with a fresh undo history', async () => {
   let disk = { ...named };
   const centerWindow = vi.fn(async () => {});
@@ -155,16 +172,14 @@ it('does not revive an explicitly discarded anonymous draft', async () => {
 });
 async function context(id: string) {
   await act(async () =>
-    host
-      .querySelector<HTMLElement>(`[data-view-key="note:${id}"]`)!
-      .dispatchEvent(
-        new MouseEvent('contextmenu', {
-          bubbles: true,
-          clientX: 400,
-          clientY: 30,
-          cancelable: true,
-        }),
-      ),
+    host.querySelector<HTMLElement>(`[data-view-key="note:${id}"]`)!.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: 400,
+        clientY: 30,
+        cancelable: true,
+      }),
+    ),
   );
 }
 it('stops batch close at cancellation and can reopen the already closed saved note', async () => {

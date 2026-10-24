@@ -35,6 +35,8 @@ vi.mock('../src/editor/MarkdownEditor', async () => {
     ) {
       useImperativeHandle(ref, () => ({
         getHeadingLevel: () => 0,
+        getScrollAnchor: () => undefined,
+        restorePosition() {},
         setHeading() {},
         focus() {},
         insert: editorCalls.insert,

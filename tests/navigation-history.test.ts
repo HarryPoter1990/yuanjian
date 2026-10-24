@@ -122,3 +122,24 @@ describe('in-memory explicit note navigation history', () => {
     expect(history.entries).toEqual([position('A'), position('B')]);
   });
 });
+it('copies JSON scroll anchors through creation, navigation, resolution and pruning', () => {
+  const a = { ...position('A'), scrollAnchor: { from: 12, offset: -4, left: 9 } },
+    b = { ...position('B'), scrollAnchor: { from: 22, offset: 3, left: 2 } };
+  const initial = createNavigationHistory(a);
+  a.scrollAnchor.from = 999;
+  expect(initial.entries[0].scrollAnchor?.from).toBe(12);
+  const history = pushNavigation(initial, null, b);
+  b.scrollAnchor.offset = 999;
+  expect(history.entries[1].scrollAnchor?.offset).toBe(3);
+  initial.entries[0].scrollAnchor!.left = 999;
+  expect(history.entries[0].scrollAnchor?.left).toBe(9);
+  const back = stepNavigation(history, null, -1);
+  back.target!.scrollAnchor!.offset = 999;
+  expect(back.history.entries[0].scrollAnchor?.offset).toBe(-4);
+  const resolved = resolveNavigationPosition(history.entries[1], [])!;
+  resolved.scrollAnchor!.left = 999;
+  expect(history.entries[1].scrollAnchor?.left).toBe(2);
+  const pruned = removeNavigationNote(history, 'B');
+  pruned.entries[0].scrollAnchor!.offset = 999;
+  expect(history.entries[0].scrollAnchor?.offset).toBe(-4);
+});
