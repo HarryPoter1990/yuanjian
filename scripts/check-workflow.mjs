@@ -87,6 +87,7 @@ try {
     await page.keyboard.press('Control+p');
     const input = page.getByRole('combobox', { name: '按文件名或路径查找笔记' });
     await input.fill(query);
+    if (query === 'Delta') await page.screenshot({ path: `${out}/quick-open-panel.png` });
     await input.press('Enter');
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
@@ -313,6 +314,8 @@ try {
   });
   await check('tab-context-copy-and-reveal', async (page) => {
     await tab(page, 'Alpha').click({ button: 'right' });
+    await page.getByRole('menu', { name: '标签操作' }).waitFor();
+    await page.screenshot({ path: `${out}/tab-context-menu-open.png` });
     await page.getByRole('menuitem', { name: '复制文件路径', exact: true }).click();
     await expect
       .poll(() => page.evaluate(() => window.workflowFixture.copied))
@@ -329,6 +332,7 @@ try {
     await page.keyboard.press('Control+Home');
     await page.getByRole('button', { name: '标题', exact: true }).click();
     await expect(page.getByRole('menu', { name: '标题级别' }).getByRole('menuitem')).toHaveCount(7);
+    await page.screenshot({ path: `${out}/heading-menu-open.png` });
     await page.getByRole('menuitem', { name: 'H3 三级标题', exact: true }).click();
     assert.ok(
       (await page.evaluate(() => window.workflowFixture.document())).startsWith('### Alpha'),
@@ -384,6 +388,8 @@ try {
     await page.keyboard.press('Shift+Home');
     const lastLine = page.locator('.cm-content .cm-line').last();
     await lastLine.click({ button: 'right' });
+    await page.getByRole('menu', { name: '正文编辑菜单' }).waitFor();
+    await page.screenshot({ path: `${out}/editor-context-menu-open.png` });
     await page.getByRole('menuitem', { name: /^复制(?:\s|$)/ }).click();
     await expect
       .poll(() => page.evaluate(() => window.workflowFixture.copied.at(-1)))
