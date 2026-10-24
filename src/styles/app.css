@@ -1813,6 +1813,37 @@ button.danger {
   font-size: 9px;
   pointer-events: none;
 }
+.graph-load-state {
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  overflow: auto;
+}
+.graph-load-state > p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.graph-load-state details {
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.graph-load-state pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.graph-load-state > div {
+  display: flex;
+  gap: 8px;
+}
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

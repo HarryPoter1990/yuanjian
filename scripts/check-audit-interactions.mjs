@@ -4,10 +4,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { build } from 'esbuild';
 import { chromium, expect } from '@playwright/test';
+import { fixtureGraphPlugin } from './fixture-graph-plugin.mjs';
 
 const output = 'artifacts/audit-interactions';
 await mkdir(output, { recursive: true });
 const bundle = await build({
+  plugins: [fixtureGraphPlugin()],
   entryPoints: ['scripts/fixtures/audit-app.jsx'],
   bundle: true,
   write: false,

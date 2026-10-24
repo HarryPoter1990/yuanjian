@@ -12,6 +12,9 @@ import type { SessionState } from '../src/shared/types';
 vi.mock('../src/components/GraphView', () => ({
   GraphView: () => <div data-testid="graph-view">图谱夹具</div>,
 }));
+vi.mock('virtual:yuanjian-graph', () => ({
+  loadGraphModule: () => import('../src/components/GraphView'),
+}));
 let host: HTMLDivElement, root: Root;
 const first = { ...makeDraft('# Alpha\n\n原文A', 'Alpha'), id: 'A', cursor: 0 };
 const second = { ...makeDraft('# Beta\n\n原文B', 'Beta'), id: 'B', cursor: 0 };

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import cytoscape, { type Core, type ElementDefinition, type Layouts } from 'cytoscape';
+import type cytoscape from 'cytoscape';
+import type { Core, ElementDefinition, Layouts } from 'cytoscape';
 import { Maximize, RefreshCw, Search, ZoomIn, ZoomOut } from '../ui/icons';
 import type { GraphPreferences, NoteMeta, Settings } from '../shared/types';
 import { appearanceColors, errorText, fileName } from '../ui/model';
@@ -7,6 +8,7 @@ import { IconButton } from './Controls';
 import { runInitialGraphLayout } from '../ui/graphLayout';
 
 export function GraphView({
+  engine,
   index,
   settings,
   activePath,
@@ -14,6 +16,7 @@ export function GraphView({
   onOpen,
   onError,
 }: {
+  engine: typeof cytoscape;
   index: NoteMeta[];
   settings: Settings;
   activePath: string | null;
@@ -118,7 +121,7 @@ export function GraphView({
       const hasPositions = elements
         .filter((element) => !element.data.source)
         .every((element) => element.position);
-      const instance = cytoscape({
+      const instance = engine({
         container: container.current,
         elements,
         minZoom: 0.15,

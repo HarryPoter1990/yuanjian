@@ -55,7 +55,7 @@ import { tabLabelId } from './ui/viewTabs';
 import { presentMoveOutcome } from './ui/moveFeedback';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
-import { GraphView } from './components/GraphView';
+import { LazyGraphView } from './components/LazyGraphView';
 import { LinkPanel } from './components/LinkPanel';
 import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { useWorkspace } from './ui/useWorkspace';
@@ -1232,13 +1232,17 @@ export default function App() {
             aria-label="笔记编辑区"
           >
             {graphActive && graphOpen ? (
-              <GraphView
+              <LazyGraphView
                 index={workspace.index}
                 settings={settings}
                 activePath={active?.path || null}
                 onSettings={changeSettings}
                 onOpen={(path) => void open(path)}
                 onError={error}
+                onBack={() => {
+                  setGraphActive(false);
+                  if (!active) workspace.newDraft();
+                }}
               />
             ) : (
               active && (

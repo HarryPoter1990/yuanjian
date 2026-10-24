@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GraphView } from '../src/components/GraphView';
 import { defaultSettings } from '../src/shared/defaults';
 import type { NoteMeta } from '../src/shared/types';
-import type { CytoscapeOptions } from 'cytoscape';
+import cytoscape, { type CytoscapeOptions } from 'cytoscape';
 
 vi.mock('cytoscape', async () => {
   const actual = await vi.importActual<{ default: typeof import('cytoscape') }>('cytoscape');
@@ -43,6 +43,7 @@ it.each(['D:/generated/notes', 'd:/GENERATED/NOTES/', 'D:\\generated\\notes\\'])
     await act(async () =>
       root.render(
         <GraphView
+          engine={cytoscape}
           index={index}
           settings={settings}
           activePath={null}
