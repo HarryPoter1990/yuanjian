@@ -1,4 +1,11 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   Compartment,
   EditorSelection,
@@ -53,6 +60,7 @@ import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from
 import { compactSearch, openEditorSearch } from './search-panel';
 import type {
   EditorCommand,
+  EditorScrollAnchor,
   HeadingLevel,
   MarkdownEditorHandle,
   MarkdownEditorProps,
@@ -95,10 +103,68 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const features = useRef(new Compartment());
     const [error, setError] = useState('');
     const pendingImages = useRef<Array<{ from: number; to: number; conflicted: boolean }>>([]);
+    const scrollRestore = useRef<{ top: number; anchor?: EditorScrollAnchor } | null>(null);
+    const lastScroll = useRef<number | undefined>(undefined);
+    const scrollMeasureKey = useRef({});
     const report = (message: string): void => {
       setError(message);
       propsRef.current.onError?.(message);
     };
+
+    function getScrollAnchor(view: EditorView): EditorScrollAnchor {
+      const snapshot = view.scrollSnapshot().value;
+      return { from: snapshot.range.head, offset: snapshot.yMargin, left: snapshot.xMargin };
+    }
+
+    function restoreScroll(view: EditorView, top: number, anchor?: EditorScrollAnchor): void {
+      if (!top && !anchor && !view.scrollDOM.scrollTop) {
+        scrollRestore.current = null;
+        return;
+      }
+      const target = { top: Math.max(0, top), anchor };
+      scrollRestore.current = target;
+      // Give CM the distant range before asking it for measured block geometry.
+      if (anchor)
+        view.dispatch({
+          effects: EditorView.scrollIntoView(Math.min(anchor.from, view.state.doc.length), {
+            y: 'start',
+            yMargin: anchor.offset,
+          }),
+        });
+      view.scrollDOM.scrollTop = target.top;
+      let previousHeight = -1;
+      const measure = (): void => {
+        if (viewRef.current !== view || scrollRestore.current !== target) return;
+        view.requestMeasure({
+          key: scrollMeasureKey.current,
+          read: () => {
+            const scroller = view.scrollDOM;
+            // The saved pixel is authoritative for the unchanged document. The
+            // anchor above renders its distant region before this measurement;
+            // estimated block heights must not silently redefine that pixel.
+            const wanted = target.top;
+            return {
+              top: Math.max(0, Math.min(wanted, scroller.scrollHeight - scroller.clientHeight)),
+              height: view.contentHeight,
+              actual: scroller.scrollTop,
+            };
+          },
+          write: (measured) => {
+            if (viewRef.current !== view || scrollRestore.current !== target) return;
+            view.scrollDOM.scrollTop = measured.top;
+            lastScroll.current = view.scrollDOM.scrollTop;
+            if (anchor) view.scrollDOM.scrollLeft = anchor.left;
+            const stable =
+              previousHeight === measured.height && Math.abs(measured.actual - measured.top) < 1;
+            previousHeight = measured.height;
+            if (stable) scrollRestore.current = null;
+            // Re-measure after CM finishes this layout, rather than chasing it with timers.
+            else queueMicrotask(measure);
+          },
+        });
+      };
+      measure();
+    }
 
     function configuration(): Extension {
       const current = propsRef.current;
@@ -306,6 +372,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return (match?.[1].length ?? 0) as HeadingLevel;
       },
       scrollToLine: (line) => {
+        scrollRestore.current = null;
         const view = viewRef.current;
         if (!view) return;
         const position = view.state.doc.line(
@@ -318,11 +385,24 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         view.focus();
       },
       getCursor: () => viewRef.current?.state.selection.main.head ?? 0,
-      getScroll: () => viewRef.current?.scrollDOM.scrollTop ?? 0,
+      getScroll: () => scrollRestore.current?.top ?? viewRef.current?.scrollDOM.scrollTop ?? 0,
+      getScrollAnchor: () => {
+        const view = viewRef.current;
+        return view ? (scrollRestore.current?.anchor ?? getScrollAnchor(view)) : undefined;
+      },
+      restorePosition: (cursor, top, anchor) => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch({
+          selection: { anchor: Math.max(0, Math.min(cursor, view.state.doc.length)) },
+        });
+        view.focus();
+        restoreScroll(view, top, anchor);
+      },
       getView: () => viewRef.current,
     }));
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!host.current) return;
       let plainPaste = false;
       const initialDoc = Text.of(propsRef.current.value.split(/\r\n?|\n/));
@@ -432,6 +512,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               autocapitalize: 'off',
             }),
             EditorView.updateListener.of((update) => {
+              if (update.docChanged || update.selectionSet) scrollRestore.current = null;
               for (const pending of pendingImages.current) {
                 const { from, to } = pending;
                 update.changes.iterChangedRanges((start, end) => {
@@ -451,12 +532,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             }),
             EditorView.domEventHandlers({
               keydown(event) {
+                scrollRestore.current = null;
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v')
                   plainPaste = event.shiftKey;
                 else plainPaste = false;
                 return false;
               },
               scroll(_event, editor) {
+                lastScroll.current = editor.scrollDOM.scrollTop;
                 propsRef.current.onScroll?.(editor.scrollDOM.scrollTop);
               },
               paste(event, editor) {
@@ -505,13 +588,25 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         }),
       });
       viewRef.current = view;
-      view.scrollDOM.scrollTop =
-        session && restored ? session.scrollTop : (propsRef.current.initialScroll ?? 0);
+      const cancelRestore = (): void => {
+        scrollRestore.current = null;
+      };
+      for (const event of ['wheel', 'touchstart', 'mousedown'])
+        view.scrollDOM.addEventListener(event, cancelRestore, { capture: true, passive: true });
+      restoreScroll(
+        view,
+        session && restored ? session.scrollTop : (propsRef.current.initialScroll ?? 0),
+        session && restored ? session.scrollAnchor : undefined,
+      );
       return () => {
         propsRef.current.onSessionSave?.({
           state: view.state.toJSON({ history: historyField }),
-          scrollTop: view.scrollDOM.scrollTop,
+          scrollTop: scrollRestore.current?.top ?? lastScroll.current ?? view.scrollDOM.scrollTop,
+          scrollAnchor: scrollRestore.current?.anchor ?? getScrollAnchor(view),
         });
+        scrollRestore.current = null;
+        for (const event of ['wheel', 'touchstart', 'mousedown'])
+          view.scrollDOM.removeEventListener(event, cancelRestore, true);
         viewRef.current = null;
         pendingImages.current = [];
         view.destroy();

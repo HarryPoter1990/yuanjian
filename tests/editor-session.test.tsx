@@ -9,6 +9,9 @@ import { defaultSettings } from '../src/shared/defaults';
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // jsdom has no layout; give the existing pixel-scroll assertions a scrollable viewport.
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2000);
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(200);
   Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] });
   Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
     configurable: true,
@@ -21,6 +24,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 describe('in-memory editor session reconstruction', () => {

@@ -21,10 +21,17 @@ export type EditorCommand =
 
 export type HeadingLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+export interface EditorScrollAnchor {
+  from: number;
+  offset: number;
+  left: number;
+}
+
 /** A tab-lifetime snapshot only; never stores extensions, callbacks or an EditorView. */
 export interface EditorSession {
   state: Record<string, unknown>;
   scrollTop: number;
+  scrollAnchor?: EditorScrollAnchor;
 }
 
 export interface MarkdownEditorProps {
@@ -54,6 +61,8 @@ export interface MarkdownEditorHandle {
   scrollToLine(line: number): void;
   getCursor(): number;
   getScroll(): number;
+  getScrollAnchor(): EditorScrollAnchor | undefined;
+  restorePosition(cursor: number, scrollTop: number, scrollAnchor?: EditorScrollAnchor): void;
   getView(): EditorView | null;
 }
 
