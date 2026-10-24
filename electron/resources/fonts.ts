@@ -5,7 +5,7 @@ import { mkdir, readFile, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
 import type { FontCatalogEntry, FontEntry, OperationProgress } from '../../src/shared/types';
-import { atomicWrite, readJson, writeJson } from '../storage/io';
+import { atomicWrite, isMissing, OperationQueue, readJson, writeJson } from '../storage/io';
 
 const exec = promisify(execFile);
 const MAX_FONT_BYTES = 256 * 1024 * 1024;
@@ -72,6 +72,7 @@ interface FontAdapters {
   fetch?: typeof fetch;
 }
 export class FontManager {
+  private readonly queue = new OperationQueue();
   private system: FontEntry[] | null = null;
   private readonly directory: string;
   private readonly manifest: string;
@@ -106,15 +107,17 @@ export class FontManager {
     return [...bundledFonts, ...(await this.managedFonts()), ...this.system];
   }
   async managedFonts(): Promise<FontEntry[]> {
-    const entries = await readJson<FontEntry[]>(this.manifest, []);
-    const result: FontEntry[] = [];
-    for (const entry of entries) {
-      if (!entry.path || path.dirname(path.resolve(entry.path)) !== path.resolve(this.directory))
-        throw new Error('字体索引含有非法位置');
-      await stat(entry.path);
-      result.push({ ...entry, url: await this.adapters.assetUrl(entry.path) });
-    }
-    return result;
+    return this.queue.run(async () => {
+      const entries = await readJson<FontEntry[]>(this.manifest, []);
+      const result: FontEntry[] = [];
+      for (const entry of entries) {
+        if (!entry.path || path.dirname(path.resolve(entry.path)) !== path.resolve(this.directory))
+          throw new Error('字体索引含有非法位置');
+        await stat(entry.path);
+        result.push({ ...entry, url: await this.adapters.assetUrl(entry.path) });
+      }
+      return result;
+    });
   }
   private async saveImported(
     name: string,
@@ -125,25 +128,27 @@ export class FontManager {
     const extension = fontExtension(name);
     if (!extension || bytes.length > MAX_FONT_BYTES || !isFontData(bytes))
       throw new Error(`不是受支持的字体文件：${path.basename(name)}`);
-    await mkdir(this.directory, { recursive: true });
-    const id = randomUUID();
-    const file = path.join(this.directory, `${id}${extension}`);
-    await atomicWrite(file, bytes);
-    const entries = await readJson<FontEntry[]>(this.manifest, []);
-    const entry: FontEntry = {
-      id,
-      name: family ?? path.basename(name, path.extname(name)),
-      source,
-      path: file,
-      bytes: bytes.length,
-    };
-    try {
-      await writeJson(this.manifest, [...entries, entry]);
-    } catch (error) {
-      await unlink(file);
-      throw error;
-    }
-    return { ...entry, url: await this.adapters.assetUrl(file) };
+    return this.queue.run(async () => {
+      await mkdir(this.directory, { recursive: true });
+      const id = randomUUID();
+      const file = path.join(this.directory, `${id}${extension}`);
+      await atomicWrite(file, bytes);
+      const entries = await readJson<FontEntry[]>(this.manifest, []);
+      const entry: FontEntry = {
+        id,
+        name: family ?? path.basename(name, path.extname(name)),
+        source,
+        path: file,
+        bytes: bytes.length,
+      };
+      try {
+        await writeJson(this.manifest, [...entries, entry]);
+      } catch (error) {
+        await unlink(file);
+        throw error;
+      }
+      return { ...entry, url: await this.adapters.assetUrl(file) };
+    });
   }
   async importFonts(): Promise<FontEntry[]> {
     const files = await this.adapters.selectFiles();
@@ -226,14 +231,29 @@ export class FontManager {
     return [entry];
   }
   async removeFont(id: string): Promise<void> {
-    const entries = await readJson<FontEntry[]>(this.manifest, []);
-    const entry = entries.find((font) => font.id === id);
-    if (!entry?.path || path.dirname(path.resolve(entry.path)) !== path.resolve(this.directory))
-      throw new Error('只能移除软件内部导入或下载的字体');
-    await writeJson(
-      this.manifest,
-      entries.filter((font) => font.id !== id),
-    );
-    await unlink(entry.path);
+    return this.queue.run(async () => {
+      const entries = await readJson<FontEntry[]>(this.manifest, []);
+      const entry = entries.find((font) => font.id === id);
+      if (!entry?.path || path.dirname(path.resolve(entry.path)) !== path.resolve(this.directory))
+        throw new Error('只能移除软件内部导入或下载的字体');
+      await writeJson(
+        this.manifest,
+        entries.filter((font) => font.id !== id),
+      );
+      try {
+        await unlink(entry.path);
+      } catch (error) {
+        if (isMissing(error)) return;
+        try {
+          await writeJson(this.manifest, entries);
+        } catch (restoreError) {
+          throw new AggregateError(
+            [error, restoreError],
+            '字体移除及索引恢复失败，请重新读取字体列表',
+          );
+        }
+        throw error;
+      }
+    });
   }
 }
