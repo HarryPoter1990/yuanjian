@@ -159,13 +159,21 @@ export function AttachmentPanel({
   const [busy, setBusy] = useState(true);
   const [failure, setFailure] = useState('');
   const [confirm, setConfirm] = useState(false);
+  const eligible = (item: AttachmentCandidate) =>
+    !item.references.length && !item.uncertainReasons?.length;
   async function scan() {
     setBusy(true);
     setFailure('');
+    setConfirm(false);
     try {
-      setItems(await window.notes.scanAttachments());
+      const scanned = await window.notes.scanAttachments();
+      setItems(scanned);
+      const allowed = new Set(scanned.filter(eligible).map((item) => item.path));
+      setSelected((previous) => new Set([...previous].filter((file) => allowed.has(file))));
     } catch (error) {
       setFailure(errorText(error));
+      setItems([]);
+      setSelected(new Set());
     } finally {
       setBusy(false);
     }
@@ -193,11 +201,14 @@ export function AttachmentPanel({
             <label className="attachment-row" key={item.path}>
               <input
                 type="checkbox"
+                disabled={busy || !eligible(item)}
                 checked={selected.has(item.path)}
                 onChange={(e) =>
                   setSelected((previous) => {
                     const next = new Set(previous);
-                    e.target.checked ? next.add(item.path) : next.delete(item.path);
+                    e.target.checked && eligible(item)
+                      ? next.add(item.path)
+                      : next.delete(item.path);
                     return next;
                   })
                 }
@@ -206,8 +217,13 @@ export function AttachmentPanel({
                 <strong>{fileName(item.path)}</strong>
                 <small>{item.path}</small>
                 <small>
-                  已检查引用范围：{item.references.join('、') || '已添加目录内未发现引用'}
+                  {item.uncertainReasons?.length
+                    ? '引用状态不确定，暂不能清理'
+                    : `已检查引用范围：${item.references.join('、') || '已添加目录内未发现引用'}`}
                 </small>
+                {item.uncertainReasons?.map((reason) => (
+                  <small key={reason}>{reason}</small>
+                ))}
               </span>
               <span>{bytesLabel(item.bytes)}</span>
             </label>
