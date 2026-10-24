@@ -63,6 +63,11 @@ try {
       await page.locator('.cm-content').waitFor();
       await action(page);
       assert.deepEqual(errors, []);
+      assert.deepEqual(
+        await page.evaluate(() => window.workflowFixture.missingApi),
+        [],
+        'fixture must provide every used desktop API, including caught UI failures',
+      );
       results.push({ name, passed: true, errors });
     } catch (error) {
       results.push({ name, passed: false, errors, message: error.stack });

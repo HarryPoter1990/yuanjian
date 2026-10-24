@@ -50,6 +50,7 @@ const state = {
   modes: [],
   copied: [],
   revealed: [],
+  missingApi: [],
   clipboardText: '剪贴板纯文字',
   clipboardHtml: '<p>剪贴板<strong>富文本</strong></p>',
   document: () =>
@@ -90,6 +91,18 @@ const api = {
       name: `${note.title}.md`,
       kind: 'note',
     })),
+  resolveLink: async (fromPath, target) => {
+    if (/^https?:\/\//i.test(target))
+      return { path: null, exists: true, candidates: [], external: target };
+    const url = new URL(target, `file:///${fromPath}`);
+    const path = decodeURIComponent(url.pathname).replace(/^\/([A-Za-z]:)/, '$1');
+    return {
+      path,
+      exists: Boolean(documents[path]),
+      candidates: [],
+      heading: url.hash.slice(1) || undefined,
+    };
+  },
   saveSettings: async (value) => value,
   saveSession: async (value) => {
     state.session = structuredClone(value);
@@ -154,6 +167,7 @@ const api = {
 window.notes = new Proxy(api, {
   get(target, key) {
     if (key in target) return target[key];
+    state.missingApi.push(String(key));
     throw Error(`Unprovided workflow desktop API: ${String(key)}`);
   },
 });
