@@ -7,6 +7,7 @@ import { headingId } from '../shared/markdown';
 import { withoutFrontmatter } from './frontmatter';
 import { iconMarkup } from '../ui/icon-markup';
 import { isEscaped } from './completion';
+import { wikiLinks } from '../shared/wiki';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -55,22 +56,7 @@ function numberedCode(highlighted: string, numbers: boolean): string {
 
 export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false, breaks: false });
-  md.inline.ruler.before('escape', 'wiki_link', (state, silent) => {
-    if (state.src.slice(state.pos, state.pos + 2) !== '[[') return false;
-    const end = state.src.indexOf(']]', state.pos + 2);
-    if (end < 0) return false;
-    const [target, label] = state.src.slice(state.pos + 2, end).split('|');
-    if (!target.trim()) return false;
-    if (!silent) {
-      const open = state.push('link_open', 'a', 1);
-      open.attrSet('href', target.trim());
-      const text = state.push('text', '', 0);
-      text.content = label ?? target;
-      state.push('link_close', 'a', -1);
-    }
-    state.pos = end + 2;
-    return true;
-  });
+  wikiLinks(md);
   md.inline.ruler.after('escape', 'inline_math', (state, silent) => {
     if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
     let end = state.pos + 1;

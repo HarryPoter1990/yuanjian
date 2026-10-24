@@ -2,8 +2,11 @@ import MarkdownIt from 'markdown-it';
 import { Document } from 'yaml';
 import type { Heading, NoteLink, NoteMeta } from './types';
 import { inspectFrontmatter } from './frontmatter';
+import { wikiLinks } from './wiki';
 
 const markdown = new MarkdownIt({ html: false, linkify: false });
+const headingMarkdown = new MarkdownIt({ html: false, linkify: false });
+wikiLinks(headingMarkdown);
 function readableTarget(target: string): string {
   try {
     return decodeURI(target);
@@ -73,7 +76,7 @@ function analyze(content: string) {
     const token = tokens[i];
     if (token.type === 'heading_open') {
       const inline = tokens[i + 1];
-      const text = (inline?.children ?? [])
+      const text = (headingMarkdown.parseInline(inline?.content ?? '', {})[0]?.children ?? [])
         .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
         .map((child) => child.content)
         .join('');
