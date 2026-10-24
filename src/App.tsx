@@ -973,6 +973,60 @@ export default function App() {
       onNew={newNote}
     />
   );
+  const applicationMenu = (more: boolean) => (
+    <div className={`menu-anchor ${more ? 'header-more' : ''}`}>
+      <IconButton
+        label={more ? '更多操作' : '应用菜单'}
+        aria-expanded={appMenu}
+        onClick={() => {
+          setAppMenu(!appMenu);
+          setTabsMenu(false);
+        }}
+      >
+        {more ? <Ellipsis size={18} /> : <Menu size={18} />}
+      </IconButton>
+      {appMenu && (
+        <DropdownMenu label={more ? '更多操作' : '应用菜单'} onClose={() => setAppMenu(false)}>
+          {[
+            ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
+            ['新建空白笔记', newNote, settings.shortcuts.new],
+            [
+              '从模板新建',
+              () => {
+                setJournalChoice(null);
+                setNewTemplate(settings.templates.find((item) => item.kind === 'note')?.id || '');
+                setPanel('new');
+              },
+              '',
+            ],
+            [
+              '关系图谱',
+              () => {
+                openGraph();
+              },
+              '',
+            ],
+            [panels.left ? '收起左侧导航' : '显示左侧导航', () => togglePanel('left'), ''],
+            [panels.right ? '收起右侧大纲' : '显示右侧大纲', () => togglePanel('right'), ''],
+            ['打开设置', () => setPanel('settings'), settings.shortcuts.settings],
+            ['进入便笺模式', () => void changeWindowMode('sticky'), ''],
+          ].map(([label, action, shortcut]) => (
+            <button
+              role="menuitem"
+              key={String(label)}
+              onClick={() => {
+                setAppMenu(false);
+                if (typeof action === 'function') action();
+              }}
+            >
+              <span>{String(label)}</span>
+              {shortcut && <kbd>{String(shortcut)}</kbd>}
+            </button>
+          ))}
+        </DropdownMenu>
+      )}
+    </div>
+  );
   return (
     <OperationContext.Provider
       value={{ busy, notice: workspace.notices.at(-1) || null, shortcuts: settings.shortcuts }}
@@ -1002,64 +1056,7 @@ export default function App() {
           <div className="app-brand">
             <img className="iris-logo" src="./yuanjian.png" alt="" />
             <strong>鸢笺</strong>
-            <div className="menu-anchor">
-              <IconButton
-                label="应用菜单"
-                aria-expanded={appMenu}
-                onClick={() => {
-                  setAppMenu(!appMenu);
-                  setTabsMenu(false);
-                }}
-              >
-                <Menu size={18} />
-              </IconButton>
-              {appMenu && (
-                <DropdownMenu label="应用菜单" onClose={() => setAppMenu(false)}>
-                  {[
-                    ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
-                    ['新建空白笔记', newNote, settings.shortcuts.new],
-                    [
-                      '从模板新建',
-                      () => {
-                        setJournalChoice(null);
-                        setNewTemplate(
-                          settings.templates.find((item) => item.kind === 'note')?.id || '',
-                        );
-                        setPanel('new');
-                      },
-                      '',
-                    ],
-                    [
-                      '关系图谱',
-                      () => {
-                        openGraph();
-                      },
-                      '',
-                    ],
-                    [panels.left ? '收起左侧导航' : '显示左侧导航', () => togglePanel('left'), ''],
-                    [
-                      panels.right ? '收起右侧大纲' : '显示右侧大纲',
-                      () => togglePanel('right'),
-                      '',
-                    ],
-                    ['打开设置', () => setPanel('settings'), settings.shortcuts.settings],
-                    ['进入便笺模式', () => void changeWindowMode('sticky'), ''],
-                  ].map(([label, action, shortcut]) => (
-                    <button
-                      role="menuitem"
-                      key={String(label)}
-                      onClick={() => {
-                        setAppMenu(false);
-                        if (typeof action === 'function') action();
-                      }}
-                    >
-                      <span>{String(label)}</span>
-                      {shortcut && <kbd>{String(shortcut)}</kbd>}
-                    </button>
-                  ))}
-                </DropdownMenu>
-              )}
-            </div>
+            {windowWidth > 1000 && applicationMenu(false)}
             <IconButton
               label={panels.left ? '收起左侧导航' : '显示左侧导航'}
               onClick={() => togglePanel('left')}
@@ -1111,6 +1108,7 @@ export default function App() {
             >
               <Settings size={17} />
             </IconButton>
+            {windowWidth <= 1000 && applicationMenu(true)}
           </div>
           <div className="window-controls-space" aria-hidden="true" />
         </header>

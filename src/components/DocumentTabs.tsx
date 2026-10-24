@@ -110,6 +110,7 @@ export function DocumentTabs({
           </DropdownMenu>
         )}
       </div>
+      <div className="window-drag-region" aria-hidden="true" title="拖动窗口" />
     </div>
   );
 }
