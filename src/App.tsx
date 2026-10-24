@@ -971,6 +971,7 @@ export default function App() {
         else void requestClose(view.id);
       }}
       onNew={newNote}
+      onReorder={workspace.reorderViews}
     />
   );
   const applicationMenu = (more: boolean) => (

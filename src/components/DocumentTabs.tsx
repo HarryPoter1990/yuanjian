@@ -2,6 +2,7 @@ import { useMemo, type RefObject } from 'react';
 import type { TabState, ViewTab } from '../shared/types';
 import { ChevronDown, FileText, Network, X } from '../ui/icons';
 import { tabLabelId, viewKey } from '../ui/viewTabs';
+import { useTabDrag } from '../ui/useTabDrag';
 import { DropdownMenu, IconButton, tabListKeys } from './Controls';
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
   onSelect(view: ViewTab): void;
   onClose(view: ViewTab): void;
   onNew(): void;
+  onReorder(order: ViewTab[]): void;
 }
 export function DocumentTabs({
   tabs,
@@ -27,7 +29,9 @@ export function DocumentTabs({
   onSelect,
   onClose,
   onNew,
+  onReorder,
 }: Props) {
+  const drag = useTabDrag(order, scroller, onReorder);
   const notes = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs]);
   const title = (view: ViewTab) =>
     view.kind === 'graph' ? '关系图谱' : notes.get(view.id)?.title || '未命名笔记';
@@ -47,7 +51,13 @@ export function DocumentTabs({
           if (view.kind === 'note' && !tab) return null;
           const active = selected(view);
           return (
-            <div className={`document-tab ${active ? 'active' : ''}`} key={viewKey(view)}>
+            <div
+              className={`document-tab ${active ? 'active' : ''} ${drag.marker?.key === viewKey(view) ? 'tab-dragging' : ''}`}
+              key={viewKey(view)}
+              data-view-key={viewKey(view)}
+              onPointerDown={(event) => drag.begin(event, view)}
+              onDragStart={(event) => event.preventDefault()}
+            >
               <button
                 role="tab"
                 id={view.kind === 'graph' ? 'document-tab-graph' : tabLabelId(view.id)}
@@ -55,7 +65,9 @@ export function DocumentTabs({
                 aria-selected={active}
                 tabIndex={active ? 0 : -1}
                 title={tab?.path || (tab ? '未命名草稿' : '关系图谱')}
-                onClick={() => onSelect(view)}
+                onClick={() => {
+                  if (drag.allowClick()) onSelect(view);
+                }}
               >
                 {view.kind === 'graph' ? <Network size={14} /> : <FileText size={14} />}
                 <span>{title(view)}</span>
@@ -71,6 +83,13 @@ export function DocumentTabs({
             </div>
           );
         })}
+        {drag.marker && (
+          <span
+            className="tab-insertion-marker"
+            aria-hidden="true"
+            style={{ left: drag.marker.left }}
+          />
+        )}
         <IconButton label="新建笔记" onClick={onNew}>
           <span className="plus-icon">+</span>
         </IconButton>

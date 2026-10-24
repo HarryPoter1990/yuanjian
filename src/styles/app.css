@@ -2749,3 +2749,23 @@ button.danger {
   color: var(--muted);
   font-size: 11px;
 }
+
+.tabs-bar {
+  position: relative;
+}
+.document-tab {
+  user-select: none;
+  touch-action: none;
+}
+.document-tab.tab-dragging {
+  opacity: 0.55;
+}
+.tab-insertion-marker {
+  position: absolute;
+  top: 6px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
