@@ -108,6 +108,7 @@ export class NoteStore {
       ...structuredClone(defaultSettings),
       ...saved,
       appearance: { ...defaultSettings.appearance, ...saved.appearance },
+      shortcuts: { ...defaultSettings.shortcuts, ...saved.shortcuts },
       graph: { ...structuredClone(defaultSettings.graph), ...saved.graph },
     };
     // Earlier versions stored individual colors; never replace them with a new built-in palette.
