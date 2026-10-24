@@ -156,6 +156,8 @@ function sourcePosition(view: EditorView, node: Node | null, offset: number): nu
 }
 
 function sourcePositionAtPoint(view: EditorView, event: MouseEvent): number | null {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.katex,.katex-error,.math-block')) return sourcePosition(view, target, 0);
   const document = view.contentDOM.ownerDocument;
   const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
   const range = !caret ? document.caretRangeFromPoint?.(event.clientX, event.clientY) : null;
@@ -305,7 +307,7 @@ class PreviewWidget extends WidgetType {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest('button,input,select,summary,label')) return;
       const link = target?.closest('a');
-      if (link && event.detail === 0) {
+      if (link && (event.detail === 0 || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         this.config.onLink?.(link.getAttribute('href') ?? '');
         return;
@@ -326,11 +328,6 @@ class PreviewWidget extends WidgetType {
         if (anchor === null || head === null || anchor === head) return;
         view.dispatch({ selection: { anchor, head }, scrollIntoView: false });
         view.focus();
-        return;
-      }
-      if (link) {
-        event.preventDefault();
-        this.config.onLink?.(link.getAttribute('href') ?? '');
         return;
       }
       event.preventDefault();

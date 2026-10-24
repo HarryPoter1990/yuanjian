@@ -66,6 +66,9 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     if (!silent) {
       const token = state.push('inline_math', 'span', 0);
       token.content = state.src.slice(state.pos + 1, end);
+      token.meta = {
+        sourceRange: { from: state.pos, to: end + 1, contentFrom: state.pos + 1, contentTo: end },
+      };
     }
     state.pos = end + 1;
     return true;

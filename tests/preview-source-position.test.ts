@@ -143,11 +143,17 @@ describe('bounded preview source positions', () => {
       );
     },
   );
-  it.each(['前 $x$ 后', '[[目标|显示]] 后', '前 <span>文字</span> 后'])(
-    'returns no guess for unsupported source: %s',
-    (source) => {
-      const root = rendered(source);
-      expect(previewSourcePosition(root, source, root.querySelector('p')!.lastChild, 1)).toBeNull();
-    },
-  );
+  it.each([
+    { source: '前 $x$ 后', position: 6 },
+    { source: '[[目标|显示]] 后', position: 10 },
+  ])('maps ordinary text after a supported source atom: $source', ({ source, position }) => {
+    const root = rendered(source);
+    expect(previewSourcePosition(root, source, root.querySelector('p')!.lastChild, 1)).toBe(
+      position,
+    );
+  });
+  it.each(['前 <span>文字</span> 后'])('returns no guess for unsupported source: %s', (source) => {
+    const root = rendered(source);
+    expect(previewSourcePosition(root, source, root.querySelector('p')!.lastChild, 1)).toBeNull();
+  });
 });

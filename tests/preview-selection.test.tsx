@@ -206,10 +206,10 @@ describe('preview selection and heading prefixes', () => {
     },
   );
   it('leaves an unmappable native drag range intact instead of collapsing it', async () => {
-    const source = '$x$ 与公式\n\n尾段';
+    const source = '前 <span>文字</span> 与正文\n\n尾段';
     const { view } = await mount(source);
-    const block = preview('与公式'),
-      text = textContaining(block, '与公式');
+    const block = preview('与正文'),
+      text = textContaining(block, '与正文');
     getSelection()?.setBaseAndExtent(text, 1, text, 3);
     const before = view.state.selection.main.head;
     const event = new MouseEvent('click', { bubbles: true, cancelable: true });
