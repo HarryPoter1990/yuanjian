@@ -707,8 +707,11 @@ export class NoteStore {
   moveFile(from: string, to?: string): Promise<MoveOutcome | null> {
     return this.moves.move(from, to);
   }
-  undoMove(id: string): Promise<void> {
+  undoMove(id: string): Promise<MoveOutcome> {
     return this.moves.undo(id);
+  }
+  retryMoveHistory(id: string): Promise<void> {
+    return this.moves.retryHistory(id);
   }
   async listHistory(file?: string): Promise<HistoryEntry[]> {
     if (file) file = await this.authorize(file);

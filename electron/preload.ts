@@ -27,6 +27,7 @@ const api: DesktopAPI = {
   resolveLink: (from, target) => ipcRenderer.invoke('notes:resolveLink', from, target),
   moveFile: (from, to) => ipcRenderer.invoke('notes:moveFile', from, to),
   undoMove: (id) => ipcRenderer.invoke('notes:undoMove', id),
+  retryMoveHistory: (id) => ipcRenderer.invoke('notes:retryMoveHistory', id),
   trashFile: (file) => ipcRenderer.invoke('notes:trashFile', file),
   setTags: (file, tags) => ipcRenderer.invoke('notes:setTags', file, tags),
   putAttachment: (file, name, bytes) =>

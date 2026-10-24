@@ -17,10 +17,70 @@ interface MoveRecord {
   from: string;
   to: string;
   rewrites: Rewrite[];
+  direction: 'moved' | 'undone';
+  history?: {
+    from: string;
+    to: string;
+    expected: Buffer;
+    snapshots: { path: string; expected: Buffer }[];
+  };
 }
 export class MoveStore {
   private readonly undoRecords = new Map<string, MoveRecord>();
   constructor(private readonly store: NoteStore) {}
+
+  private async finishHistory(record: MoveRecord): Promise<void> {
+    const pending = record.history;
+    if (!pending) return;
+    const currentText = async (file: string, expected: Buffer): Promise<string> => {
+      const note = await this.store.readNote(file);
+      if (note.path !== file) throw new Error('移动后的笔记位置已变化，无法确认原笔记');
+      const bytes = await this.store.readAuthorizedFile(file);
+      if (hash(bytes) !== note.hash) throw new Error('历史补记期间文件已变化，请重试');
+      const content = bytes.toString('utf8');
+      if (!bytes.equals(expected) && !this.store.history.hasSnapshotContent(file, content))
+        throw new Error('文件内容已变化且缺少可核对的保存历史，无法确认原笔记，请先在当前位置核对');
+      return content;
+    };
+    await currentText(pending.to, pending.expected);
+    const snapshots: { path: string; content: string }[] = [];
+    for (const snapshot of pending.snapshots)
+      snapshots.push({
+        path: snapshot.path,
+        content: await currentText(snapshot.path, snapshot.expected),
+      });
+    // Mapping is idempotent and persists in-memory entries left by a failed snapshot write.
+    await this.store.history.moved(pending.from, pending.to);
+    for (const snapshot of snapshots)
+      await this.store.history.snapshot(snapshot.path, snapshot.content, '移动修复后');
+    record.history = undefined;
+  }
+
+  private async completion(id: string, record: MoveRecord): Promise<MoveOutcome> {
+    let historyWarning: string | undefined;
+    try {
+      await this.finishHistory(record);
+    } catch (error) {
+      historyWarning = `文件操作已完成，但历史记录尚未完成：${error instanceof Error ? error.message : String(error)}`;
+    }
+    return {
+      path: record.direction === 'moved' ? record.to : record.from,
+      affected: record.rewrites
+        .filter((item) => item.originalPath !== record.from)
+        .map((item) => item.finalPath),
+      undoId: id,
+      ...(historyWarning ? { historyWarning, historyRetryId: id } : {}),
+    };
+  }
+
+  async retryHistory(id: string): Promise<void> {
+    return this.store.queue.run(async () => {
+      const record = this.undoRecords.get(id);
+      if (!record) throw new Error('此移动历史重试记录已失效');
+      await this.finishHistory(record);
+      if (record.direction === 'undone') this.undoRecords.delete(id);
+    });
+  }
 
   private async rewrite(
     content: string,
@@ -173,28 +233,38 @@ export class MoveStore {
         if (moved) await moveExclusive(finalTo, from);
         throw error;
       }
-      await this.store.approveFile(finalTo);
-      await this.store.history.moved(from, finalTo);
-      for (const rewrite of rewrites)
-        if (!rewrite.before.equals(rewrite.after))
-          await this.store.history.snapshot(
-            rewrite.finalPath,
-            rewrite.after.toString('utf8'),
-            '移动修复后',
-          );
       const undoId = randomUUID();
-      this.undoRecords.set(undoId, { from, to: finalTo, rewrites });
+      const record: MoveRecord = {
+        from,
+        to: finalTo,
+        rewrites,
+        direction: 'moved',
+        history: {
+          from,
+          to: finalTo,
+          expected: rewrites.find((rewrite) => rewrite.originalPath === from)!.after,
+          snapshots: rewrites
+            .filter((rewrite) => !rewrite.before.equals(rewrite.after))
+            .map((rewrite) => ({
+              path: rewrite.finalPath,
+              expected: rewrite.after,
+            })),
+        },
+      };
+      this.undoRecords.set(undoId, record);
       const affected = rewrites
         .filter((item) => item.originalPath !== from)
         .map((item) => item.finalPath);
       this.store.changed([from, finalTo, ...affected]);
-      return { path: finalTo, affected, undoId };
+      return this.completion(undoId, record);
     });
   }
-  async undo(id: string): Promise<void> {
+  async undo(id: string): Promise<MoveOutcome> {
     return this.store.queue.run(async () => {
       const record = this.undoRecords.get(id);
       if (!record) throw new Error('此移动撤销记录已失效');
+      if (record.direction === 'undone')
+        throw new Error('此移动已撤销，请仅重试尚未完成的历史记录');
       if (await readOptional(record.from)) throw new Error('原位置已出现其他文件，无法撤销');
       for (const rewrite of record.rewrites) {
         const current = await readOptional(await this.store.authorize(rewrite.finalPath));
@@ -210,18 +280,26 @@ export class MoveStore {
         }
         await moveExclusive(record.to, record.from);
         moved = true;
-        await this.store.history.moved(record.to, record.from);
       } catch (error) {
         if (!moved)
           for (const rewrite of restored) await atomicWrite(rewrite.finalPath, rewrite.after);
         throw error;
       }
-      this.undoRecords.delete(id);
+      record.direction = 'undone';
+      record.history = {
+        from: record.to,
+        to: record.from,
+        expected: record.rewrites.find((rewrite) => rewrite.originalPath === record.from)!.before,
+        snapshots: [],
+      };
       this.store.changed([
         record.from,
         record.to,
         ...record.rewrites.map((item) => item.originalPath),
       ]);
+      const outcome = await this.completion(id, record);
+      if (!record.history) this.undoRecords.delete(id);
+      return outcome;
     });
   }
 }

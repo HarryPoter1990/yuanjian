@@ -249,7 +249,8 @@ export interface DesktopAPI {
   search(query: string, options?: { root?: string; tag?: string }): Promise<SearchHit[]>;
   resolveLink(fromPath: string, target: string): Promise<ResolvedLink>;
   moveFile(fromPath: string, toPath?: string): Promise<MoveOutcome | null>;
-  undoMove(undoId: string): Promise<void>;
+  undoMove(undoId: string): Promise<MoveOutcome>;
+  retryMoveHistory(operationId: string): Promise<void>;
   trashFile(path: string): Promise<void>;
   setTags(path: string, tags: string[]): Promise<NoteDocument>;
   putAttachment(

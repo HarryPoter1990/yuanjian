@@ -126,6 +126,10 @@ export class HistoryStore {
       .sort((a, b) => b.createdAt - a.createdAt)
       .map(({ images: _images, contentHash: _hash, sourcePath: _sourcePath, ...entry }) => entry);
   }
+  hasSnapshotContent(file: string, content: string): boolean {
+    const contentHash = hash(content);
+    return this.entries.some((entry) => entry.path === file && entry.contentHash === contentHash);
+  }
   async read(id: string): Promise<{ content: string; entry: HistoryEntry }> {
     const found = this.entries.find((entry) => entry.id === id);
     if (!found) throw new Error('历史版本不存在');

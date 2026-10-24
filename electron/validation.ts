@@ -160,6 +160,7 @@ export const argumentSchemas = {
   resolveLink: z.tuple([file, z.string().max(32768)]),
   moveFile: z.tuple([file, file.optional()]),
   undoMove: z.tuple([short]),
+  retryMoveHistory: z.tuple([z.string().min(1).max(1024)]),
   trashFile: z.tuple([file]),
   setTags: z.tuple([file, z.array(z.string().max(200)).max(1000)]),
   putAttachment: z.tuple([

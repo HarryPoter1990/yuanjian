@@ -3,6 +3,13 @@ import { argumentSchemas, sessionSchema, settingsSchema } from '../electron/vali
 import { defaultSettings } from '../src/shared/defaults';
 
 describe('desktop boundary validation', () => {
+  it('limits move-history retries to one nonempty operation identity', () => {
+    expect(argumentSchemas.retryMoveHistory.parse(['generated-operation'])).toEqual([
+      'generated-operation',
+    ]);
+    for (const args of [[], [''], ['operation', 'extra'], [{ path: 'arbitrary.md' }]])
+      expect(argumentSchemas.retryMoveHistory.safeParse(args).success).toBe(false);
+  });
   it('limits window control to explicit modes and boolean pin values', () => {
     expect(argumentSchemas.getWindowMode.parse([])).toEqual([]);
     expect(argumentSchemas.setWindowMode.parse(['sticky'])).toEqual(['sticky']);
