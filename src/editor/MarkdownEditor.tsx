@@ -54,6 +54,7 @@ import {
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { compoundClipboardToMarkdown, richTextToMarkdown } from './clipboard';
+import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from './format';
 import type {
   EditorCommand,
   HeadingLevel,
@@ -242,19 +243,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       if (name === 'redo') return redo(view);
       if (name === 'find' || name === 'replace') return openSearchPanel(view);
       if (name === 'bold' || name === 'italic') {
-        wrapSelection(view, name === 'bold' ? '**' : '*');
+        toggleInlineFormat(view, name);
         return true;
       }
       if (name === 'link') {
         wrapSelection(view, '[', '](链接地址)');
         return true;
       }
-      if (['heading', 'list', 'task', 'quote'].includes(name)) {
-        const line = view.state.doc.lineAt(view.state.selection.main.head);
-        const prefix =
-          name === 'heading' ? '## ' : name === 'list' ? '- ' : name === 'task' ? '- [ ] ' : '> ';
-        view.dispatch({ changes: { from: line.from, insert: prefix }, userEvent: 'input.format' });
-        view.focus();
+      if (name === 'heading') {
+        applyHeading(view, 2);
+        return true;
+      }
+      if (name === 'list' || name === 'task' || name === 'quote') {
+        toggleLineFormat(view, name);
         return true;
       }
       if (name === 'code') {
@@ -287,27 +288,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     const setHeading = (level: HeadingLevel): void => {
       const view = viewRef.current;
-      if (!view) return;
-      const { from, to } = view.state.selection.main;
-      const first = view.state.doc.lineAt(from).number;
-      const last = view.state.doc.lineAt(
-        to > from && view.state.doc.lineAt(to).from === to ? to - 1 : to,
-      ).number;
-      const changes = [];
-      for (let number = first; number <= last; number++) {
-        const line = view.state.doc.line(number);
-        if (!line.text.trim()) continue;
-        const mark = /^( {0,3})(#{1,6})(?:[ \t]+|$)/.exec(line.text);
-        const indentation = mark?.[1].length ?? /^ {0,3}/.exec(line.text)![0].length;
-        const prefix = level ? '#'.repeat(level) + ' ' : '';
-        changes.push({
-          from: line.from + indentation,
-          to: line.from + (mark?.[0].length ?? indentation),
-          insert: prefix,
-        });
-      }
-      view.dispatch({ changes, userEvent: 'input.format' });
-      view.focus();
+      if (view) applyHeading(view, level);
     };
 
     useImperativeHandle(ref, () => ({
