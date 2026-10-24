@@ -46,16 +46,12 @@ import type {
 } from './shared/types';
 import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from './shared/markdown';
 import { MarkdownEditor } from './editor/MarkdownEditor';
-import type { EditorCommand, MarkdownEditorHandle } from './editor/types';
+import type { EditorCommand, EditorSession, MarkdownEditorHandle } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
-import {
-  DropdownMenu,
-  IconButton,
-  Modal,
-  OperationContext,
-  tabListKeys,
-} from './components/Controls';
+import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
+import { DocumentTabs } from './components/DocumentTabs';
+import { tabLabelId } from './ui/viewTabs';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GraphView } from './components/GraphView';
@@ -101,10 +97,20 @@ const buttons: { id: EditorCommand | 'image'; title: string; icon: typeof Bold }
   { id: 'image', title: '插入图片', icon: ImagePlus },
   { id: 'diagram', title: '流程图', icon: Network },
 ];
-const tabLabelId = (id: string) => `document-tab-note-${encodeURIComponent(id)}`;
 export default function App() {
   const workspace = useWorkspace();
-  const { settings, tabs, activeId, notify, updateTab } = workspace;
+  const {
+    settings,
+    tabs,
+    activeId,
+    notify,
+    updateTab,
+    graphOpen,
+    graphActive,
+    setGraphOpen,
+    setGraphActive,
+    viewOrder,
+  } = workspace;
   const active = tabs.find((tab) => tab.id === activeId) || null;
   const [panel, setPanelState] = useState<Panel>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -115,8 +121,6 @@ export default function App() {
   const [formatMenu, setFormatMenu] = useState(false);
   const [toastAtTop, setToastAtTop] = useState(false);
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const [graphOpen, setGraphOpen] = useState(false);
-  const [graphActive, setGraphActive] = useState(false);
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [wallpaperUrl, setWallpaperUrl] = useState('');
   const [busy, setBusy] = useState('');
@@ -134,7 +138,11 @@ export default function App() {
   const [movePath, setMovePath] = useState('');
   const [tagInput, setTagInput] = useState('');
   const [backlinks, setBacklinks] = useState<NoteMeta[]>([]);
-  const [pendingLine, setPendingLine] = useState<{ id: string; line: number } | null>(null);
+  const [pendingLine, setPendingLine] = useState<{
+    id: string;
+    line?: number;
+    command?: EditorCommand;
+  } | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newTemplate, setNewTemplate] = useState('');
@@ -147,6 +155,13 @@ export default function App() {
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
   const editor = useRef<MarkdownEditorHandle>(null);
+  const editorSessions = useRef(new Map<string, EditorSession>());
+  const openTabIds = tabs.map((tab) => tab.id).join('\0');
+  useEffect(() => {
+    const open = new Set(tabs.map((tab) => tab.id));
+    for (const id of editorSessions.current.keys())
+      if (!open.has(id)) editorSessions.current.delete(id);
+  }, [openTabIds]);
   const appElement = useRef<HTMLDivElement>(null);
   const tabScroller = useRef<HTMLDivElement>(null);
   const settingsRef = useRef(settings);
@@ -352,11 +367,13 @@ export default function App() {
   }, [active?.path, workspace.index, error]);
   useEffect(() => {
     if (pendingLine && activeId === pendingLine.id && !graphActive) {
-      const timer = setTimeout(() => {
-        editor.current?.scrollToLine(pendingLine.line);
-        setPendingLine(null);
-      }, 80);
-      return () => clearTimeout(timer);
+      if (!editor.current?.getView()) return;
+      if (pendingLine.command) editor.current.command(pendingLine.command);
+      else if (pendingLine.line) editor.current.scrollToLine(pendingLine.line);
+      else editor.current.focus();
+      setPendingLine(null);
+    } else if (pendingLine && activeId !== pendingLine.id) {
+      setPendingLine(null);
     }
   }, [pendingLine, activeId, graphActive]);
   const open = useCallback(
@@ -366,6 +383,7 @@ export default function App() {
         setGraphActive(false);
         if (line) setPendingLine({ id, line });
       }
+      return id;
     },
     [workspace.open],
   );
@@ -511,18 +529,16 @@ export default function App() {
         );
         return;
       }
-      await open(resolved.path);
-      if (resolved.heading) {
-        const note = await window.notes.openFile(resolved.path);
+      const openedId = await open(resolved.path);
+      if (resolved.heading && openedId) {
+        const note = workspace.getTab(openedId);
         const heading =
           note &&
           extractHeadings(note.content).find(
             (item) => item.text === resolved.heading || item.id === resolved.heading,
           );
         if (heading) {
-          const id = workspace.tabs.find((tab) => tab.path === resolved.path)?.id;
-          if (id) setPendingLine({ id, line: heading.line });
-          else setTimeout(() => editor.current?.scrollToLine(heading.line), 100);
+          setPendingLine({ id: openedId, line: heading.line });
         }
       }
     });
@@ -603,16 +619,19 @@ export default function App() {
       if (!action) {
         if (!event.ctrlKey || event.altKey || event.metaKey) return;
         if (event.key === 'Tab') {
-          const count = tabs.length + (graphOpen ? 1 : 0);
+          const count = viewOrder.length;
           if (!count) return;
           event.preventDefault();
           event.stopPropagation();
-          const current = graphActive ? tabs.length : tabs.findIndex((tab) => tab.id === activeId);
+          const current = viewOrder.findIndex((view) =>
+            graphActive ? view.kind === 'graph' : view.kind === 'note' && view.id === activeId,
+          );
           const next = (current + (event.shiftKey ? -1 : 1) + count) % count;
-          setGraphActive(next === tabs.length);
-          if (next < tabs.length) {
-            workspace.setActiveId(tabs[next].id);
-            setTimeout(() => editor.current?.focus(), 0);
+          const target = viewOrder[next];
+          if (target.kind === 'graph') setGraphActive(true);
+          else {
+            workspace.setActiveId(target.id);
+            setPendingLine({ id: target.id });
           }
         } else if (event.key.toLowerCase() === 'w' && !event.shiftKey) {
           event.preventDefault();
@@ -637,8 +656,12 @@ export default function App() {
           void open();
           break;
         case 'find':
+          if (!active) {
+            notify('请先打开一篇笔记再查找。');
+            break;
+          }
           setGraphActive(false);
-          editor.current?.command('find');
+          setPendingLine({ id: active.id, command: 'find' });
           break;
         case 'settings':
           setPanel('settings');
@@ -664,6 +687,7 @@ export default function App() {
     activeId,
     graphOpen,
     graphActive,
+    viewOrder,
   ]);
   useEffect(() => {
     if (panel !== 'preview' || !active || !preview.current) return;
@@ -926,72 +950,27 @@ export default function App() {
   } as CSSProperties;
   const line = active ? active.content.slice(0, active.cursor).split('\n').length : 1;
   const tabStrip = (
-    <div
-      ref={tabScroller}
-      className="tabs-bar"
-      role="tablist"
-      aria-label="打开的笔记"
-      onKeyDown={tabListKeys}
-    >
-      {tabs.map((tab) => (
-        <div
-          className={`document-tab ${!graphActive && tab.id === activeId ? 'active' : ''}`}
-          key={tab.id}
-        >
-          <button
-            role="tab"
-            id={tabLabelId(tab.id)}
-            aria-controls="document-panel"
-            aria-selected={!graphActive && tab.id === activeId}
-            tabIndex={!graphActive && tab.id === activeId ? 0 : -1}
-            title={tab.path || '未命名草稿'}
-            onClick={() => {
-              workspace.setActiveId(tab.id);
-              setGraphActive(false);
-            }}
-          >
-            <FileText size={14} />
-            <span>{tab.title}</span>
-            {tab.dirty && <i aria-label="有未保存修改" />}
-          </button>
-          <IconButton
-            label={`关闭 ${tab.title}`}
-            tabIndex={!graphActive && tab.id === activeId ? 0 : -1}
-            onClick={() => void requestClose(tab.id)}
-          >
-            <X size={13} />
-          </IconButton>
-        </div>
-      ))}
-      {graphOpen && (
-        <div className={`document-tab ${graphActive ? 'active' : ''}`}>
-          <button
-            role="tab"
-            id="document-tab-graph"
-            aria-controls="document-panel"
-            aria-selected={graphActive}
-            tabIndex={graphActive ? 0 : -1}
-            onClick={openGraph}
-          >
-            <Network size={14} />
-            <span>关系图谱</span>
-          </button>
-          <IconButton
-            label="关闭关系图谱"
-            tabIndex={graphActive ? 0 : -1}
-            onClick={() => {
-              setGraphOpen(false);
-              setGraphActive(false);
-            }}
-          >
-            <X size={13} />
-          </IconButton>
-        </div>
-      )}
-      <IconButton label="新建笔记" onClick={newNote}>
-        <PlusIcon />
-      </IconButton>
-    </div>
+    <DocumentTabs
+      tabs={tabs}
+      order={workspace.viewOrder}
+      activeId={activeId}
+      graphActive={graphActive}
+      scroller={tabScroller}
+      menuOpen={tabsMenu}
+      onMenu={(open) => {
+        setTabsMenu(open);
+        if (open) setAppMenu(false);
+      }}
+      onSelect={(view) => {
+        if (view.kind === 'graph') openGraph();
+        else workspace.setActiveId(view.id);
+      }}
+      onClose={(view) => {
+        if (view.kind === 'graph') setGraphOpen(false);
+        else void requestClose(view.id);
+      }}
+      onNew={newNote}
+    />
   );
   return (
     <OperationContext.Provider
@@ -1087,57 +1066,7 @@ export default function App() {
               {panels.left ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
             </IconButton>
           </div>
-          <div className="header-tab-strip">
-            {tabStrip}
-            <div className="menu-anchor tab-list-anchor">
-              <IconButton
-                label="已打开的笔记列表"
-                aria-expanded={tabsMenu}
-                onClick={() => {
-                  setTabsMenu(!tabsMenu);
-                  setAppMenu(false);
-                }}
-              >
-                <ChevronDown size={17} />
-              </IconButton>
-              {tabsMenu && (
-                <DropdownMenu label="已打开的笔记" onClose={() => setTabsMenu(false)}>
-                  {tabs.map((tab) => (
-                    <button
-                      role="menuitem"
-                      key={tab.id}
-                      onClick={() => {
-                        workspace.setActiveId(tab.id);
-                        setGraphActive(false);
-                        setTabsMenu(false);
-                      }}
-                    >
-                      <FileText size={14} />
-                      <span>
-                        <strong>
-                          {tab.title}
-                          {tab.dirty ? ' · 未保存' : ''}
-                        </strong>
-                        <small>{tab.path || '未命名草稿'}</small>
-                      </span>
-                    </button>
-                  ))}
-                  {graphOpen && (
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        openGraph();
-                        setTabsMenu(false);
-                      }}
-                    >
-                      <Network size={14} />
-                      关系图谱
-                    </button>
-                  )}
-                </DropdownMenu>
-              )}
-            </div>
-          </div>
+          {tabStrip}
           <div className="header-actions">
             <IconButton
               label="进入便笺模式"
@@ -1519,6 +1448,11 @@ export default function App() {
                       notePath={active.path}
                       initialCursor={active.cursor}
                       initialScroll={active.scrollTop}
+                      initialSession={editorSessions.current.get(active.id)}
+                      onSessionSave={(session) => {
+                        if (workspace.getTab(active.id))
+                          editorSessions.current.set(active.id, session);
+                      }}
                       onChange={(content) =>
                         updateTab(active.id, (latest) => ({
                           ...latest,
@@ -1617,7 +1551,7 @@ export default function App() {
                         style={{ paddingLeft: 12 + (heading.level - 1) * 12 }}
                         onClick={() => {
                           setGraphActive(false);
-                          editor.current?.scrollToLine(heading.line);
+                          if (active) setPendingLine({ id: active.id, line: heading.line });
                         }}
                       >
                         {heading.text || '未命名标题'}
@@ -2166,7 +2100,4 @@ export default function App() {
       </div>
     </OperationContext.Provider>
   );
-}
-function PlusIcon() {
-  return <span className="plus-icon">+</span>;
 }

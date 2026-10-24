@@ -1,6 +1,7 @@
 import type { TabState, ViewTab } from '../shared/types';
 
 export const viewKey = (view: ViewTab) => (view.kind === 'graph' ? 'graph' : `note:${view.id}`);
+export const tabLabelId = (id: string) => `document-tab-note-${encodeURIComponent(id)}`;
 
 export function reconcileViews(
   order: readonly ViewTab[] | undefined,
