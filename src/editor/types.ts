@@ -19,6 +19,14 @@ export type EditorCommand =
   | 'diagram'
   | 'pastePlain';
 
+export type HeadingLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+/** A tab-lifetime snapshot only; never stores extensions, callbacks or an EditorView. */
+export interface EditorSession {
+  state: Record<string, unknown>;
+  scrollTop: number;
+}
+
 export interface MarkdownEditorProps {
   value: string;
   onChange(value: string): void;
@@ -27,6 +35,8 @@ export interface MarkdownEditorProps {
   notePath?: string | null;
   initialCursor?: number;
   initialScroll?: number;
+  initialSession?: EditorSession;
+  onSessionSave?(session: EditorSession): void;
   onCursor?(position: number): void;
   onScroll?(top: number): void;
   onLink?(target: string): void;
@@ -39,6 +49,8 @@ export interface MarkdownEditorHandle {
   insert(text: string): void;
   wrap(before: string, after?: string): void;
   command(name: EditorCommand): boolean;
+  setHeading(level: HeadingLevel): void;
+  getHeadingLevel(): HeadingLevel;
   scrollToLine(line: number): void;
   getCursor(): number;
   getScroll(): number;

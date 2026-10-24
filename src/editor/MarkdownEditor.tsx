@@ -6,6 +6,7 @@ import {
   Text,
   Transaction,
   type Extension,
+  type EditorStateConfig,
 } from '@codemirror/state';
 import {
   EditorView,
@@ -31,6 +32,7 @@ import { tags } from '@lezer/highlight';
 import {
   defaultKeymap,
   history,
+  historyField,
   historyKeymap,
   indentWithTab,
   redo,
@@ -52,7 +54,12 @@ import {
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { richTextToMarkdown } from './clipboard';
-import type { EditorCommand, MarkdownEditorHandle, MarkdownEditorProps } from './types';
+import type {
+  EditorCommand,
+  HeadingLevel,
+  MarkdownEditorHandle,
+  MarkdownEditorProps,
+} from './types';
 import 'katex/dist/katex.min.css';
 import './editor.css';
 
@@ -262,6 +269,31 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       return false;
     };
 
+    const setHeading = (level: HeadingLevel): void => {
+      const view = viewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      const first = view.state.doc.lineAt(from).number;
+      const last = view.state.doc.lineAt(
+        to > from && view.state.doc.lineAt(to).from === to ? to - 1 : to,
+      ).number;
+      const changes = [];
+      for (let number = first; number <= last; number++) {
+        const line = view.state.doc.line(number);
+        if (!line.text.trim()) continue;
+        const mark = /^( {0,3})(#{1,6})(?:[ \t]+|$)/.exec(line.text);
+        const indentation = mark?.[1].length ?? /^ {0,3}/.exec(line.text)![0].length;
+        const prefix = level ? '#'.repeat(level) + ' ' : '';
+        changes.push({
+          from: line.from + indentation,
+          to: line.from + (mark?.[0].length ?? indentation),
+          insert: prefix,
+        });
+      }
+      view.dispatch({ changes, userEvent: 'input.format' });
+      view.focus();
+    };
+
     useImperativeHandle(ref, () => ({
       focus: () => viewRef.current?.focus(),
       insert: (text) => {
@@ -271,6 +303,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         if (viewRef.current) wrapSelection(viewRef.current, before, after);
       },
       command: runCommand,
+      setHeading,
+      getHeadingLevel: () => {
+        const view = viewRef.current;
+        if (!view) return 0;
+        const match = /^ {0,3}(#{1,6})(?:[ \t]+|$)/.exec(
+          view.state.doc.lineAt(view.state.selection.main.head).text,
+        );
+        return (match?.[1].length ?? 0) as HeadingLevel;
+      },
       scrollToLine: (line) => {
         const view = viewRef.current;
         if (!view) return;
@@ -292,13 +333,34 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       if (!host.current) return;
       let plainPaste = false;
       const initialDoc = Text.of(propsRef.current.value.split(/\r\n?|\n/));
+      const session = propsRef.current.initialSession;
+      let restored = false;
+      const restoreState = (configuration: EditorStateConfig): EditorState => {
+        if (session) {
+          if (
+            typeof session.state.doc === 'string' &&
+            initialDoc.eq(Text.of(session.state.doc.split(/\r\n?|\n/)))
+          ) {
+            try {
+              const state = EditorState.fromJSON(
+                session.state,
+                { extensions: configuration.extensions },
+                { history: historyField },
+              );
+              restored = true;
+              return state;
+            } catch {
+              report('旧编辑会话无法恢复，当前正文已保留，撤销记录已重新开始。');
+            }
+          } else report('正文已发生变化，当前正文已保留，旧撤销记录已失效。');
+        }
+        return EditorState.create(configuration);
+      };
       const view = new EditorView({
         parent: host.current,
-        state: EditorState.create({
+        state: restoreState({
           doc: initialDoc,
-          selection: {
-            anchor: Math.min(propsRef.current.initialCursor ?? 0, initialDoc.length),
-          },
+          selection: { anchor: Math.min(propsRef.current.initialCursor ?? 0, initialDoc.length) },
           extensions: [
             history(),
             drawSelection({ cursorBlinkRate: 1060 }),
@@ -435,8 +497,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         }),
       });
       viewRef.current = view;
-      view.scrollDOM.scrollTop = propsRef.current.initialScroll ?? 0;
+      view.scrollDOM.scrollTop =
+        session && restored ? session.scrollTop : (propsRef.current.initialScroll ?? 0);
       return () => {
+        propsRef.current.onSessionSave?.({
+          state: view.state.toJSON({ history: historyField }),
+          scrollTop: view.scrollDOM.scrollTop,
+        });
         viewRef.current = null;
         pendingImages.current = [];
         view.destroy();
