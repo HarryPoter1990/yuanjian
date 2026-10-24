@@ -1,0 +1,57 @@
+.quick-open {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.quick-open > input {
+  width: 100%;
+  min-width: 0;
+}
+.quick-open-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.quick-open-results {
+  overflow-y: auto;
+  max-height: min(48vh, 420px);
+  min-height: 40px;
+}
+.quick-open-result {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.quick-open-result[aria-selected='true'] {
+  background: var(--hover);
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+.quick-open-result > span:first-child {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+.quick-open-result strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-open-result small {
+  color: var(--muted);
+  flex: none;
+}
+.quick-open-path {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.quick-open-result[aria-disabled='true'] {
+  cursor: progress;
+  opacity: 0.65;
+}
