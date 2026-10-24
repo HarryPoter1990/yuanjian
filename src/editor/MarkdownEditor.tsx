@@ -53,7 +53,7 @@ import {
 } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
-import { richTextToMarkdown } from './clipboard';
+import { compoundClipboardToMarkdown, richTextToMarkdown } from './clipboard';
 import type {
   EditorCommand,
   HeadingLevel,
@@ -189,8 +189,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       ];
     }
 
-    async function insertImages(view: EditorView, files: File[]): Promise<void> {
-      if (!propsRef.current.onImage) {
+    async function insertImages(
+      view: EditorView,
+      files: File[],
+      rich?: { html: string; plain: string },
+    ): Promise<void> {
+      if (!propsRef.current.onImage && !rich) {
         report('请先为文档选择保存位置，再添加图片。');
         return;
       }
@@ -198,22 +202,28 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const bookmark = { from: selection.from, to: selection.to };
       pendingImages.current.push(bookmark);
       try {
-        for (const file of files) {
-          const reference = await propsRef.current.onImage(file);
-          if (!reference || viewRef.current !== view) continue;
-          const name = file.name.replace(/[\[\]\\]/g, '') || '图片';
-          const destination = /[\s()]/.test(reference)
-            ? `<${reference.replace(/>/g, '%3E')}>`
-            : reference;
-          const text = `![${name}](${destination})`;
+        const result = await compoundClipboardToMarkdown(
+          rich?.html ?? '',
+          rich?.plain ?? '',
+          files,
+          async (file) => {
+            if (viewRef.current !== view) return null;
+            if (!propsRef.current.onImage) throw new Error('请先为文档选择保存位置，再添加图片');
+            return propsRef.current.onImage(file);
+          },
+        );
+        if (viewRef.current !== view) return;
+        if (result.markdown) {
           view.dispatch({
-            changes: { from: bookmark.from, to: bookmark.to, insert: text },
-            selection: { anchor: bookmark.from + text.length },
+            changes: { from: bookmark.from, to: bookmark.to, insert: result.markdown },
+            selection: { anchor: bookmark.from + result.markdown.length },
             userEvent: 'input.paste',
           });
         }
+        if (result.notices.length) report(result.notices.join('\n'));
       } catch (reason) {
-        report(reason instanceof Error ? reason.message : String(reason));
+        if (viewRef.current === view)
+          report(reason instanceof Error ? reason.message : String(reason));
       } finally {
         pendingImages.current = pendingImages.current.filter((value) => value !== bookmark);
       }
@@ -455,18 +465,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               paste(event, editor) {
                 const data = event.clipboardData;
                 if (!data) return false;
+                const plain = data.getData('text/plain');
+                const html = data.getData('text/html');
+                const usePlain = plainPaste;
+                plainPaste = false;
+                if (usePlain) return false;
                 const files = Array.from(data.files).filter((file) =>
                   file.type.startsWith('image/'),
                 );
                 if (files.length) {
                   event.preventDefault();
-                  void insertImages(editor, files);
+                  void insertImages(editor, files, html || plain ? { html, plain } : undefined);
                   return true;
                 }
-                const plain = data.getData('text/plain');
-                const html = data.getData('text/html');
-                const usePlain = plainPaste;
-                plainPaste = false;
                 if (html && !usePlain) {
                   event.preventDefault();
                   replaceSelection(editor, richTextToMarkdown(html, plain));
