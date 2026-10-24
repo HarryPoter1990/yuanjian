@@ -17,6 +17,7 @@ interface Props {
   onClose(view: ViewTab): void;
   onNew(): void;
   onReorder(order: ViewTab[]): void;
+  onContext?(view: ViewTab, x: number, y: number): void;
 }
 export function DocumentTabs({
   tabs,
@@ -30,6 +31,7 @@ export function DocumentTabs({
   onClose,
   onNew,
   onReorder,
+  onContext,
 }: Props) {
   const drag = useTabDrag(order, scroller, onReorder);
   const notes = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs]);
@@ -56,6 +58,17 @@ export function DocumentTabs({
               key={viewKey(view)}
               data-view-key={viewKey(view)}
               onPointerDown={(event) => drag.begin(event, view)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                onContext?.(view, event.clientX, event.clientY);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                  event.preventDefault();
+                  const box = event.currentTarget.getBoundingClientRect();
+                  onContext?.(view, box.left, box.bottom);
+                }
+              }}
               onDragStart={(event) => event.preventDefault()}
             >
               <button

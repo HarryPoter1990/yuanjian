@@ -43,6 +43,7 @@ import type {
   Settings as AppSettings,
   TabState,
   Template,
+  ViewTab,
 } from './shared/types';
 import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from './shared/markdown';
 import { MarkdownEditor } from './editor/MarkdownEditor';
@@ -51,7 +52,9 @@ import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { DocumentTabs } from './components/DocumentTabs';
-import { tabLabelId } from './ui/viewTabs';
+import { tabLabelId, viewKey } from './ui/viewTabs';
+import { useTabClosing, type CloseDecision } from './ui/useTabClosing';
+import { TabContextMenu } from './components/TabContextMenu';
 import { presentMoveOutcome } from './ui/moveFeedback';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -145,9 +148,28 @@ export default function App() {
     id: string;
     line?: number;
     command?: EditorCommand;
+    cursor?: number;
+    scrollTop?: number;
   } | null>(null);
   const [quickOpenBusy, setQuickOpenBusy] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
+  const closeConfirmation = useRef<((decision: CloseDecision) => void) | null>(null);
+  const recentClosed = useRef<
+    { path: string; cursor: number; scrollTop: number; mode: TabState['mode'] }[]
+  >([]);
+  const [recentClosedCount, setRecentClosedCount] = useState(0);
+  const reopening = useRef(false);
+  const closingViews = useRef(false);
+  const [tabContext, setTabContext] = useState<{ view: ViewTab; x: number; y: number } | null>(
+    null,
+  );
+  useEffect(
+    () => () => {
+      closeConfirmation.current?.('cancel');
+      closeConfirmation.current = null;
+    },
+    [],
+  );
   const [newTitle, setNewTitle] = useState('');
   const [newTemplate, setNewTemplate] = useState('');
   const [journalChoice, setJournalChoice] = useState<{
@@ -374,7 +396,15 @@ export default function App() {
       if (!editor.current?.getView()) return;
       if (pendingLine.command) editor.current.command(pendingLine.command);
       else if (pendingLine.line) editor.current.scrollToLine(pendingLine.line);
-      else editor.current.focus();
+      else {
+        const view = editor.current.getView()!;
+        if (pendingLine.cursor !== undefined)
+          view.dispatch({
+            selection: { anchor: Math.max(0, Math.min(view.state.doc.length, pendingLine.cursor)) },
+          });
+        if (pendingLine.scrollTop !== undefined) view.scrollDOM.scrollTop = pendingLine.scrollTop;
+        editor.current.focus();
+      }
       setPendingLine(null);
     } else if (pendingLine && activeId !== pendingLine.id) {
       setPendingLine(null);
@@ -565,15 +595,74 @@ export default function App() {
       }
     });
   }
-  async function requestClose(id: string) {
-    const tab = tabs.find((item) => item.id === id);
-    if (!tab) return;
-    if (tab.dirty || (!tab.path && tab.content)) {
-      setClosingId(id);
-      setPanel('close');
+  function finishCloseConfirmation(decision: CloseDecision) {
+    const resolve = closeConfirmation.current;
+    closeConfirmation.current = null;
+    setClosingId(null);
+    setPanel(null);
+    resolve?.(decision);
+  }
+  const tabClosing = useTabClosing({
+    getTab: workspace.getTab,
+    save: workspace.save,
+    removeTab: workspace.removeTab,
+    notify,
+    confirm: (tab) =>
+      new Promise((resolve) => {
+        closeConfirmation.current = resolve;
+        setClosingId(tab.id);
+        setPanel('close');
+      }),
+    onClosed: (tab) => {
+      const live = activeRef.current?.id === tab.id ? editor.current : null;
+      if (tab.path) {
+        recentClosed.current = [
+          ...recentClosed.current.slice(-19),
+          {
+            path: tab.path,
+            cursor: live?.getCursor() ?? tab.cursor,
+            scrollTop: live?.getScroll() ?? tab.scrollTop,
+            mode: tab.mode,
+          },
+        ];
+        setRecentClosedCount(recentClosed.current.length);
+      }
+      editorSessions.current.delete(tab.id);
+    },
+  });
+  const requestClose = tabClosing.requestClose;
+  async function closeViews(views: ViewTab[]) {
+    if (closingViews.current || tabClosing.isClosing) return;
+    closingViews.current = true;
+    try {
+      for (const view of views) {
+        if (view.kind === 'graph') setGraphOpen(false);
+        else if (!(await requestClose(view.id))) break;
+      }
+    } finally {
+      closingViews.current = false;
+    }
+  }
+  async function reopenLastClosed() {
+    if (reopening.current || tabClosing.isClosing) return;
+    const target = recentClosed.current.at(-1);
+    if (!target) {
+      notify('还没有可重新打开的已关闭笔记。');
       return;
     }
-    workspace.removeTab(id);
+    reopening.current = true;
+    try {
+      const existing = tabs.find((tab) => tab.path === target.path);
+      const id = await open(target.path);
+      if (!id) return;
+      if (!existing) editorSessions.current.delete(id);
+      updateTab(id, { cursor: target.cursor, scrollTop: target.scrollTop, mode: target.mode });
+      setPendingLine({ id, cursor: target.cursor, scrollTop: target.scrollTop });
+      recentClosed.current = recentClosed.current.filter((item) => item !== target);
+      setRecentClosedCount(recentClosed.current.length);
+    } finally {
+      reopening.current = false;
+    }
   }
   async function localizeImages(target?: string) {
     if (!active?.path) return;
@@ -677,6 +766,9 @@ export default function App() {
         case 'open':
           void open();
           break;
+        case 'reopen':
+          void reopenLastClosed();
+          break;
         case 'quickOpen':
           setPanel('quick-open');
           break;
@@ -714,6 +806,7 @@ export default function App() {
     graphOpen,
     graphActive,
     viewOrder,
+    tabClosing.isClosing,
   ]);
   useEffect(() => {
     if (panel !== 'preview' || !active || !preview.current) return;
@@ -997,6 +1090,11 @@ export default function App() {
       }}
       onNew={newNote}
       onReorder={workspace.reorderViews}
+      onContext={(view, x, y) => {
+        setTabsMenu(false);
+        setAppMenu(false);
+        setTabContext({ view, x, y });
+      }}
     />
   );
   const applicationMenu = (more: boolean) => (
@@ -1016,6 +1114,7 @@ export default function App() {
           {[
             ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
             ['快速打开笔记', () => setPanel('quick-open'), settings.shortcuts.quickOpen],
+            ['重新打开关闭的笔记', () => void reopenLastClosed(), settings.shortcuts.reopen],
             ['新建空白笔记', newNote, settings.shortcuts.new],
             [
               '从模板新建',
@@ -1730,6 +1829,76 @@ export default function App() {
             <p>正在保存笔记与草稿，完成后关闭…</p>
           </div>
         )}
+        {tabContext && (
+          <TabContextMenu
+            x={tabContext.x}
+            y={tabContext.y}
+            onClose={() => setTabContext(null)}
+            actions={[
+              {
+                label: '关闭当前标签',
+                disabled: tabClosing.isClosing,
+                run: () => void closeViews([tabContext.view]),
+              },
+              {
+                label: '关闭其他标签',
+                disabled: tabClosing.isClosing || viewOrder.length < 2,
+                run: () =>
+                  void closeViews(
+                    viewOrder.filter((view) => viewKey(view) !== viewKey(tabContext.view)),
+                  ),
+              },
+              {
+                label: '关闭右侧标签',
+                disabled:
+                  tabClosing.isClosing ||
+                  viewOrder.findIndex((view) => viewKey(view) === viewKey(tabContext.view)) >=
+                    viewOrder.length - 1,
+                run: () =>
+                  void closeViews(
+                    viewOrder.slice(
+                      viewOrder.findIndex((view) => viewKey(view) === viewKey(tabContext.view)) + 1,
+                    ),
+                  ),
+              },
+              {
+                label: '重新打开关闭的笔记',
+                shortcut: settings.shortcuts.reopen,
+                disabled: !recentClosedCount || tabClosing.isClosing,
+                run: () => void reopenLastClosed(),
+              },
+              ...(tabContext.view.kind === 'note' && workspace.getTab(tabContext.view.id)?.path
+                ? [
+                    {
+                      label: '复制文件路径',
+                      run: () =>
+                        void run('复制路径', async () => {
+                          const path =
+                            tabContext.view.kind === 'note'
+                              ? workspace.getTab(tabContext.view.id)?.path
+                              : null;
+                          if (path) {
+                            await navigator.clipboard.writeText(path);
+                            notify('文件路径已复制。');
+                          }
+                        }),
+                    },
+                    {
+                      label: '在文件夹中显示',
+                      run: () =>
+                        void run('定位文件', async () => {
+                          const path =
+                            tabContext.view.kind === 'note'
+                              ? workspace.getTab(tabContext.view.id)?.path
+                              : null;
+                          if (path) await window.notes.revealPath(path);
+                        }),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        )}
         {panel === 'quick-open' && (
           <QuickOpenPanel
             tabs={tabs}
@@ -1965,39 +2134,18 @@ export default function App() {
           </Modal>
         )}
         {panel === 'close' && (
-          <Modal title="关闭笔记" onClose={() => setPanel(null)}>
+          <Modal title="关闭笔记" onClose={() => finishCloseConfirmation('cancel')} pending={false}>
             <div className="panel-content">
               <p>
                 「{tabs.find((tab) => tab.id === closingId)?.title}
                 」还有未保存内容。保存成功后再关闭，或明确丢弃修改。
               </p>
               <footer className="dialog-actions">
-                <button onClick={() => setPanel(null)}>继续编辑</button>
-                <button
-                  className="danger-text"
-                  onClick={() => {
-                    if (closingId) workspace.removeTab(closingId);
-                    setPanel(null);
-                  }}
-                >
+                <button onClick={() => finishCloseConfirmation('cancel')}>继续编辑</button>
+                <button className="danger-text" onClick={() => finishCloseConfirmation('discard')}>
                   丢弃修改并关闭
                 </button>
-                <button
-                  className="primary"
-                  disabled={Boolean(busy)}
-                  onClick={() =>
-                    void run('保存笔记', async () => {
-                      if (closingId && (await workspace.save(closingId, true))) {
-                        if (workspace.getTab(closingId)?.dirty) {
-                          notify('保存期间有新修改，内容已保留，请再次保存。');
-                          return;
-                        }
-                        workspace.removeTab(closingId);
-                        setPanel(null);
-                      }
-                    })
-                  }
-                >
+                <button className="primary" onClick={() => finishCloseConfirmation('save')}>
                   保存并关闭
                 </button>
               </footer>

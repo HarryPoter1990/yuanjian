@@ -2769,3 +2769,17 @@ button.danger {
   pointer-events: none;
   z-index: 2;
 }
+
+.tab-context-anchor {
+  position: fixed;
+  z-index: 25;
+  -webkit-app-region: no-drag;
+}
+.tab-context-anchor > .dropdown-menu {
+  left: 0;
+  right: auto;
+  top: 0;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
