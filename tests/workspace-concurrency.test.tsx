@@ -2,7 +2,14 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DesktopAPI, NoteDocument, SaveOutcome, SaveRequest } from '../src/shared/types';
+import type {
+  DesktopAPI,
+  FileEntry,
+  NoteDocument,
+  NoteMeta,
+  SaveOutcome,
+  SaveRequest,
+} from '../src/shared/types';
 import { defaultSettings } from '../src/shared/defaults';
 import { asTab } from '../src/ui/model';
 import { useWorkspace } from '../src/ui/useWorkspace';
@@ -86,6 +93,49 @@ afterEach(async () => {
 });
 
 describe('workspace save and external change coordination', () => {
+  it('keeps newer directory results when a refresh for old roots finishes last', async () => {
+    await mount();
+    const oldRoot = 'D:\\generated\\old';
+    const newRoot = 'D:\\generated\\new';
+    const initial = workspace.settings!;
+    await act(async () => workspace.setSettings({ ...initial, roots: [oldRoot] }));
+    const indexes: Array<(notes: NoteMeta[]) => void> = [];
+    const trees: Array<{ path: string; finish(entries: FileEntry[]): void }> = [];
+    api.getIndex = vi.fn(() => new Promise<NoteMeta[]>((resolve) => indexes.push(resolve)));
+    api.getTree = vi.fn(
+      (path) => new Promise<FileEntry[]>((finish) => trees.push({ path, finish })),
+    );
+    let oldRefresh!: Promise<void>;
+    await act(async () => {
+      oldRefresh = workspace.refresh();
+    });
+    await act(async () => workspace.setSettings({ ...initial, roots: [newRoot] }));
+    expect(indexes).toHaveLength(2);
+    const meta = (root: string): NoteMeta => ({
+      path: `${root}\\note.md`,
+      title: root,
+      tags: [],
+      headings: [],
+      links: [],
+      modifiedAt: 1,
+    });
+    const entry = (root: string): FileEntry => ({
+      path: `${root}\\note.md`,
+      name: 'note.md',
+      kind: 'note',
+    });
+    await act(async () => {
+      indexes[1]([meta(newRoot)]);
+      trees[1].finish([entry(newRoot)]);
+    });
+    await act(async () => {
+      indexes[0]([meta(oldRoot)]);
+      trees[0].finish([entry(oldRoot)]);
+      await oldRefresh;
+    });
+    expect(workspace.index.map((item) => item.path)).toEqual([`${newRoot}\\note.md`]);
+    expect(Object.keys(workspace.trees)).toEqual([newRoot]);
+  });
   it('rebases typing made during a merged save before a later save writes it', async () => {
     await mount();
     let finish!: (outcome: SaveOutcome) => void;

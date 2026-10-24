@@ -46,11 +46,13 @@ export function GraphView({
     let disposeClose: (() => void) | undefined;
     setBusy(true);
     async function build() {
-      const filtered = index.filter(
-        (note) =>
-          (!prefs.root || note.path.startsWith(prefs.root)) &&
-          (!prefs.tag || note.tags.includes(prefs.tag)),
-      );
+      const scope = prefs.root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      const filtered = index.filter((note) => {
+        const file = note.path.replace(/\\/g, '/').toLowerCase();
+        return (
+          (!scope || file.startsWith(`${scope}/`)) && (!prefs.tag || note.tags.includes(prefs.tag))
+        );
+      });
       const notes = new Map(filtered.map((note) => [note.path, note]));
       const edges: { source: string; target: string; attachment?: boolean }[] = [];
       for (const note of filtered) {

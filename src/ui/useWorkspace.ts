@@ -40,6 +40,7 @@ export function useWorkspace() {
   current.current = { tabs, activeId, settings, conflict };
   const pendingSaves = useRef(new Map<string, Promise<boolean>>());
   const externalReads = useRef(new Map<string, symbol>());
+  const refreshGeneration = useRef(0);
   const savedSettings = useRef('');
   const sessionWrite = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(true);
@@ -72,11 +73,20 @@ export function useWorkspace() {
   const refresh = useCallback(async () => {
     const config = current.current.settings;
     if (!config) return;
+    const generation = ++refreshGeneration.current;
+    const source = JSON.stringify([config.roots, config.excluded, config.showAllFiles]);
     const [notes, ...entries] = await Promise.all([
       window.notes.getIndex(),
       ...config.roots.map((root) => window.notes.getTree(root)),
     ]);
-    if (!mounted.current) return;
+    const latest = current.current.settings;
+    if (
+      !mounted.current ||
+      generation !== refreshGeneration.current ||
+      !latest ||
+      source !== JSON.stringify([latest.roots, latest.excluded, latest.showAllFiles])
+    )
+      return;
     setIndex(notes);
     setTrees(Object.fromEntries(config.roots.map((root, i) => [root, entries[i]])));
   }, []);

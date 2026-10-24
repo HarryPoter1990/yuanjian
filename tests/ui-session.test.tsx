@@ -60,6 +60,9 @@ vi.mock('../src/editor/MarkdownEditor', async () => {
       return (
         <div aria-label="测试正文编辑器">
           <button onClick={() => props.onLink?.('另一篇.md#目标')}>打开测试相对链接</button>
+          <button onClick={() => props.onLink?.('https://example.com/guide')}>
+            打开测试外部链接
+          </button>
         </div>
       );
     }),
@@ -201,6 +204,32 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe('desktop session and save lifecycle', () => {
+  it('opens HTTPS from an unnamed draft without saving or resolving a local path', async () => {
+    const draft = { ...asTab(note), id: 'draft-url', path: null };
+    await mount({ tabs: [draft], activeId: draft.id });
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '打开测试外部链接')!
+        .click(),
+    );
+    expect(api.openExternal).toHaveBeenCalledWith('https://example.com/guide');
+    expect(api.resolveLink).not.toHaveBeenCalled();
+    expect(api.saveFile).not.toHaveBeenCalled();
+  });
+  it('still requires a saved base path before following a relative link from a draft', async () => {
+    const draft = { ...asTab(note), id: 'draft-relative', path: null };
+    await mount({ tabs: [draft], activeId: draft.id });
+    await act(async () => root.render(<App />));
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '打开测试相对链接')!
+        .click(),
+    );
+    expect(api.openExternal).not.toHaveBeenCalled();
+    expect(api.resolveLink).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('请先保存笔记，再打开相对链接。');
+  });
   it.each([false, true])(
     'preserves exclusion edits through a native close without blurring the settings field (write failure: %s)',
     async (fails) => {

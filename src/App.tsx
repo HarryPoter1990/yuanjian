@@ -458,6 +458,10 @@ export default function App() {
     return result.reference;
   }
   async function followLink(target: string) {
+    if (/^https?:\/\//i.test(target)) {
+      await run('打开链接', () => window.notes.openExternal(target));
+      return;
+    }
     if (!active?.path) {
       notify('请先保存笔记，再打开相对链接。');
       return;
