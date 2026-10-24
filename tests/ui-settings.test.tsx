@@ -91,6 +91,38 @@ it('searches concrete labels and descriptions, then focuses and highlights the m
   expect(result('编辑与文件 · 代码字号')).not.toBeNull();
 });
 
+it('finds every actually displayed appearance field by its visible label and locates that exact field', async () => {
+  await act(async () =>
+    replaceSettings({
+      ...currentSettings,
+      appearance: { ...currentSettings.appearance, wallpaper: 'generated-fixture.png' },
+    }),
+  );
+  const labels = [...host.querySelectorAll<HTMLElement>('[data-setting-label]')].map(
+    (field) => field.dataset.settingLabel!,
+  );
+  expect(labels).toContain('壁纸透明度');
+  expect(labels).toContain('模糊');
+  for (const label of labels) {
+    await type('搜索设置', label);
+    const target = result(`外观与主题 · ${label}`);
+    expect(target, `visible setting ${label} must be searchable`).not.toBeNull();
+    await act(async () => target!.click());
+    expect(
+      host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-label'),
+    ).toBe(label);
+  }
+});
+
+it('explains the prerequisite for a wallpaper control when no image has been selected', async () => {
+  await type('搜索设置', '壁纸位置');
+  expect(host.textContent).toContain('先选择壁纸');
+  await act(async () => result('外观与主题 · 壁纸位置')!.click());
+  expect(
+    host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-label'),
+  ).toBe('本地图片');
+});
+
 it('every indexed setting leads to a rendered target with a stable name', async () => {
   const items = searchSettings('');
   expect(items).toEqual([]);
@@ -103,12 +135,43 @@ it('every indexed setting leads to a rendered target with a stable name', async 
     '模板与片段',
     '日记与周期',
   ]) {
-    for (const item of searchSettings(query)) {
+    for (const item of searchSettings(query, currentSettings)) {
       await type('搜索设置', item.label);
       await act(async () => result(`${item.group} · ${item.label}`)!.click());
       expect(
-        host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-label'),
+        host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-id'),
       ).toBe(item.target);
+    }
+  }
+});
+
+it('indexes controls from every rendered category including current shortcut and snippet fields', async () => {
+  for (const group of [
+    '外观与主题',
+    '字体管理',
+    '编辑与文件',
+    '界面与快捷键',
+    '历史与恢复',
+    '模板与片段',
+    '日记与周期',
+  ]) {
+    await type('搜索设置', '');
+    const category = [...host.querySelectorAll<HTMLButtonElement>('.settings-nav > button')].find(
+      (button) => button.textContent?.includes(group),
+    )!;
+    await act(async () => category.click());
+    const fields = [
+      ...host.querySelectorAll<HTMLElement>('.settings-content [data-setting-id]'),
+    ].map((field) => ({ id: field.dataset.settingId!, label: field.dataset.settingLabel! }));
+    expect(fields.length).toBeGreaterThan(0);
+    for (const field of fields) {
+      await type('搜索设置', field.label);
+      const entry = result(`${group} · ${field.label}`);
+      expect(entry, `${group}/${field.label} must be in search`).not.toBeNull();
+      await act(async () => entry!.click());
+      expect(
+        host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-id'),
+      ).toBe(field.id);
     }
   }
 });

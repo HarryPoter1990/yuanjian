@@ -312,14 +312,21 @@ export function Empty({ children }: { children: ReactNode }) {
 export function Field({
   label,
   description,
+  settingId,
   children,
 }: {
   label: string;
   description?: string;
+  settingId?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="setting-field" data-setting-label={label} tabIndex={-1}>
+    <div
+      className="setting-field"
+      data-setting-label={label}
+      data-setting-id={settingId}
+      tabIndex={-1}
+    >
       <div>
         <span className="field-label">{label}</span>
         {description && <p>{description}</p>}

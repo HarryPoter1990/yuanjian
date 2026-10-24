@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronRight,
@@ -24,27 +24,41 @@ import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
 import { searchSettings, settingsGroups as groups } from '../ui/settingsSearch';
+import {
+  settingDefinitions,
+  shortcutLabels,
+  shortcutSetting,
+  snippetSetting,
+  type SettingId,
+} from '../ui/settingsFields';
 
-const appearanceLabels = {
-  fontSize: '正文字号',
-  lineHeight: '行距',
-  codeFontSize: '代码字号',
-  codeLineHeight: '代码行距',
-  contentWidth: '正文宽度',
-  wallpaperOpacity: '壁纸透明度',
-  wallpaperBlur: '模糊',
-  wallpaperBrightness: '亮度',
-  editorOpacity: '正文底色透明度',
-  sidebarOpacity: '侧栏底色透明度',
-};
-const shortcutLabels: Record<string, string> = {
-  save: '保存',
-  new: '新建',
-  open: '打开',
-  find: '查找',
-  settings: '设置',
-  mode: '切换源码',
-};
+function SettingField({
+  id,
+  children,
+  description,
+}: {
+  id: SettingId;
+  children: ReactNode;
+  description?: string;
+}) {
+  const entry = settingDefinitions[id];
+  return (
+    <Field
+      label={entry.label}
+      settingId={id}
+      description={description ?? (entry.explain ? entry.description : undefined)}
+    >
+      {children}
+    </Field>
+  );
+}
+function SettingHeading({ id }: { id: SettingId }) {
+  return (
+    <h4 data-setting-id={id} data-setting-label={settingDefinitions[id].label} tabIndex={-1}>
+      {settingDefinitions[id].label}
+    </h4>
+  );
+}
 const shortcutKey = (value: string) =>
   value
     .toLowerCase()
@@ -107,7 +121,7 @@ export function SettingsPanel({
   const [templateId, setTemplateId] = useState(settings.templates[0]?.id || '');
   const [recordingShortcut, setRecordingShortcut] = useState('');
   const searching = Boolean(query.trim());
-  const results = searchSettings(query);
+  const results = searchSettings(query, settings);
   const visible = searching ? 'search' : section;
   useEffect(() => {
     setExcludedDraft((draft) =>
@@ -117,8 +131,8 @@ export function SettingsPanel({
   useEffect(() => {
     if (!highlight || searching) return;
     const target = [
-      ...(contentRef.current?.querySelectorAll<HTMLElement>('[data-setting-label]') || []),
-    ].find((element) => element.dataset.settingLabel === highlight);
+      ...(contentRef.current?.querySelectorAll<HTMLElement>('[data-setting-id]') || []),
+    ].find((element) => element.dataset.settingId === highlight);
     if (!target) return;
     target.dataset.settingHighlighted = 'true';
     target.scrollIntoView?.({ block: 'center' });
@@ -193,7 +207,7 @@ export function SettingsPanel({
     <label className="range-control">
       <input
         type="range"
-        aria-label={appearanceLabels[key]}
+        aria-label={settingDefinitions[key].label}
         min={min}
         max={max}
         step={step}
@@ -318,10 +332,7 @@ export function SettingsPanel({
                 外观与主题
               </h3>
               <p className="section-description">修改会立即显示，并保存在所有目录共用的设置中。</p>
-              <Field
-                label="内置配色"
-                description="配色包含浅色和深色两版，保留字体、壁纸与布局设置。"
-              >
+              <SettingField id="palettes">
                 <div className="theme-list builtin-palettes">
                   {builtinPalettes.map((palette) => (
                     <button
@@ -339,8 +350,8 @@ export function SettingsPanel({
                     </button>
                   ))}
                 </div>
-              </Field>
-              <Field label="明暗模式">
+              </SettingField>
+              <SettingField id="mode">
                 <select
                   aria-label="明暗模式"
                   value={appearance.mode}
@@ -350,19 +361,18 @@ export function SettingsPanel({
                   <option value="dark">深色</option>
                   <option value="system">跟随系统</option>
                 </select>
-              </Field>
+              </SettingField>
               <div className="color-fields">
-                {(
-                  [
-                    ['accent', '强调色'],
-                    ['background', '背景色'],
-                    ['foreground', '文字色'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key} data-setting-label={label} tabIndex={-1}>
-                    {label}
+                {(['accent', 'background', 'foreground'] as const).map((key) => (
+                  <label
+                    key={key}
+                    data-setting-id={key}
+                    data-setting-label={settingDefinitions[key].label}
+                    tabIndex={-1}
+                  >
+                    {settingDefinitions[key].label}
                     <input
-                      aria-label={label}
+                      aria-label={settingDefinitions[key].label}
                       type="color"
                       value={colors[key]}
                       onChange={(e) => {
@@ -385,9 +395,11 @@ export function SettingsPanel({
                   </label>
                 ))}
               </div>
-              <Field label="正文字号">{number('fontSize', 12, 28, 1, ' px')}</Field>
-              <Field label="行距">{number('lineHeight', 1.2, 2.5, 0.05)}</Field>
-              <Field label="正文宽度">{number('contentWidth', 480, 1200, 20, ' px')}</Field>
+              <SettingField id="fontSize">{number('fontSize', 12, 28, 1, ' px')}</SettingField>
+              <SettingField id="lineHeight">{number('lineHeight', 1.2, 2.5, 0.05)}</SettingField>
+              <SettingField id="contentWidth">
+                {number('contentWidth', 480, 1200, 20, ' px')}
+              </SettingField>
               <div
                 className="appearance-preview"
                 style={{
@@ -405,7 +417,7 @@ export function SettingsPanel({
                 <p className="math-preview">∫₀¹ x² dx = ⅓</p>
               </div>
               <h4>静态壁纸</h4>
-              <Field label="本地图片" description={appearance.wallpaper || '未选择壁纸'}>
+              <SettingField id="wallpaper" description={appearance.wallpaper || '未选择壁纸'}>
                 <button
                   disabled={Boolean(busy)}
                   onClick={() =>
@@ -422,15 +434,21 @@ export function SettingsPanel({
                 {appearance.wallpaper && (
                   <button onClick={() => look({ wallpaper: '' })}>移除</button>
                 )}
-              </Field>
+              </SettingField>
               {appearance.wallpaper && (
                 <>
-                  <Field label="壁纸透明度">{number('wallpaperOpacity', 0, 1, 0.05)}</Field>
-                  <Field label="模糊">{number('wallpaperBlur', 0, 30, 1, ' px')}</Field>
-                  <Field label="亮度">{number('wallpaperBrightness', 0.3, 1.8, 0.05)}</Field>
-                  <Field label="填充">
+                  <SettingField id="wallpaperOpacity">
+                    {number('wallpaperOpacity', 0, 1, 0.05)}
+                  </SettingField>
+                  <SettingField id="wallpaperBlur">
+                    {number('wallpaperBlur', 0, 30, 1, ' px')}
+                  </SettingField>
+                  <SettingField id="wallpaperBrightness">
+                    {number('wallpaperBrightness', 0.3, 1.8, 0.05)}
+                  </SettingField>
+                  <SettingField id="wallpaperFit">
                     <select
-                      aria-label="壁纸填充"
+                      aria-label={settingDefinitions.wallpaperFit.label}
                       value={appearance.wallpaperFit}
                       onChange={(e) =>
                         look({ wallpaperFit: e.target.value as Appearance['wallpaperFit'] })
@@ -440,8 +458,10 @@ export function SettingsPanel({
                       <option value="contain">完整显示</option>
                       <option value="repeat">平铺</option>
                     </select>
+                  </SettingField>
+                  <SettingField id="wallpaperPosition">
                     <select
-                      aria-label="壁纸位置"
+                      aria-label={settingDefinitions.wallpaperPosition.label}
                       value={appearance.wallpaperPosition}
                       onChange={(e) => look({ wallpaperPosition: e.target.value })}
                     >
@@ -451,14 +471,14 @@ export function SettingsPanel({
                       <option value="left">左侧</option>
                       <option value="right">右侧</option>
                     </select>
-                  </Field>
+                  </SettingField>
                 </>
               )}
-              <Field label="正文底色透明度">{number('editorOpacity', 0, 1, 0.05)}</Field>
-              <Field label="侧栏底色透明度">{number('sidebarOpacity', 0, 1, 0.05)}</Field>
-              <h4 data-setting-label="已保存的主题" tabIndex={-1}>
-                已保存的主题
-              </h4>
+              <SettingField id="editorOpacity">{number('editorOpacity', 0, 1, 0.05)}</SettingField>
+              <SettingField id="sidebarOpacity">
+                {number('sidebarOpacity', 0, 1, 0.05)}
+              </SettingField>
+              <SettingHeading id="themes" />
               <div className="theme-list">
                 {settings.themes.map((theme) => (
                   <button
@@ -476,9 +496,14 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
-              <div className="inline-form">
+              <div
+                className="inline-form"
+                data-setting-id="themeName"
+                data-setting-label={settingDefinitions.themeName.label}
+                tabIndex={-1}
+              >
                 <input
-                  aria-label="主题名称"
+                  aria-label={settingDefinitions.themeName.label}
                   value={themeName}
                   onChange={(e) => setThemeName(e.target.value)}
                 />
@@ -523,17 +548,10 @@ export function SettingsPanel({
               <p className="section-description">
                 直接预览系统字体；导入和下载的字体仅在鸢笺内使用。
               </p>
-              {(
-                [
-                  ['uiFont', '界面字体'],
-                  ['bodyFont', '正文字体'],
-                  ['headingFont', '标题字体'],
-                  ['codeFont', '代码字体'],
-                ] as const
-              ).map(([key, label]) => (
-                <Field key={key} label={label}>
+              {(['uiFont', 'bodyFont', 'headingFont', 'codeFont'] as const).map((key) => (
+                <SettingField key={key} id={key}>
                   <select
-                    aria-label={label}
+                    aria-label={settingDefinitions[key].label}
                     value={appearance[key]}
                     onChange={(e) => look({ [key]: e.target.value })}
                   >
@@ -546,9 +564,14 @@ export function SettingsPanel({
                       </option>
                     ))}
                   </select>
-                </Field>
+                </SettingField>
               ))}
-              <div className="font-actions" data-setting-label="导入字体 / ZIP" tabIndex={-1}>
+              <div
+                className="font-actions"
+                data-setting-id="fontImport"
+                data-setting-label={settingDefinitions.fontImport.label}
+                tabIndex={-1}
+              >
                 <div className="input-with-icon">
                   <Search size={14} />
                   <input
@@ -577,7 +600,7 @@ export function SettingsPanel({
                     })
                   }
                 >
-                  导入字体 / ZIP
+                  {settingDefinitions.fontImport.label}
                 </button>
               </div>
               <div className="font-list">
@@ -616,9 +639,7 @@ export function SettingsPanel({
                   </div>
                 ))}
               </div>
-              <h4 data-setting-label="可按需下载的开源字体" tabIndex={-1}>
-                可按需下载的开源字体
-              </h4>
+              <SettingHeading id="fontDownloads" />
               {catalog.map((font) => (
                 <div className="catalog-row" key={font.id}>
                   <div>
@@ -664,41 +685,36 @@ export function SettingsPanel({
                 <Settings2 size={19} />
                 编辑与文件
               </h3>
-              <Field
-                label="自动保存"
-                description="已选保存位置的笔记在编辑后自动写入；空白草稿保留在会话中。"
-              >
+              <SettingField id="autoSave">
                 <Toggle
                   label="自动保存"
                   checked={settings.autoSave}
                   onChange={(autoSave) => patch({ autoSave })}
                 />
-              </Field>
-              <Field label="代码字号">{number('codeFontSize', 10, 28, 1, ' px')}</Field>
-              <Field label="代码行距">{number('codeLineHeight', 1.2, 2.4, 0.05)}</Field>
-              {(
-                [
-                  ['codeLineNumbers', '代码行号'],
-                  ['codeWrap', '代码自动换行'],
-                  ['codeFold', '代码折叠'],
-                ] as const
-              ).map(([key, label]) => (
-                <Field key={key} label={label}>
+              </SettingField>
+              <SettingField id="codeFontSize">
+                {number('codeFontSize', 10, 28, 1, ' px')}
+              </SettingField>
+              <SettingField id="codeLineHeight">
+                {number('codeLineHeight', 1.2, 2.4, 0.05)}
+              </SettingField>
+              {(['codeLineNumbers', 'codeWrap', 'codeFold'] as const).map((key) => (
+                <SettingField key={key} id={key}>
                   <Toggle
-                    label={label}
+                    label={settingDefinitions[key].label}
                     checked={settings[key]}
                     onChange={(value) => patch({ [key]: value })}
                   />
-                </Field>
+                </SettingField>
               ))}
-              <Field label="显示其他文件" description="默认目录仅展示笔记、附件与相关子目录。">
+              <SettingField id="showAllFiles">
                 <Toggle
                   label="显示其他文件"
                   checked={settings.showAllFiles}
                   onChange={(showAllFiles) => patch({ showAllFiles })}
                 />
-              </Field>
-              <Field label="索引排除目录" description="每行一个目录名，修改会自动保存。">
+              </SettingField>
+              <SettingField id="excluded">
                 <textarea
                   aria-label="索引排除目录"
                   rows={5}
@@ -713,38 +729,31 @@ export function SettingsPanel({
                     setExcludedDraft(excludedLines(excludedDraft).join('\n'));
                   }}
                 />
-              </Field>
-              <Field label="附件目录规则" description="相对笔记所在目录，如 assets。">
+              </SettingField>
+              <SettingField id="attachmentPattern">
                 <input
                   aria-label="附件目录规则"
                   value={settings.attachmentPattern}
                   onChange={(e) => patch({ attachmentPattern: e.target.value })}
                 />
-              </Field>
+              </SettingField>
             </>
           )}
           {visible === 'layout' && (
             <>
               <h3>界面与快捷键</h3>
-              {(
-                [
-                  ['leftVisible', '显示左侧导航'],
-                  ['rightVisible', '显示右侧大纲'],
-                  ['toolbarVisible', '显示编辑工具栏'],
-                  ['statusVisible', '显示底部状态栏'],
-                ] as const
-              ).map(([key, label]) => (
-                <Field key={key} label={label}>
-                  <Toggle
-                    label={label}
-                    checked={settings[key]}
-                    onChange={(value) => patch({ [key]: value })}
-                  />
-                </Field>
-              ))}
-              <h4 data-setting-label="工具栏按钮" tabIndex={-1}>
-                工具栏按钮
-              </h4>
+              {(['leftVisible', 'rightVisible', 'toolbarVisible', 'statusVisible'] as const).map(
+                (key) => (
+                  <SettingField key={key} id={key}>
+                    <Toggle
+                      label={settingDefinitions[key].label}
+                      checked={settings[key]}
+                      onChange={(value) => patch({ [key]: value })}
+                    />
+                  </SettingField>
+                ),
+              )}
+              <SettingHeading id="toolbarButtons" />
               <div className="check-grid">
                 {Object.entries(toolbarLabels).map(([key, label]) => (
                   <label key={key}>
@@ -776,9 +785,7 @@ export function SettingsPanel({
               >
                 恢复全部默认区块和按钮
               </button>
-              <h4 data-setting-label="应用快捷键" tabIndex={-1}>
-                应用快捷键
-              </h4>
+              <SettingHeading id="shortcuts" />
               <p className="subtle">格式：Ctrl+s、Ctrl+Shift+m。输入框中按下组合键即可记录。</p>
               <p className="subtle">
                 Ctrl+Tab / Ctrl+Shift+Tab 切换标签，Ctrl+W
@@ -787,7 +794,8 @@ export function SettingsPanel({
               {Object.entries(settings.shortcuts).map(([key, value]) => (
                 <Field
                   key={key}
-                  label={shortcutLabels[key] || key}
+                  settingId={shortcutSetting(key).id}
+                  label={shortcutSetting(key).label}
                   description={
                     recordingShortcut === key
                       ? '正在录制：请按下组合键，Tab 移到下一项。'
@@ -796,7 +804,7 @@ export function SettingsPanel({
                 >
                   <div className="shortcut-control">
                     <input
-                      aria-label={`${shortcutLabels[key] || key}快捷键`}
+                      aria-label={shortcutSetting(key).label}
                       value={value}
                       onFocus={() => setRecordingShortcut(key)}
                       onBlur={() => setRecordingShortcut('')}
@@ -868,7 +876,7 @@ export function SettingsPanel({
               <p className="section-description">
                 只记录实际编辑过的笔记。清理历史不会删除原笔记和源附件。
               </p>
-              <Field label="保留天数">
+              <SettingField id="historyDays">
                 <input
                   aria-label="历史保留天数"
                   type="number"
@@ -877,8 +885,8 @@ export function SettingsPanel({
                   value={settings.historyDays}
                   onChange={(e) => patch({ historyDays: Math.max(1, Number(e.target.value)) })}
                 />
-              </Field>
-              <Field label="容量上限（MB）">
+              </SettingField>
+              <SettingField id="historyLimitMB">
                 <input
                   aria-label="历史容量上限"
                   type="number"
@@ -887,7 +895,7 @@ export function SettingsPanel({
                   value={settings.historyLimitMB}
                   onChange={(e) => patch({ historyLimitMB: Math.max(10, Number(e.target.value)) })}
                 />
-              </Field>
+              </SettingField>
               {stats && (
                 <div className="history-stats">
                   <div>
@@ -917,22 +925,21 @@ export function SettingsPanel({
                 存在的笔记至少保留最近版本和固定版本；已删除笔记从删除日起计时，容量不足时可能提前淘汰。
               </p>
               <button
-                data-setting-label="按当前规则清理历史"
+                data-setting-id="historyPrune"
+                data-setting-label={settingDefinitions.historyPrune.label}
                 disabled={Boolean(busy)}
                 onClick={() =>
                   void run('清理历史', async () => setStats(await window.notes.pruneHistory()))
                 }
               >
-                按当前规则清理历史
+                {settingDefinitions.historyPrune.label}
               </button>
             </>
           )}
           {visible === 'templates' && (
             <>
               <h3>模板与片段</h3>
-              <h4 data-setting-label="笔记模板" tabIndex={-1}>
-                笔记模板
-              </h4>
+              <SettingHeading id="templates" />
               <div className="inline-form">
                 <select
                   aria-label="选择模板"
@@ -962,14 +969,14 @@ export function SettingsPanel({
               </div>
               {template && (
                 <div className="template-editor">
-                  <Field label="模板名称">
+                  <SettingField id="templateName">
                     <input
                       aria-label="模板名称"
                       value={template.name}
                       onChange={(e) => editTemplate({ name: e.target.value })}
                     />
-                  </Field>
-                  <Field label="用途">
+                  </SettingField>
+                  <SettingField id="templateKind">
                     <select
                       aria-label="模板用途"
                       value={template.kind}
@@ -980,9 +987,11 @@ export function SettingsPanel({
                       <option value="weekly">周记</option>
                       <option value="monthly">月记</option>
                     </select>
-                  </Field>
+                  </SettingField>
                   <textarea
-                    aria-label="模板正文"
+                    data-setting-id="templateContent"
+                    data-setting-label={settingDefinitions.templateContent.label}
+                    aria-label={settingDefinitions.templateContent.label}
                     rows={11}
                     value={template.content}
                     onChange={(e) => editTemplate({ content: e.target.value })}
@@ -1003,14 +1012,14 @@ export function SettingsPanel({
                   </button>
                 </div>
               )}
-              <h4 data-setting-label="公式片段" tabIndex={-1}>
-                公式片段
-              </h4>
+              <SettingHeading id="snippets" />
               {settings.snippets.map((snippet, i) => (
                 <div className="snippet-editor" key={i}>
                   <div className="inline-form">
                     <input
-                      aria-label={`片段 ${i + 1} 触发词`}
+                      data-setting-id={snippetSetting(i, 'trigger').id}
+                      data-setting-label={snippetSetting(i, 'trigger').label}
+                      aria-label={snippetSetting(i, 'trigger').label}
                       value={snippet.trigger}
                       onChange={(e) =>
                         patch({
@@ -1020,7 +1029,11 @@ export function SettingsPanel({
                         })
                       }
                     />
-                    <label>
+                    <label
+                      data-setting-id={snippetSetting(i, 'enabled').id}
+                      data-setting-label={snippetSetting(i, 'enabled').label}
+                      tabIndex={-1}
+                    >
                       <input
                         type="checkbox"
                         checked={snippet.enabled}
@@ -1043,7 +1056,9 @@ export function SettingsPanel({
                     </button>
                   </div>
                   <textarea
-                    aria-label={`片段 ${i + 1} 内容`}
+                    data-setting-id={snippetSetting(i, 'body').id}
+                    data-setting-label={snippetSetting(i, 'body').label}
+                    aria-label={snippetSetting(i, 'body').label}
                     rows={3}
                     value={snippet.body}
                     onChange={(e) =>
@@ -1070,8 +1085,8 @@ export function SettingsPanel({
           {visible === 'journal' && (
             <>
               <h3>日记与周期</h3>
-              <Field
-                label="日记文件夹"
+              <SettingField
+                id="journalDirectory"
                 description={settings.journalDirectory || '未选择，首次创建时询问'}
               >
                 <button
@@ -1086,40 +1101,34 @@ export function SettingsPanel({
                   <FolderOpen size={14} />
                   选择目录
                 </button>
-              </Field>
-              {(
-                [
-                  ['dailyPattern', '日记命名'],
-                  ['weeklyPattern', '周记命名'],
-                  ['monthlyPattern', '月记命名'],
-                ] as const
-              ).map(([key, label]) => (
-                <Field key={key} label={label}>
+              </SettingField>
+              {(['dailyPattern', 'weeklyPattern', 'monthlyPattern'] as const).map((key) => (
+                <SettingField key={key} id={key}>
                   <input
-                    aria-label={label}
+                    aria-label={settingDefinitions[key].label}
                     value={settings[key]}
                     onChange={(e) => patch({ [key]: e.target.value })}
                   />
-                </Field>
+                </SettingField>
               ))}
               <p className="subtle">
                 使用 / 分隔目录；支持 {'{{year}} {{month}} {{date}} {{week}}'}
                 。日记默认开启，一天也可从模板新建多篇。
               </p>
-              <Field label="启用周记">
+              <SettingField id="weeklyEnabled">
                 <Toggle
                   label="启用周记"
                   checked={settings.weeklyEnabled}
                   onChange={(weeklyEnabled) => patch({ weeklyEnabled })}
                 />
-              </Field>
-              <Field label="启用月记">
+              </SettingField>
+              <SettingField id="monthlyEnabled">
                 <Toggle
                   label="启用月记"
                   checked={settings.monthlyEnabled}
                   onChange={(monthlyEnabled) => patch({ monthlyEnabled })}
                 />
-              </Field>
+              </SettingField>
               <p className="subtle">
                 在“模板与片段”中编辑对应日 / 周 / 月模板；有多个时，创建前可选择。
               </p>
