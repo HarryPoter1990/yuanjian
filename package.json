@@ -25,6 +25,8 @@
     "verify:heading": "node scripts/check-heading-interactions.mjs",
     "verify:crlf": "node scripts/check-crlf-autosave.mjs",
     "verify:audit": "node scripts/check-audit-interactions.mjs",
+    "verify:workflow": "node scripts/check-workflow.mjs",
+    "verify:graph-loading": "node scripts/check-graph-loading.mjs",
     "package": "npm run verify && node scripts/package.mjs",
     "start": "electron ."
   },
