@@ -297,6 +297,7 @@ async function boot() {
   });
   const handlers = {
     getWindowMode: async () => requireWindowModes().getMode(),
+    centerWindow: () => requireWindowModes().center(),
     setWindowMode: (mode: WindowMode) => requireWindowModes().setMode(mode),
     setStickyPinned: (pinned: boolean) => requireWindowModes().setPinned(pinned),
     setWindowTheme: async (theme: WindowTheme): Promise<void> => {
@@ -403,7 +404,8 @@ async function boot() {
       .map((display) => display.workArea);
   };
   const windowStateStore = new WindowStateStore(dataDirectory);
-  const lastWindowState = await windowStateStore.load(workAreas());
+  const startupWorkArea = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+  const lastWindowState = await windowStateStore.load(workAreas(), startupWorkArea);
   const colors = appearanceColors(store.getSettings().appearance, nativeTheme.shouldUseDarkColors);
   const checkedTheme = windowThemeSchema.safeParse({
     background: colors.background,

@@ -11,6 +11,8 @@ describe('desktop boundary validation', () => {
       expect(argumentSchemas.retryMoveHistory.safeParse(args).success).toBe(false);
   });
   it('limits window control to explicit modes and boolean pin values', () => {
+    expect(argumentSchemas.centerWindow.parse([])).toEqual([]);
+    expect(argumentSchemas.centerWindow.safeParse([{ x: 0, y: 0 }]).success).toBe(false);
     expect(argumentSchemas.getWindowMode.parse([])).toEqual([]);
     expect(argumentSchemas.setWindowMode.parse(['sticky'])).toEqual(['sticky']);
     expect(argumentSchemas.setWindowMode.parse(['full'])).toEqual(['full']);

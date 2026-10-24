@@ -5,6 +5,7 @@ import type { DesktopAPI } from '../src/shared/types';
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
   getWindowMode: () => ipcRenderer.invoke('notes:getWindowMode'),
+  centerWindow: () => ipcRenderer.invoke('notes:centerWindow'),
   setWindowMode: (mode) => ipcRenderer.invoke('notes:setWindowMode', mode),
   setStickyPinned: (pinned) => ipcRenderer.invoke('notes:setStickyPinned', pinned),
   onWindowModeChanged: (callback) => {

@@ -232,6 +232,7 @@ export interface WindowModeState {
   pinned: boolean;
 }
 export interface DesktopAPI {
+  centerWindow(): Promise<void>;
   getWindowMode(): Promise<WindowModeState>;
   setWindowMode(mode: WindowMode): Promise<WindowModeState>;
   setStickyPinned(pinned: boolean): Promise<WindowModeState>;

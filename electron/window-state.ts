@@ -74,7 +74,24 @@ export function fitWindowBounds(
   return { x, y, width, height };
 }
 
-export function restoreWindowState(raw: unknown, workAreas: readonly WindowBounds[]): WindowState {
+export function centerWindowBounds(bounds: WindowBounds, workArea: WindowBounds): WindowBounds {
+  const area =
+    Object.values(workArea).every(Number.isFinite) && workArea.width > 0 && workArea.height > 0
+      ? workArea
+      : { x: 0, y: 0, width: 1920, height: 1080 };
+  const fitted = fitWindowBounds(bounds, [area]);
+  return {
+    ...fitted,
+    x: Math.round(area.x + (area.width - fitted.width) / 2),
+    y: Math.round(area.y + (area.height - fitted.height) / 2),
+  };
+}
+
+export function restoreWindowState(
+  raw: unknown,
+  workAreas: readonly WindowBounds[],
+  centerIn?: WindowBounds,
+): WindowState {
   const parsed = stateSchema.safeParse(raw);
   const primary = workAreas.find(
     (area) => Object.values(area).every(Number.isFinite) && area.width > 0 && area.height > 0,
@@ -93,7 +110,9 @@ export function restoreWindowState(raw: unknown, workAreas: readonly WindowBound
         maximized: false,
       };
   return {
-    bounds: fitWindowBounds(saved.bounds, workAreas),
+    bounds: centerIn
+      ? centerWindowBounds(saved.bounds, centerIn)
+      : fitWindowBounds(saved.bounds, workAreas),
     maximized: saved.maximized,
     ...(saved.sticky
       ? {
@@ -154,7 +173,7 @@ export class WindowStateStore {
   constructor(dataDirectory: string) {
     this.file = path.join(dataDirectory, 'window-state.json');
   }
-  async load(workAreas: readonly WindowBounds[]): Promise<WindowState> {
+  async load(workAreas: readonly WindowBounds[], centerIn?: WindowBounds): Promise<WindowState> {
     const bytes = await readOptional(this.file);
     let raw: unknown;
     try {
@@ -162,7 +181,7 @@ export class WindowStateStore {
     } catch {
       raw = undefined;
     }
-    return restoreWindowState(raw, workAreas);
+    return restoreWindowState(raw, workAreas, centerIn);
   }
   save(state: WindowState): Promise<void> {
     const checked = stateSchema.parse(state);

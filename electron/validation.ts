@@ -132,6 +132,7 @@ export const windowThemeSchema = z
   .strict();
 
 export const argumentSchemas = {
+  centerWindow: z.tuple([]),
   getWindowMode: z.tuple([]),
   setWindowMode: z.tuple([z.enum(['full', 'sticky'])]),
   setStickyPinned: z.tuple([z.boolean()]),

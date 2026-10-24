@@ -1,6 +1,7 @@
 import type { WindowMode, WindowModeState } from '../src/shared/types';
 import {
   captureWindowState,
+  centerWindowBounds,
   fitWindowBounds,
   MIN_STICKY_HEIGHT,
   MIN_STICKY_WIDTH,
@@ -132,6 +133,29 @@ export class WindowModeController {
     this.publish();
     await this.persist();
     return this.getMode();
+  }
+  async center(): Promise<void> {
+    if (this.target.isDestroyed()) throw new Error('主窗口已关闭');
+    if (this.mode !== 'full' || this.target.isMaximized()) return;
+    const previous = captureWindowState(this.target, this.state);
+    const next = {
+      ...previous,
+      bounds: centerWindowBounds(previous.bounds, this.adapters.currentWorkArea()),
+    };
+    try {
+      this.applyGeometry('full', next);
+    } catch (error) {
+      let failure = error;
+      try {
+        this.applyGeometry('full', previous);
+      } catch (restoreError) {
+        failure = new AggregateError([error, restoreError], '窗口居中及原位置恢复失败');
+      }
+      this.adapters.failed(failure);
+      throw failure;
+    }
+    this.state = next;
+    await this.persist();
   }
   recordGeometry(): void {
     if (

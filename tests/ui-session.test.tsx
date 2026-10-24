@@ -97,6 +97,7 @@ function Harness() {
 function makeAPI(session: SessionState): DesktopAPI {
   const settings = structuredClone(defaultSettings);
   return {
+    centerWindow: vi.fn(async () => undefined),
     bootstrap: vi.fn(async () => ({
       settings,
       session,
@@ -123,7 +124,8 @@ function makeAPI(session: SessionState): DesktopAPI {
     resolveLink: vi.fn(async () => ({ path: null, exists: false, candidates: [] })),
     openLinkedFile: vi.fn(async () => null),
     moveFile: vi.fn(async () => null),
-    undoMove: vi.fn(async () => undefined),
+    undoMove: vi.fn(async () => ({ path: note.path!, affected: [], undoId: 'fixture-undo' })),
+    retryMoveHistory: vi.fn(async () => undefined),
     trashFile: vi.fn(async () => undefined),
     setTags: vi.fn(async () => note),
     putAttachment: vi.fn(async () => ({ path: 'D:\\a.png', reference: 'assets/a.png' })),
