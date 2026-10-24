@@ -133,9 +133,12 @@ export interface TabState extends NoteDocument {
   scrollTop: number;
   mode: 'live' | 'source';
 }
+export type ViewTab = { kind: 'note'; id: string } | { kind: 'graph' };
 export interface SessionState {
   tabs: TabState[];
   activeId: string | null;
+  viewOrder?: ViewTab[];
+  graphActive?: boolean;
 }
 export interface FontEntry {
   id: string;
@@ -195,6 +198,7 @@ export interface AttachmentCandidate {
   path: string;
   bytes: number;
   references: string[];
+  uncertainReasons?: string[];
 }
 export interface LocalizationResult {
   url: string;
@@ -205,6 +209,8 @@ export interface MoveOutcome {
   path: string;
   affected: string[];
   undoId: string;
+  historyWarning?: string;
+  historyRetryId?: string;
 }
 export interface ResolvedLink {
   path: string | null;

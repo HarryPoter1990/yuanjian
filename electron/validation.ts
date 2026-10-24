@@ -111,7 +111,20 @@ const tab = z.object({
   scrollTop: number.min(0),
   mode: z.enum(['live', 'source']),
 });
-export const sessionSchema = z.object({ tabs: z.array(tab).max(200), activeId: file.nullable() });
+export const sessionSchema = z.object({
+  tabs: z.array(tab).max(200),
+  activeId: file.nullable(),
+  viewOrder: z
+    .array(
+      z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('note'), id: file }).strict(),
+        z.object({ kind: z.literal('graph') }).strict(),
+      ]),
+    )
+    .max(201)
+    .optional(),
+  graphActive: z.boolean().optional(),
+});
 
 const opaqueHexColor = z.string().regex(/^#[\da-f]{6}$/i);
 export const windowThemeSchema = z
