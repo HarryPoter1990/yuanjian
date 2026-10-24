@@ -319,6 +319,59 @@ try {
       .poll(() => page.evaluate(() => window.workflowFixture.revealed))
       .toEqual(['D:/generated-workflow/Alpha.md']);
   });
+  await check('heading-menu-convert-and-undo', async (page) => {
+    await page.locator('.cm-content').focus();
+    await page.keyboard.press('Control+Home');
+    await page.getByRole('button', { name: '标题', exact: true }).click();
+    await expect(page.getByRole('menu', { name: '标题级别' }).getByRole('menuitem')).toHaveCount(7);
+    await page.getByRole('menuitem', { name: 'H3 三级标题', exact: true }).click();
+    assert.ok(
+      (await page.evaluate(() => window.workflowFixture.document())).startsWith('### Alpha'),
+    );
+    await page.keyboard.press('Control+z');
+    assert.ok((await page.evaluate(() => window.workflowFixture.document())).startsWith('# Alpha'));
+    await page.getByRole('button', { name: '标题', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: 'H1 一级标题', exact: true })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await page.getByRole('menuitem', { name: '正文', exact: true }).click();
+    assert.ok((await page.evaluate(() => window.workflowFixture.document())).startsWith('Alpha'));
+  });
+  await check('reading-history-positions-and-forward-branch', async (page) => {
+    await page.locator('.cm-content').focus();
+    await page.keyboard.press('Control+End');
+    await settle(page);
+    const alpha = await page.evaluate(() => ({
+      cursor: window.workflowFixture.cursor(),
+      scroll: document.querySelector('.cm-scroller').scrollTop,
+    }));
+    await tab(page, 'Beta').click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('ArrowRight');
+    const beta = await page.evaluate(() => window.workflowFixture.cursor());
+    await page.keyboard.press('Alt+ArrowLeft');
+    await expect(tab(page, 'Alpha')).toHaveAttribute('aria-selected', 'true');
+    await settle(page);
+    assert.equal(await page.evaluate(() => window.workflowFixture.cursor()), alpha.cursor);
+    await expect
+      .poll(() => page.locator('.cm-scroller').evaluate((element) => element.scrollTop))
+      .toBeCloseTo(alpha.scroll, 0);
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(tab(page, 'Beta')).toHaveAttribute('aria-selected', 'true');
+    assert.equal(await page.evaluate(() => window.workflowFixture.cursor()), beta);
+    await page
+      .locator('#right-outline')
+      .getByRole('button', { name: '第二节', exact: true })
+      .click();
+    const heading = await page.evaluate(() => window.workflowFixture.cursor());
+    assert.notEqual(heading, beta);
+    await page.keyboard.press('Alt+ArrowLeft');
+    assert.equal(await page.evaluate(() => window.workflowFixture.cursor()), beta);
+    await quick(page, 'Gamma');
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(tab(page, 'Gamma')).toHaveAttribute('aria-selected', 'true');
+  });
   for (const width of [1440, 800, 600])
     await check(
       `header-${width}`,
