@@ -95,6 +95,48 @@
   border-radius: 5px;
   padding: 3px 7px;
 }
+.markdown-editor .cm-search-compact {
+  display: block;
+  padding: 7px 12px;
+}
+.cm-search-main,
+.cm-search-replace,
+.cm-search-options {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.cm-search-replace,
+.cm-search-options {
+  margin-top: 6px;
+}
+.cm-search-replace[hidden],
+.cm-search-options[hidden] {
+  display: none;
+}
+.cm-search-main > input,
+.cm-search-replace > input {
+  min-width: 80px;
+  flex: 1;
+  width: 80px;
+}
+.cm-search-main > [role='status'] {
+  font-size: 11px;
+  color: var(--muted, #717a82);
+  white-space: nowrap;
+}
+.cm-search-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.markdown-editor .cm-search-options input {
+  width: auto;
+}
+.markdown-editor .cm-search [aria-invalid='true'] {
+  border-color: var(--danger, #a54c45);
+}
 .markdown-editor .cm-button {
   color: inherit;
   background: transparent;

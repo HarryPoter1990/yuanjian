@@ -45,16 +45,12 @@ import {
   completionKeymap,
   nextSnippetField,
 } from '@codemirror/autocomplete';
-import {
-  highlightSelectionMatches,
-  openSearchPanel,
-  search,
-  searchKeymap,
-} from '@codemirror/search';
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { compoundClipboardToMarkdown, richTextToMarkdown } from './clipboard';
 import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from './format';
+import { compactSearch, openEditorSearch } from './search-panel';
 import type {
   EditorCommand,
   HeadingLevel,
@@ -241,7 +237,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       if (!view) return false;
       if (name === 'undo') return undo(view);
       if (name === 'redo') return redo(view);
-      if (name === 'find' || name === 'replace') return openSearchPanel(view);
+      if (name === 'find' || name === 'replace') return openEditorSearch(view, name === 'replace');
       if (name === 'bold' || name === 'italic') {
         toggleInlineFormat(view, name);
         return true;
@@ -370,7 +366,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             syntaxHighlighting(codeHighlighting),
             markdown({ codeLanguages: languages, addKeymap: false }),
             closeBrackets(),
-            search({ top: true }),
+            compactSearch,
             highlightSelectionMatches(),
             keymap.of([
               {
@@ -385,6 +381,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               },
               { key: 'Mod-b', run: () => runCommand('bold') },
               { key: 'Mod-i', run: () => runCommand('italic') },
+              { key: 'Mod-f', run: (view) => openEditorSearch(view), scope: 'editor search-panel' },
+              {
+                key: 'Mod-h',
+                run: (view) => openEditorSearch(view, true),
+                scope: 'editor search-panel',
+              },
               {
                 key: 'Mod-Shift-v',
                 run: () => {
