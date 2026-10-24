@@ -27,6 +27,7 @@
     "verify:audit": "node scripts/check-audit-interactions.mjs",
     "verify:workflow": "node scripts/check-workflow.mjs",
     "verify:graph-loading": "node scripts/check-graph-loading.mjs",
+    "verify:built-hidden": "node scripts/check-built-hidden.mjs",
     "package": "npm run verify && node scripts/package.mjs",
     "start": "electron ."
   },

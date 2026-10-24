@@ -1,5 +1,6 @@
 .quick-open {
   display: grid;
+  padding: 0 18px 16px;
   gap: 10px;
   min-width: 0;
 }
