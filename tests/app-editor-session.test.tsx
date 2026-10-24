@@ -50,7 +50,10 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
 });
-async function mount(session: SessionState = { tabs: [first, second], activeId: first.id }) {
+async function mount(
+  session: SessionState = { tabs: [first, second], activeId: first.id },
+  overrides: Record<string, unknown> = {},
+) {
   Reflect.set(window, 'notes', {
     bootstrap: async () => ({
       settings: { ...structuredClone(defaultSettings), autoSave: false },
@@ -71,6 +74,7 @@ async function mount(session: SessionState = { tabs: [first, second], activeId: 
     onCloseRequested: () => () => {},
     onOpenRequested: () => () => {},
     onProgress: () => () => {},
+    ...overrides,
   });
   await act(async () => root.render(<App />));
 }
@@ -148,4 +152,83 @@ it('cycles through the same mixed visual order with Ctrl+Tab in both directions'
   expect(view().state.doc.toString()).toBe(first.content);
   await key(true);
   expect(host.querySelector('[data-testid="graph-view"]')).not.toBeNull();
+});
+
+async function shortcut(key: string, shiftKey = false) {
+  await act(async () =>
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        ctrlKey: true,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+}
+async function inputValue(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+it('uses CtrlP from graph to choose an existing draft and closes the picker after switching', async () => {
+  await mount();
+  await graph();
+  await shortcut('p');
+  const input = host.querySelector<HTMLInputElement>('[aria-label="按文件名或路径查找笔记"]');
+  expect(input).not.toBeNull();
+  await inputValue(input!, 'Beta');
+  await act(async () =>
+    input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+  );
+  expect(host.querySelector('dialog')).toBeNull();
+  expect(view().state.doc.toString()).toBe(second.content);
+  expect(host.querySelectorAll('.tabs-bar [role="tab"]')).toHaveLength(3);
+});
+it('keeps quick open query on an indexed read failure and closes only after successful retry', async () => {
+  const path = 'D:/generated/indexed.md';
+  const openFile = vi
+    .fn()
+    .mockRejectedValueOnce(Error('生成读取失败'))
+    .mockResolvedValueOnce({
+      ...first,
+      id: path,
+      path,
+      title: 'Indexed',
+      content: 'indexed content',
+      dirty: false,
+    });
+  const centerWindow = vi.fn(async () => {});
+  await mount(undefined, {
+    openFile,
+    centerWindow,
+    getIndex: async () => [
+      { path, title: 'Indexed', tags: [], links: [], headings: [], modifiedAt: 1 },
+    ],
+  });
+  await shortcut('p');
+  const input = host.querySelector<HTMLInputElement>('[aria-label="按文件名或路径查找笔记"]');
+  expect(input).not.toBeNull();
+  await inputValue(input!, 'indexed');
+  await act(async () =>
+    input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+  );
+  expect(host.querySelector('dialog')).not.toBeNull();
+  expect(input!.value).toBe('indexed');
+  expect(host.textContent).toContain('生成读取失败');
+  expect(centerWindow).not.toHaveBeenCalled();
+  await act(async () =>
+    input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+  );
+  expect(host.querySelector('dialog')).toBeNull();
+  expect(view().state.doc.toString()).toBe('indexed content');
+  expect(centerWindow).toHaveBeenCalledTimes(1);
+});
+it('opens replacement from graph only after its editor is mounted', async () => {
+  await mount();
+  await graph();
+  await shortcut('h');
+  expect(host.querySelector('[aria-label="替换为"]')).not.toBeNull();
 });

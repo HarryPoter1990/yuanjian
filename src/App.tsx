@@ -57,6 +57,7 @@ import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LazyGraphView } from './components/LazyGraphView';
 import { LinkPanel } from './components/LinkPanel';
+import { QuickOpenPanel, type QuickOpenTarget } from './components/QuickOpenPanel';
 import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { useWorkspace } from './ui/useWorkspace';
 import { validateExportContent } from './ui/exportValidation';
@@ -74,6 +75,7 @@ import {
 
 type Panel =
   | 'settings'
+  | 'quick-open'
   | 'new'
   | 'history'
   | 'attachments'
@@ -144,6 +146,7 @@ export default function App() {
     line?: number;
     command?: EditorCommand;
   } | null>(null);
+  const [quickOpenBusy, setQuickOpenBusy] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newTemplate, setNewTemplate] = useState('');
@@ -388,6 +391,24 @@ export default function App() {
     },
     [workspace.open],
   );
+  async function chooseQuickOpen(target: QuickOpenTarget) {
+    if (quickOpenBusy) return;
+    setQuickOpenBusy(true);
+    try {
+      const id =
+        target.kind === 'tab'
+          ? workspace.getTab(target.id)
+            ? target.id
+            : null
+          : await open(target.path);
+      if (!id) return;
+      workspace.setActiveId(id);
+      setPendingLine({ id });
+      setPanel(null);
+    } finally {
+      setQuickOpenBusy(false);
+    }
+  }
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
     try {
@@ -656,13 +677,17 @@ export default function App() {
         case 'open':
           void open();
           break;
+        case 'quickOpen':
+          setPanel('quick-open');
+          break;
         case 'find':
+        case 'replace':
           if (!active) {
             notify('请先打开一篇笔记再查找。');
             break;
           }
           setGraphActive(false);
-          setPendingLine({ id: active.id, command: 'find' });
+          setPendingLine({ id: active.id, command: action === 'replace' ? 'replace' : 'find' });
           break;
         case 'settings':
           setPanel('settings');
@@ -990,6 +1015,7 @@ export default function App() {
         <DropdownMenu label={more ? '更多操作' : '应用菜单'} onClose={() => setAppMenu(false)}>
           {[
             ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
+            ['快速打开笔记', () => setPanel('quick-open'), settings.shortcuts.quickOpen],
             ['新建空白笔记', newNote, settings.shortcuts.new],
             [
               '从模板新建',
@@ -1703,6 +1729,15 @@ export default function App() {
             <LoaderCircle className="spin" size={24} />
             <p>正在保存笔记与草稿，完成后关闭…</p>
           </div>
+        )}
+        {panel === 'quick-open' && (
+          <QuickOpenPanel
+            tabs={tabs}
+            index={workspace.index}
+            onSelect={(target) => void chooseQuickOpen(target)}
+            onClose={() => setPanel(null)}
+            busy={quickOpenBusy}
+          />
         )}
         {panel === 'settings' && (
           <SettingsPanel

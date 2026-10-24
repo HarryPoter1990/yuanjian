@@ -93,6 +93,11 @@ export const shortcutLabels: Record<string, string> = {
   new: '新建',
   open: '打开',
   find: '查找',
+  replace: '替换',
+  quickOpen: '快速打开',
+  reopen: '重开关闭笔记',
+  back: '后退',
+  forward: '前进',
   settings: '设置',
   mode: '切换源码',
 };
