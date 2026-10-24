@@ -49,8 +49,12 @@ describe('Markdown 文件结构', () => {
     expect(parseNote(changed, 'D:/笔记/别名.md').title).toBe('学习');
     expect(parseNote('普通文字', 'D:\\笔记\\数学.md').title).toBe('数学');
   });
-  it('拒绝修改损坏或非映射的顶部属性，避免生成第二个属性块', () => {
+  it('拒绝修改明确但损坏的顶部属性，普通横线里的列表正文原样保留', () => {
     expect(() => setFrontmatterTags('---\ntags: [未关闭\n---\n# 正文\n', ['新'])).toThrow(/属性/);
-    expect(() => setFrontmatterTags('---\n- 列表\n---\n# 正文\n', ['新'])).toThrow(/属性/);
+    const source = '---\n- 列表\n---\n# 正文\n';
+    const changed = setFrontmatterTags(source, ['新']);
+    expect(changed.endsWith(source)).toBe(true);
+    expect(extractTags(changed)).toEqual(['新']);
+    expect(extractHeadings(changed)[0].text).toBe('正文');
   });
 });

@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
-import { Document, isMap, parseDocument } from 'yaml';
+import { Document } from 'yaml';
 import type { Heading, NoteLink, NoteMeta } from './types';
+import { inspectFrontmatter } from './frontmatter';
 
 const markdown = new MarkdownIt({ html: false, linkify: false });
 function readableTarget(target: string): string {
@@ -12,18 +13,19 @@ function readableTarget(target: string): string {
 }
 
 function frontmatter(content: string) {
-  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
-  if (!match)
+  const properties = inspectFrontmatter(content);
+  if (!properties)
     return { end: 0, lines: 0, document: new Document(), tags: [] as string[], invalid: false };
-  const document = parseDocument(match[1]);
-  if (document.errors.length || (document.contents !== null && !isMap(document.contents)))
+  const lines = content.slice(0, properties.end).split('\n').length - 1;
+  if (properties.error)
     return {
-      end: match[0].length,
-      lines: match[0].split('\n').length - 1,
+      end: properties.end,
+      lines,
       document: new Document(),
       tags: [] as string[],
       invalid: true,
     };
+  const document = properties.document ?? new Document();
   let tags: string[] = [];
   try {
     const data: unknown = document.toJS({ maxAliasCount: 20 });
@@ -37,8 +39,8 @@ function frontmatter(content: string) {
     /* Malformed or excessively aliased metadata is not an instruction. */
   }
   return {
-    end: match[0].length,
-    lines: match[0].split('\n').length - 1,
+    end: properties.end,
+    lines,
     document,
     tags,
     invalid: false,

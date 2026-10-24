@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import { parser } from '@lezer/markdown';
+import { inspectFrontmatter } from '../../src/shared/frontmatter';
 
 const markdown = new MarkdownIt({ html: true });
 /** Keep source offsets intact while hiding regions where Markdown links are literal text. */
@@ -15,8 +16,8 @@ export function maskLiteralRegions(content: string): string {
     if (token.map && ['fence', 'code_block', 'html_block'].includes(token.type))
       hide(lineStarts[token.map[0]], lineStarts[token.map[1]] ?? content.length);
   }
-  const frontmatter = /^\ufeff?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(content);
-  if (frontmatter) hide(0, frontmatter[0].length);
+  const frontmatter = inspectFrontmatter(content);
+  if (frontmatter) hide(0, frontmatter.end);
   // A code span closes only on a backtick run of exactly the opening length.
   const visible = characters.join('');
   for (const match of visible.matchAll(/(`+)([\s\S]*?)\1(?!`)/g))
