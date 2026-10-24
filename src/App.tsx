@@ -52,6 +52,7 @@ import { DropdownMenu, IconButton, Modal, OperationContext } from './components/
 import { Sidebar } from './components/Sidebar';
 import { DocumentTabs } from './components/DocumentTabs';
 import { tabLabelId } from './ui/viewTabs';
+import { presentMoveOutcome } from './ui/moveFeedback';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GraphView } from './components/GraphView';
@@ -1874,28 +1875,17 @@ export default function App() {
                       if (!(await ensureSaved(active.id))) return;
                       const result = await window.notes.moveFile(active.path!, movePath.trim());
                       if (!result) return;
-                      const note = await window.notes.openFile(result.path);
-                      if (note)
-                        updateTab(active.id, { ...note, baseContent: note.content, dirty: false });
-                      await workspace.refresh();
-                      setPanel(null);
-                      notify(`已移动，修复 ${result.affected.length} 个引用文件`, false, {
-                        label: '撤销移动',
-                        run: () => {
-                          void run('撤销移动', async () => {
-                            await window.notes.undoMove(result.undoId);
-                            const old = await window.notes.openFile(active.path!);
-                            if (old)
-                              updateTab(active.id, {
-                                ...old,
-                                baseContent: old.content,
-                                dirty: false,
-                              });
-                            await workspace.refresh();
-                            notify('移动和引用修改已撤销');
-                          });
+                      await presentMoveOutcome(result, {
+                        tabId: active.id,
+                        api: window.notes,
+                        updateTab,
+                        refresh: workspace.refresh,
+                        notify,
+                        perform: (label, action) => {
+                          void run(label, action);
                         },
                       });
+                      setPanel(null);
                     })
                   }
                 >
