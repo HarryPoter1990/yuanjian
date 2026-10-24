@@ -200,8 +200,15 @@ class CompactSearchPanel implements Panel {
         ? '正则表达式无效'
         : `${current} / ${this.matches.length} 项`;
     this.find.setAttribute('aria-invalid', String(Boolean(query.search && !query.valid)));
-    for (const button of [this.next, this.previous, this.replaceOne, this.replaceEvery])
-      button.disabled = !query.valid || !this.matches.length;
+    const focused = this.view.dom.ownerDocument.activeElement;
+    let restoreSearchFocus = false;
+    for (const button of [this.next, this.previous, this.replaceOne, this.replaceEvery]) {
+      const disabled = !query.valid || !this.matches.length;
+      if (disabled && button === focused) restoreSearchFocus = true;
+      button.disabled = disabled;
+    }
+    // Chromium drops focus when a clicked action becomes disabled after its last match disappears.
+    if (restoreSearchFocus) this.find.focus({ preventScroll: true });
   }
 }
 

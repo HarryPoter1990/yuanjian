@@ -50,6 +50,26 @@ async function fill(name: string, value: string) {
   });
 }
 describe('compact Chinese document search', () => {
+  it('keeps focus in the search bar when replace-all disables its focused action, then Escape returns to the editor', async () => {
+    const view = await mount('one one');
+    await act(async () => ref.current!.command('replace'));
+    await fill('查找正文', 'one');
+    await fill('替换为', 'two');
+    await act(async () => {
+      button('全部替换').focus();
+      button('全部替换').click();
+    });
+    expect(document.activeElement).toBe(input('查找正文'));
+    await act(async () =>
+      input('查找正文').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(host.querySelector('.cm-search')).toBeNull();
+    expect(view.hasFocus).toBe(true);
+    await act(async () => ref.current!.command('undo'));
+    expect(view.state.doc.toString()).toBe('one one');
+  });
   it.each([
     { isComposing: true, keyCode: 13 },
     { isComposing: false, keyCode: 229 },
