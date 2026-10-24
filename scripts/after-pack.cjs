@@ -30,7 +30,7 @@ module.exports = async (context) => {
   ]) {
     if (!files.includes(name)) throw new Error(`Packaged app missing ${name}`);
   }
-  for (const file of files.filter((name) => /\.(?:js|cjs|css|html|json)$/.test(name))) {
+  for (const file of files.filter((name) => /\.(?:[cm]?js|css|html|json)$/.test(name))) {
     const content = asar.extractFile(archive, path.normalize(file)).toString('utf8');
     if (/C:[\\/]+Users[\\/]+USER|codex-clipboard-|sk-proj-[a-zA-Z0-9]{12}/i.test(content))
       throw new Error(`Personal data or credential pattern in ${file}`);
