@@ -617,6 +617,19 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   color: inherit;
   cursor: pointer;
 }
+.editor-context-menu {
+  position: fixed;
+  z-index: 90;
+}
+.editor-context-menu > .dropdown-menu {
+  position: relative;
+  top: auto;
+  right: auto;
+  min-width: 208px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+}
 .mermaid-diagram {
   overflow: auto;
   text-align: center;

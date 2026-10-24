@@ -155,7 +155,7 @@ function sourcePosition(view: EditorView, node: Node | null, offset: number): nu
   return view.posAtDOM(node, offset);
 }
 
-function sourcePositionAtPoint(view: EditorView, event: MouseEvent): number | null {
+export function sourcePositionAtPoint(view: EditorView, event: MouseEvent): number | null {
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('.katex,.katex-error,.math-block')) return sourcePosition(view, target, 0);
   const document = view.contentDOM.ownerDocument;

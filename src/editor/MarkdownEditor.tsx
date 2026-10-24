@@ -58,6 +58,8 @@ import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { compoundClipboardToMarkdown, richTextToMarkdown } from './clipboard';
 import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from './format';
 import { compactSearch, openEditorSearch } from './search-panel';
+import { readClipboardContent } from './clipboard-reader';
+import { EditorContextMenu, editorMenuAt, type EditorMenuState } from './context-menu';
 import type {
   EditorCommand,
   EditorScrollAnchor,
@@ -102,6 +104,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const config = useRef(new Compartment());
     const features = useRef(new Compartment());
     const [error, setError] = useState('');
+    const [menu, setMenu] = useState<EditorMenuState | null>(null);
     const pendingImages = useRef<Array<{ from: number; to: number; conflicted: boolean }>>([]);
     const scrollRestore = useRef<{ top: number; anchor?: EditorScrollAnchor } | null>(null);
     const lastScroll = useRef<number | undefined>(undefined);
@@ -252,29 +255,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       ];
     }
 
-    async function insertImages(
+    async function insertPending(
       view: EditorView,
-      files: File[],
-      rich?: { html: string; plain: string },
+      resolve: () => Promise<{ markdown: string; notices: string[] }>,
     ): Promise<void> {
-      if (!propsRef.current.onImage && !rich) {
-        report('请先为文档选择保存位置，再添加图片。');
-        return;
-      }
       const selection = view.state.selection.main;
       const bookmark = { from: selection.from, to: selection.to, conflicted: false };
       pendingImages.current.push(bookmark);
       try {
-        const result = await compoundClipboardToMarkdown(
-          rich?.html ?? '',
-          rich?.plain ?? '',
-          files,
-          async (file) => {
-            if (viewRef.current !== view) return null;
-            if (!propsRef.current.onImage) throw new Error('请先为文档选择保存位置，再添加图片');
-            return propsRef.current.onImage(file);
-          },
-        );
+        const result = await resolve();
         if (viewRef.current !== view) return;
         pendingImages.current = pendingImages.current.filter((value) => value !== bookmark);
         if (result.markdown) {
@@ -286,7 +275,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           });
           if (bookmark.conflicted)
             result.notices.unshift(
-              '等待图片期间原选区发生变化，已保留原文字与新输入，将粘贴内容放到该区域之后。',
+              '等待粘贴期间原选区发生变化，已保留原文字与新输入，将粘贴内容放到该区域之后。',
             );
         }
         if (result.notices.length) report(result.notices.join('\n'));
@@ -296,6 +285,47 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       } finally {
         pendingImages.current = pendingImages.current.filter((value) => value !== bookmark);
       }
+    }
+
+    async function importForView(view: EditorView, file: File): Promise<string | null> {
+      if (viewRef.current !== view) return null;
+      if (!propsRef.current.onImage) throw new Error('请先为文档选择保存位置，再添加图片');
+      return propsRef.current.onImage(file);
+    }
+
+    async function insertImages(
+      view: EditorView,
+      files: File[],
+      rich?: { html: string; plain: string },
+    ): Promise<void> {
+      if (!propsRef.current.onImage && !rich) {
+        report('请先为文档选择保存位置，再添加图片。');
+        return;
+      }
+      await insertPending(view, () =>
+        compoundClipboardToMarkdown(rich?.html ?? '', rich?.plain ?? '', files, (file) =>
+          importForView(view, file),
+        ),
+      );
+    }
+
+    async function pasteClipboard(view: EditorView, plainOnly = false): Promise<void> {
+      await insertPending(view, async () => {
+        const content = await readClipboardContent(navigator.clipboard, plainOnly);
+        if (viewRef.current !== view) return { markdown: '', notices: [] };
+        const result = content.files.length
+          ? await compoundClipboardToMarkdown(content.html, content.plain, content.files, (file) =>
+              importForView(view, file),
+            )
+          : {
+              markdown: content.html
+                ? richTextToMarkdown(content.html, content.plain)
+                : content.plain,
+              notices: [] as string[],
+            };
+        result.notices.unshift(...content.notices);
+        return result;
+      });
     }
 
     const runCommand = (name: EditorCommand): boolean => {
@@ -337,12 +367,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return true;
       }
       if (name === 'pastePlain') {
-        void navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (viewRef.current === view) replaceSelection(view, text);
-          })
-          .catch(() => report('无法读取剪贴板，请按 Ctrl+Shift+V 粘贴纯文本。'));
+        void pasteClipboard(view, true);
         return true;
       }
       return false;
@@ -657,8 +682,34 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     ]);
 
     return (
-      <div className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}>
+      <div
+        className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}
+        onContextMenu={(event) => {
+          const view = viewRef.current;
+          const next = view && editorMenuAt(view, event.nativeEvent);
+          if (next) {
+            event.preventDefault();
+            setMenu(next);
+          }
+        }}
+      >
         <div className="editor-codemirror-host" ref={host} />
+        {menu && viewRef.current && (
+          <EditorContextMenu
+            state={menu}
+            view={viewRef.current}
+            onClose={() => setMenu(null)}
+            onError={report}
+            pastePlain={() => {
+              const view = viewRef.current;
+              if (view) void pasteClipboard(view, true);
+            }}
+            pasteRich={() => {
+              const view = viewRef.current;
+              if (view) void pasteClipboard(view);
+            }}
+          />
+        )}
         {error && (
           <div role="alert" className="editor-error">
             <span>{error}</span>
