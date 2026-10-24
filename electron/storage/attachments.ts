@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import MarkdownIt from 'markdown-it';
 import { extractLinks } from '../../src/shared/markdown';
+import { inspectFrontmatter } from '../../src/shared/frontmatter';
 import type {
   AttachmentCandidate,
   FileEntry,
@@ -16,6 +18,7 @@ import type { NoteStore } from './store';
 import { replaceImageTargets } from './markdown-ranges';
 
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const referenceSyntax = new MarkdownIt({ html: true });
 const contentExtensions: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
@@ -182,35 +185,94 @@ export class AttachmentStore {
   }
   async scan(): Promise<AttachmentCandidate[]> {
     const candidates = new Map<string, AttachmentCandidate>();
+    const notes = new Set<string>();
+    const uncertainty = new Set<string>();
     const collect = async (entries: FileEntry[]): Promise<void> => {
       for (const entry of entries) {
         if (entry.children) await collect(entry.children);
-        else if (entry.kind === 'attachment')
+        else if (entry.kind === 'note') notes.add(entry.path);
+        else if (entry.kind === 'attachment') {
+          let bytes = 0;
+          const uncertainReasons: string[] = [];
+          try {
+            bytes = (await stat(entry.path)).size;
+          } catch {
+            uncertainReasons.push('无法确认附件文件状态，请重新扫描');
+          }
           candidates.set(entry.path, {
             path: entry.path,
-            bytes: (await stat(entry.path)).size,
+            bytes,
             references: [],
+            ...(uncertainReasons.length ? { uncertainReasons } : {}),
           });
+        }
       }
     };
-    for (const root of this.store.getRoots()) await collect(await this.store.getTree(root));
-    const references = new Map<string, NoteLink[]>(
-      (await this.store.getIndex()).map((meta) => [meta.path, meta.links]),
-    );
+    for (const root of this.store.getRoots()) {
+      try {
+        await collect(await this.store.getTree(root));
+      } catch {
+        uncertainty.add(`无法完整读取目录「${path.basename(root)}」，引用状态不确定`);
+      }
+    }
+    const references = new Map<string, NoteLink[]>();
+    const addReferences = (file: string, content: string): void => {
+      if (inspectFrontmatter(content)?.error)
+        uncertainty.add(`「${path.basename(file)}」的属性存在错误，无法确认全部引用`);
+      const tokens = referenceSyntax.parse(content, {});
+      const hasResourceHtml = tokens.some((token) =>
+        [token, ...(token.children ?? [])].some(
+          (part) =>
+            ['html_block', 'html_inline'].includes(part.type) &&
+            /<(?:img|video|audio|source|picture|object|embed|iframe|image|use)\b|\b(?:src|srcset|href|poster|data)\s*=|url\s*\(/i.test(
+              part.content.replace(/<!--[\s\S]*?-->/g, ''),
+            ),
+        ),
+      );
+      if (hasResourceHtml)
+        uncertainty.add(`「${path.basename(file)}」含有尚未完整解析的 HTML 资源引用`);
+      const links = extractLinks(content);
+      if (
+        links.some(
+          (link) =>
+            link.image &&
+            !/^[a-z][a-z\d+.-]*:/i.test(link.target) &&
+            !imageExtensions.has(path.extname(link.target.split('#')[0]).toLowerCase()),
+        )
+      )
+        uncertainty.add(`「${path.basename(file)}」含有无法确认内容的嵌入引用`);
+      references.set(file, [...(references.get(file) ?? []), ...links]);
+    };
     // Candidate files remain restricted to indexed roots. Already approved standalone notes and
     // unsaved session content can only add protections; they never widen the deletion scope.
     for (const file of this.store.getApprovedPaths().files) {
-      if (references.has(file) || !noteExtensions.has(path.extname(file).toLowerCase())) continue;
+      if (notes.has(file) || !noteExtensions.has(path.extname(file).toLowerCase())) continue;
       try {
-        references.set(file, extractLinks((await this.store.readNote(file)).content));
+        if ((await stat(file)).isFile()) notes.add(file);
+        else uncertainty.add(`无法确认「${path.basename(file)}」是否仍为笔记文件`);
       } catch (error) {
-        if (!isMissing(error)) throw error;
+        // Authorization outlives a deleted file; a confirmed old absence is not an unreadable source.
+        if (!isMissing(error))
+          uncertainty.add(`无法读取「${path.basename(file)}」，引用状态不确定`);
+      }
+    }
+    for (const file of notes) {
+      try {
+        addReferences(file, (await this.store.readNote(file)).content);
+      } catch {
+        uncertainty.add(`无法读取「${path.basename(file)}」，引用状态不确定`);
       }
     }
     for (const tab of this.store.getSession().tabs)
-      if (tab.path && tab.dirty) {
-        const file = await this.store.authorize(tab.path);
-        references.set(file, [...(references.get(file) ?? []), ...extractLinks(tab.content)]);
+      if (tab.dirty) {
+        if (tab.path) {
+          try {
+            addReferences(await this.store.authorize(tab.path), tab.content);
+          } catch {
+            uncertainty.add(`无法确认草稿「${tab.title}」的引用位置`);
+          }
+        } else if (extractLinks(tab.content).some((link) => link.image))
+          uncertainty.add(`未命名草稿「${tab.title}」含有无法定位的图片引用`);
       }
     for (const [source, links] of references) {
       for (const link of links) {
@@ -226,7 +288,13 @@ export class AttachmentStore {
         } catch {
           /* keep literal */
         }
-        const resolved = await canonical(path.resolve(path.dirname(source), target));
+        let resolved: string;
+        try {
+          resolved = await canonical(path.resolve(path.dirname(source), target));
+        } catch {
+          uncertainty.add(`无法确认「${path.basename(source)}」中的资源位置`);
+          continue;
+        }
         const direct = candidates.get(resolved);
         const matches = direct
           ? [direct]
@@ -240,14 +308,23 @@ export class AttachmentStore {
     }
     return [...candidates.values()]
       .filter((candidate) => candidate.references.length === 0)
+      .map((candidate) => {
+        const reasons = [...new Set([...(candidate.uncertainReasons ?? []), ...uncertainty])];
+        return reasons.length ? { ...candidate, uncertainReasons: reasons } : candidate;
+      })
       .sort((a, b) => b.bytes - a.bytes);
   }
   async trash(files: string[]): Promise<void> {
-    const suspects = new Set((await this.scan()).map((candidate) => candidate.path));
+    const verify = async (file: string, scanned?: AttachmentCandidate[]): Promise<void> => {
+      const candidate = (scanned ?? (await this.scan())).find((item) => item.path === file);
+      if (!candidate || candidate.uncertainReasons?.length)
+        throw new Error('附件仍被引用或引用状态不确定，无法确认可以清理，请重新扫描');
+    };
+    const scanned = await this.scan();
     for (const candidate of files) {
       const file = await this.store.authorize(candidate);
-      if (!suspects.has(file)) throw new Error('附件仍被引用或不在已扫描范围，请重新扫描');
+      await verify(file, scanned);
     }
-    for (const file of files) await this.store.trashFile(file);
+    for (const file of files) await this.store.trashFile(file, () => verify(file));
   }
 }

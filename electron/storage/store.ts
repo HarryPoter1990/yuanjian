@@ -673,10 +673,11 @@ export class NoteStore {
     if (!result.note) throw new Error('标签保存遇到外部冲突，请先处理冲突');
     return result.note;
   }
-  async trashFile(file: string): Promise<void> {
+  async trashFile(file: string, beforeTrash?: () => Promise<void>): Promise<void> {
     file = await this.authorize(file);
     if (!this.adapters.trash) throw new Error('系统回收站不可用，文件未删除');
     return this.queue.run(async () => {
+      await beforeTrash?.();
       if (!(await stat(file)).isFile()) throw new Error('只能将单个文件移入回收站');
       await this.adapters.trash!(file);
       await this.history.markDeleted(file);
