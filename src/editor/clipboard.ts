@@ -55,13 +55,11 @@ function dataBytes(source: string): Uint8Array | null {
 }
 
 function referenceName(source: string): string {
-  if (/^(?:data:|blob:)/i.test(source)) return '';
+  const identifier = source.replace(/^cid:/i, '');
+  // A URL basename does not prove that a clipboard file contains those remote image bytes.
+  if (/[:/\\?#]/.test(identifier)) return '';
   try {
-    return decodeURIComponent(
-      source.replace(/^cid:/i, '').split(/[?#]/)[0].split(/[\\/]/).at(-1) ?? '',
-    )
-      .split('@')[0]
-      .toLowerCase();
+    return decodeURIComponent(identifier).split('@')[0].toLowerCase();
   } catch {
     return '';
   }

@@ -97,7 +97,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const config = useRef(new Compartment());
     const features = useRef(new Compartment());
     const [error, setError] = useState('');
-    const pendingImages = useRef<Array<{ from: number; to: number }>>([]);
+    const pendingImages = useRef<Array<{ from: number; to: number; conflicted: boolean }>>([]);
     const report = (message: string): void => {
       setError(message);
       propsRef.current.onError?.(message);
@@ -199,7 +199,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return;
       }
       const selection = view.state.selection.main;
-      const bookmark = { from: selection.from, to: selection.to };
+      const bookmark = { from: selection.from, to: selection.to, conflicted: false };
       pendingImages.current.push(bookmark);
       try {
         const result = await compoundClipboardToMarkdown(
@@ -213,12 +213,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           },
         );
         if (viewRef.current !== view) return;
+        pendingImages.current = pendingImages.current.filter((value) => value !== bookmark);
         if (result.markdown) {
+          const from = bookmark.conflicted ? bookmark.to : bookmark.from;
           view.dispatch({
-            changes: { from: bookmark.from, to: bookmark.to, insert: result.markdown },
-            selection: { anchor: bookmark.from + result.markdown.length },
+            changes: { from, to: bookmark.to, insert: result.markdown },
+            selection: { anchor: from + result.markdown.length },
             userEvent: 'input.paste',
           });
+          if (bookmark.conflicted)
+            result.notices.unshift(
+              '等待图片期间原选区发生变化，已保留原文字与新输入，将粘贴内容放到该区域之后。',
+            );
         }
         if (result.notices.length) report(result.notices.join('\n'));
       } catch (reason) {
@@ -444,8 +450,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             }),
             EditorView.updateListener.of((update) => {
               for (const pending of pendingImages.current) {
-                pending.from = update.changes.mapPos(pending.from, 1);
-                pending.to = update.changes.mapPos(pending.to, 1);
+                const { from, to } = pending;
+                update.changes.iterChangedRanges((start, end) => {
+                  if (start === end ? start > from && start < to : start < to && end > from)
+                    pending.conflicted = true;
+                });
+                pending.from = update.changes.mapPos(from, 1);
+                pending.to = Math.max(
+                  pending.from,
+                  update.changes.mapPos(to, pending.conflicted || from === to ? 1 : -1),
+                );
               }
               if (update.docChanged) propsRef.current.onChange(update.state.doc.toString());
               if (update.selectionSet || update.docChanged) {
