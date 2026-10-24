@@ -81,9 +81,20 @@ it('reorders an inactive note only on release, includes graph and suppresses the
   expect(callbacks.onSelect).not.toHaveBeenCalled();
   await act(async () => pointer(window, 'pointerup', 15));
   expect(callbacks.onReorder).toHaveBeenCalledWith([order[2], order[0], order[1]]);
-  await act(async () => tab.click());
+  await act(async () => tab.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
   expect(callbacks.onSelect).not.toHaveBeenCalled();
   expect(host.querySelector('.tab-insertion-marker')).toBeNull();
+});
+it('allows keyboard activation after a completed or cancelled drag without another pointer down', async () => {
+  const callbacks = await mount();
+  const tab = host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[2];
+  await act(async () => {
+    pointer(tab, 'pointerdown', 350);
+    pointer(window, 'pointermove', 15);
+    pointer(window, 'pointerup', 15);
+    tab.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+  });
+  expect(callbacks.onSelect).toHaveBeenCalledWith(order[2]);
 });
 it.each(['escape', 'outside', 'cancel'])(
   'cancels a drag by %s without changing order or active note',

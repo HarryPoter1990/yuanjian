@@ -65,8 +65,8 @@ export function DocumentTabs({
                 aria-selected={active}
                 tabIndex={active ? 0 : -1}
                 title={tab?.path || (tab ? '未命名草稿' : '关系图谱')}
-                onClick={() => {
-                  if (drag.allowClick()) onSelect(view);
+                onClick={(event) => {
+                  if (drag.allowClick(event.detail)) onSelect(view);
                 }}
               >
                 {view.kind === 'graph' ? <Network size={14} /> : <FileText size={14} />}

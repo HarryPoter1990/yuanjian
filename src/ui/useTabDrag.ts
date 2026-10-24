@@ -138,5 +138,5 @@ export function useTabDrag(
     frame = requestAnimationFrame(tick);
     dispose.current = cleanup;
   }
-  return { marker, begin, allowClick: () => !suppressClick.current };
+  return { marker, begin, allowClick: (detail: number) => detail === 0 || !suppressClick.current };
 }
