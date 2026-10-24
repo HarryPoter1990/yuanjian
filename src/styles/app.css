@@ -2783,3 +2783,17 @@ button.danger {
   max-height: calc(100dvh - 16px);
   overflow: auto;
 }
+
+.heading-menu > .icon-button {
+  width: 58px;
+  gap: 3px;
+  font-size: 11px;
+}
+.heading-menu .dropdown-menu {
+  left: 0;
+  right: auto;
+}
+.heading-menu .dropdown-menu > button {
+  justify-content: space-between;
+  gap: 18px;
+}

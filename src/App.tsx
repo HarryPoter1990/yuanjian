@@ -47,7 +47,12 @@ import type {
 } from './shared/types';
 import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from './shared/markdown';
 import { MarkdownEditor } from './editor/MarkdownEditor';
-import type { EditorCommand, EditorSession, MarkdownEditorHandle } from './editor/types';
+import type {
+  EditorCommand,
+  EditorSession,
+  MarkdownEditorHandle,
+  HeadingLevel,
+} from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
@@ -55,6 +60,7 @@ import { DocumentTabs } from './components/DocumentTabs';
 import { tabLabelId, viewKey } from './ui/viewTabs';
 import { useTabClosing, type CloseDecision } from './ui/useTabClosing';
 import { TabContextMenu } from './components/TabContextMenu';
+import { HeadingMenu } from './components/HeadingMenu';
 import { presentMoveOutcome } from './ui/moveFeedback';
 import { StickyHeader } from './components/StickyHeader';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -182,6 +188,10 @@ export default function App() {
   );
   const editor = useRef<MarkdownEditorHandle>(null);
   const editorSessions = useRef(new Map<string, EditorSession>());
+  const [headingLevel, setHeadingLevel] = useState<HeadingLevel>(0);
+  useEffect(() => {
+    setHeadingLevel(editor.current?.getHeadingLevel() ?? 0);
+  }, [activeId, active?.cursor, active?.content, graphActive]);
   const openTabIds = tabs.map((tab) => tab.id).join('\0');
   useEffect(() => {
     const open = new Set(tabs.map((tab) => tab.id));
@@ -1513,15 +1523,27 @@ export default function App() {
                                 button.id,
                               ),
                           )
-                          .map((button) => (
-                            <IconButton
-                              label={button.title}
-                              key={button.id}
-                              onClick={() => format(button.id)}
-                            >
-                              <button.icon size={16} />
-                            </IconButton>
-                          ))}
+                          .map((button) =>
+                            button.id === 'heading' ? (
+                              <HeadingMenu
+                                key={active.id}
+                                level={headingLevel}
+                                onChoose={(level) => {
+                                  editor.current?.setHeading(level);
+                                  setHeadingLevel(level);
+                                  editor.current?.focus();
+                                }}
+                              />
+                            ) : (
+                              <IconButton
+                                label={button.title}
+                                key={button.id}
+                                onClick={() => format(button.id)}
+                              >
+                                <button.icon size={16} />
+                              </IconButton>
+                            ),
+                          )}
                         <div className="menu-anchor">
                           <IconButton
                             label="更多编辑操作"
