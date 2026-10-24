@@ -9,8 +9,10 @@ import type {
   SessionState,
   Settings,
   TabState,
+  ViewTab,
 } from '../shared/types';
 import { acceptSave, asTab, errorText, makeDraft } from './model';
+import { insertView, reconcileViews } from './viewTabs';
 
 export interface Notice {
   id: string;
@@ -27,7 +29,9 @@ export function useWorkspace() {
   const [loadError, setLoadError] = useState('');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tabs, setTabs] = useState<TabState[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveIdState] = useState<string | null>(null);
+  const [viewOrder, setViewOrder] = useState<ViewTab[]>([]);
+  const [graphActive, setGraphActiveState] = useState(false);
   const [index, setIndex] = useState<NoteMeta[]>([]);
   const [trees, setTrees] = useState<Record<string, FileEntry[]>>({});
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -36,14 +40,76 @@ export function useWorkspace() {
   const [settingsState, setSettingsState] = useState('设置已保存');
   const [progress, setProgress] = useState<OperationProgress | null>(null);
   const [closing, setClosing] = useState(false);
-  const current = useRef({ tabs, activeId, settings, conflict });
-  current.current = { tabs, activeId, settings, conflict };
+  const current = useRef({ tabs, activeId, settings, conflict, viewOrder, graphActive });
+  current.current = { tabs, activeId, settings, conflict, viewOrder, graphActive };
   const pendingSaves = useRef(new Map<string, Promise<boolean>>());
   const externalReads = useRef(new Map<string, symbol>());
   const refreshGeneration = useRef(0);
   const savedSettings = useRef('');
   const sessionWrite = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(true);
+  const applyViews = useCallback((notes: TabState[], order: readonly ViewTab[]) => {
+    const next = reconcileViews(order, notes);
+    const byId = new Map(notes.map((tab) => [tab.id, tab]));
+    const sorted = next.flatMap((view) =>
+      view.kind === 'note' && byId.has(view.id) ? [byId.get(view.id)!] : [],
+    );
+    current.current.tabs = sorted;
+    current.current.viewOrder = next;
+    setTabs(sorted);
+    setViewOrder(next);
+  }, []);
+  const setActiveId = useCallback((id: string | null) => {
+    current.current.activeId = id;
+    current.current.graphActive = false;
+    setActiveIdState(id);
+    setGraphActiveState(false);
+  }, []);
+  const setGraphOpen = useCallback(
+    (open: boolean) => {
+      const state = current.current;
+      if (open) {
+        if (!state.viewOrder.some((view) => view.kind === 'graph'))
+          applyViews(
+            state.tabs,
+            insertView(
+              state.viewOrder,
+              { kind: 'graph' },
+              state.activeId ? `note:${state.activeId}` : null,
+            ),
+          );
+      } else {
+        const notes = state.tabs.length ? state.tabs : [makeDraft()];
+        applyViews(
+          notes,
+          state.viewOrder.filter((view) => view.kind !== 'graph'),
+        );
+        if (!state.activeId) setActiveId(notes[0].id);
+        state.graphActive = false;
+        setGraphActiveState(false);
+      }
+    },
+    [applyViews, setActiveId],
+  );
+  const setGraphActive = useCallback(
+    (active: boolean) => {
+      if (active) setGraphOpen(true);
+      current.current.graphActive = active;
+      setGraphActiveState(active);
+    },
+    [setGraphOpen],
+  );
+  const reorderViews = useCallback(
+    (order: ViewTab[]) => {
+      const state = current.current;
+      const graphOpen = state.viewOrder.some((view) => view.kind === 'graph');
+      applyViews(state.tabs, [
+        ...order.filter((view) => view.kind !== 'graph' || graphOpen),
+        ...state.viewOrder,
+      ]);
+    },
+    [applyViews],
+  );
   const notify = useCallback((message: string, error = false, action?: Notice['action']) => {
     setNotices((previous) => [
       ...previous.slice(-3),
@@ -63,7 +129,12 @@ export function useWorkspace() {
     [],
   );
   const persistSession = useCallback(async () => {
-    const value: SessionState = { tabs: current.current.tabs, activeId: current.current.activeId };
+    const value: SessionState = {
+      tabs: current.current.tabs,
+      activeId: current.current.activeId,
+      viewOrder: current.current.viewOrder,
+      graphActive: current.current.graphActive,
+    };
     const write = sessionWrite.current
       .catch(() => undefined)
       .then(() => window.notes.saveSession(value));
@@ -90,19 +161,28 @@ export function useWorkspace() {
     setIndex(notes);
     setTrees(Object.fromEntries(config.roots.map((root, i) => [root, entries[i]])));
   }, []);
-  const openDocument = useCallback((note: NoteDocument) => {
-    const existing = current.current.tabs.find((tab) => tab.path && tab.path === note.path);
-    if (existing) {
-      setActiveId(existing.id);
-      return existing.id;
-    }
-    const tab = asTab(note);
-    const next = [...current.current.tabs, tab];
-    current.current.tabs = next;
-    setTabs(next);
-    setActiveId(tab.id);
-    return tab.id;
-  }, []);
+  const openDocument = useCallback(
+    (note: NoteDocument) => {
+      const existing = current.current.tabs.find((tab) => tab.path && tab.path === note.path);
+      if (existing) {
+        setActiveId(existing.id);
+        return existing.id;
+      }
+      const tab = asTab(note);
+      const state = current.current;
+      applyViews(
+        [...state.tabs, tab],
+        insertView(
+          state.viewOrder,
+          { kind: 'note', id: tab.id },
+          state.graphActive ? 'graph' : state.activeId ? `note:${state.activeId}` : null,
+        ),
+      );
+      setActiveId(tab.id);
+      return tab.id;
+    },
+    [applyViews, setActiveId],
+  );
   const open = useCallback(
     async (path?: string) => {
       if (path) {
@@ -122,14 +202,23 @@ export function useWorkspace() {
     },
     [notify, openDocument],
   );
-  const newDraft = useCallback((content = '', title = '未命名笔记') => {
-    const tab = makeDraft(content, title);
-    const next = [...current.current.tabs, tab];
-    current.current.tabs = next;
-    setTabs(next);
-    setActiveId(tab.id);
-    return tab.id;
-  }, []);
+  const newDraft = useCallback(
+    (content = '', title = '未命名笔记') => {
+      const tab = makeDraft(content, title);
+      const state = current.current;
+      applyViews(
+        [...state.tabs, tab],
+        insertView(
+          state.viewOrder,
+          { kind: 'note', id: tab.id },
+          state.graphActive ? 'graph' : state.activeId ? `note:${state.activeId}` : null,
+        ),
+      );
+      setActiveId(tab.id);
+      return tab.id;
+    },
+    [applyViews, setActiveId],
+  );
   const save = useCallback(
     (id: string, explicit = false): Promise<boolean> => {
       const flushLatest = (pending: Promise<boolean>): Promise<boolean> =>
@@ -226,11 +315,17 @@ export function useWorkspace() {
         if (!alive) return;
         setSettings(value.settings);
         savedSettings.current = JSON.stringify(value.settings);
-        setTabs(restored);
+        applyViews(restored, value.session.viewOrder || []);
         setActiveId(
           restored.some((tab) => tab.id === value.session.activeId)
             ? value.session.activeId
             : restored[0].id,
+        );
+        setGraphActive(
+          Boolean(
+            value.session.graphActive &&
+            value.session.viewOrder?.some((view) => view.kind === 'graph'),
+          ),
         );
         setBootstrap({ ...value, session: { ...value.session, tabs: restored } });
         for (const failure of failures) notify(failure, true);
@@ -242,7 +337,7 @@ export function useWorkspace() {
       alive = false;
       mounted.current = false;
     };
-  }, []);
+  }, [applyViews, setActiveId, setGraphActive]);
   useEffect(() => {
     if (!settings) return;
     const serialized = JSON.stringify(settings);
@@ -281,7 +376,7 @@ export function useWorkspace() {
       450,
     );
     return () => clearTimeout(timer);
-  }, [tabs, activeId, bootstrap, persistSession, notify]);
+  }, [tabs, activeId, viewOrder, graphActive, bootstrap, persistSession, notify]);
   useEffect(() => {
     if (!settings) return;
     void refresh().catch((error) => notify(`读取目录失败：${errorText(error)}`, true));
@@ -380,21 +475,26 @@ export function useWorkspace() {
   function removeTab(id: string) {
     const previous = current.current.tabs;
     let remaining = previous.filter((tab) => tab.id !== id);
-    if (!remaining.length) {
+    const order = current.current.viewOrder.filter(
+      (view) => view.kind !== 'note' || view.id !== id,
+    );
+    if (!remaining.length && !order.some((view) => view.kind === 'graph')) {
       const draft = makeDraft();
       remaining = [draft];
       setActiveId(draft.id);
-    } else if (current.current.activeId === id)
-      setActiveId(
+    } else if (current.current.activeId === id) {
+      const nextId =
         remaining[
           Math.min(
             previous.findIndex((tab) => tab.id === id),
             remaining.length - 1,
           )
-        ].id,
-      );
-    current.current.tabs = remaining;
-    setTabs(remaining);
+        ]?.id || null;
+      current.current.activeId = nextId;
+      setActiveIdState(nextId);
+      if (!remaining.length) setGraphActive(true);
+    }
+    applyViews(remaining, order);
   }
   function keepBoth() {
     if (!conflict) return;
@@ -420,6 +520,12 @@ export function useWorkspace() {
     setTabs,
     activeId,
     setActiveId,
+    viewOrder,
+    reorderViews,
+    graphOpen: viewOrder.some((view) => view.kind === 'graph'),
+    graphActive,
+    setGraphOpen,
+    setGraphActive,
     index,
     trees,
     notices,
