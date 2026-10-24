@@ -32,19 +32,34 @@ app
       target.destroy();
       app.exit(1);
     });
+    // file:// requests are omitted from Resource Timing in this Electron build.
+    // Observe actual protocol requests through CDP instead of treating an empty timing list as evidence.
+    const requests = [];
+    await target.loadURL('about:blank');
+    target.webContents.debugger.attach('1.3');
+    target.webContents.debugger.on('message', (_event, method, params) => {
+      if (method === 'Network.requestWillBeSent') requests.push(params.request.url);
+    });
+    await target.webContents.debugger.sendCommand('Network.enable');
     await target.loadFile(entry);
+    await target.webContents.executeJavaScript(`(async()=>{
+      const deadline=Date.now()+12000;
+      while(!document.querySelector('.cm-content')) {if(Date.now()>deadline)throw Error('Built editor timed out');await new Promise(resolve=>setTimeout(resolve,40));}
+      await document.fonts.ready;
+    })()`);
+    const initialGraphRequests = requests.filter((url) => url.includes('yuanjian-graph')).length;
     const details = await target.webContents.executeJavaScript(`(async()=>{
     const wait=async(test)=>{const deadline=Date.now()+12000;while(!test()){if(Date.now()>deadline)throw Error('Built renderer condition timed out');await new Promise(resolve=>setTimeout(resolve,40));}};
     await wait(()=>document.querySelector('.cm-content'));
     await document.fonts.ready;
-    const initialGraphRequests=performance.getEntriesByType('resource').filter(item=>item.name.includes('yuanjian-graph')).length;
     document.querySelector('button[aria-label="关系图谱"]').click();
     await wait(()=>document.querySelector('.graph-canvas canvas')&&document.querySelector('.graph-legend')?.textContent.includes('2 个节点'));
-    const graphResources=performance.getEntriesByType('resource').filter(item=>item.name.includes('yuanjian-graph')).map(item=>item.name);
     document.querySelector('.tabs-bar [role="tab"]').click();
     await wait(()=>document.querySelector('.cm-content')?.textContent.includes('生成内容'));
-    return {protocol:location.protocol,initialGraphRequests,graphResources,bodyPreserved:true,fontsReady:document.fonts.status==='loaded'};
+    return {protocol:location.protocol,bodyPreserved:true,fontsReady:document.fonts.status==='loaded'};
   })()`);
+    details.initialGraphRequests = initialGraphRequests;
+    details.graphResources = requests.filter((url) => url.includes('yuanjian-graph'));
     assert.equal(details.protocol, 'file:');
     assert.equal(details.initialGraphRequests, 0);
     assert.ok(details.graphResources.some((url) => url.includes('yuanjian-graph-engine')));
