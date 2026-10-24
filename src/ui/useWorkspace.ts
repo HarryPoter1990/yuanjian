@@ -179,9 +179,19 @@ export function useWorkspace() {
         ),
       );
       setActiveId(tab.id);
+      void Promise.resolve()
+        .then(() => {
+          if (
+            mounted.current &&
+            current.current.activeId === tab.id &&
+            !current.current.graphActive
+          )
+            return window.notes.centerWindow();
+        })
+        .catch((error) => notify(`笔记已打开，窗口未能居中：${errorText(error)}`, true));
       return tab.id;
     },
-    [applyViews, setActiveId],
+    [applyViews, setActiveId, notify],
   );
   const open = useCallback(
     async (path?: string) => {

@@ -21,6 +21,7 @@ const tabs = ['A', 'B', 'C'].map((id) =>
 const api = {
   bootstrap: vi.fn(),
   openFile: vi.fn(async (path: string) => tabs.find((tab) => tab.path === path) || null),
+  centerWindow: vi.fn(async () => {}),
   getIndex: async () => [],
   getTree: async () => [],
   saveSettings: async (settings: typeof defaultSettings) => settings,
@@ -38,6 +39,7 @@ async function mount(session: SessionState = { tabs, activeId: 'B' }) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.saveSession.mockClear();
   api.openFile.mockClear();
+  api.centerWindow.mockReset().mockResolvedValue(undefined);
   api.bootstrap.mockResolvedValue({
     settings: { ...structuredClone(defaultSettings), autoSave: false },
     session: structuredClone(session),
@@ -55,6 +57,49 @@ afterEach(async () => {
   if (root) await act(async () => root.unmount());
   host?.remove();
   vi.unstubAllGlobals();
+});
+
+it('centers only a newly opened active file, without moving on existing selection, draft creation or refresh', async () => {
+  await mount();
+  expect(api.centerWindow).not.toHaveBeenCalled();
+  const opened = { ...tabs[0], id: 'new-file', path: 'D:/generated/New.md', title: 'New' };
+  api.openFile.mockResolvedValueOnce(opened);
+  await act(async () => {
+    expect(await workspace.open(opened.path)).toBe('new-file');
+  });
+  expect(api.centerWindow).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await workspace.open(opened.path);
+    workspace.newDraft();
+    await workspace.refresh();
+  });
+  expect(api.centerWindow).toHaveBeenCalledTimes(1);
+});
+it('keeps a successfully opened document when centering fails and reports the separate failure', async () => {
+  await mount();
+  const opened = { ...tabs[0], id: 'center-failed', path: 'D:/generated/Center.md' };
+  api.openFile.mockResolvedValueOnce(opened);
+  api.centerWindow.mockRejectedValueOnce(Error('generated centering failure'));
+  await act(async () => {
+    expect(await workspace.open(opened.path)).toBe(opened.id);
+  });
+  expect(workspace.activeId).toBe(opened.id);
+  expect(workspace.tabs.some((tab) => tab.id === opened.id)).toBe(true);
+  expect(workspace.notices.map((notice) => notice.message).join('\n')).toContain('窗口未能居中');
+});
+
+it('does not center after a cancelled picker or after the newly opened note has moved to the background', async () => {
+  await mount();
+  api.openFile.mockResolvedValueOnce(null);
+  await act(async () => {
+    expect(await workspace.open()).toBeNull();
+  });
+  await act(async () => {
+    workspace.openDocument({ ...tabs[0], id: 'background', path: 'D:/generated/Background.md' });
+    workspace.setActiveId('B');
+  });
+  expect(api.centerWindow).not.toHaveBeenCalled();
+  expect(workspace.activeId).toBe('B');
 });
 
 it('inserts a new note to the right of the active note without moving already open notes', async () => {
