@@ -26,4 +26,5 @@ export const imageExtensions = new Set([
   '.bmp',
   '.ico',
 ]);
-export const noteExtensions = new Set(['.md', '.markdown', '.mdown', '.mkd', '.txt']);
+export const markdownExtensions = new Set(['.md', '.markdown', '.mdown', '.mkd']);
+export const noteExtensions = new Set([...markdownExtensions, '.txt']);

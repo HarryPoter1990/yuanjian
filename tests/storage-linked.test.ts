@@ -70,4 +70,15 @@ describe('explicit navigation from a standalone note', () => {
       /授权/,
     );
   });
+  it('opens explicitly selected TXT while refusing to grant it through a note link', async () => {
+    const text = path.join(notes, '显式选择.txt');
+    await writeFile(source, '[文本](显式选择.txt)');
+    await writeFile(text, '用户显式选择的文本\r\n');
+    await expect(store.openLinkedFile(source, '显式选择.txt')).rejects.toThrow(/Markdown/);
+    await expect(store.authorize(text)).rejects.toThrow(/授权/);
+    await store.approveFile(text);
+    const opened = await store.openFile(text);
+    expect(opened?.path).toBe(text);
+    expect(opened?.content).toContain('用户显式选择的文本');
+  });
 });

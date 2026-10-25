@@ -31,7 +31,12 @@ import type {
   Settings,
 } from '../../src/shared/types';
 import { PathAccess, canonical, within } from './access';
-import { imageExtensions, noteExtensions, type StoreAdapters } from './adapters';
+import {
+  imageExtensions,
+  markdownExtensions,
+  noteExtensions,
+  type StoreAdapters,
+} from './adapters';
 import {
   atomicWrite,
   hash,
@@ -584,7 +589,7 @@ export class NoteStore {
     if (/^[a-z][a-z\d+.-]*:/i.test(requested.file) && !path.isAbsolute(requested.file))
       throw new Error('此操作只支持本地 Markdown 链接');
     const extension = path.extname(requested.file).toLowerCase();
-    if (extension && !noteExtensions.has(extension))
+    if (extension && !markdownExtensions.has(extension))
       throw new Error('此操作只能打开 Markdown 链接');
     const direct = path.resolve(path.dirname(fromPath), requested.file);
     const candidates = extension ? [direct] : [`${direct}.md`, `${direct}.markdown`];
@@ -592,7 +597,7 @@ export class NoteStore {
       try {
         const resolved = await canonical(candidate);
         if (!(await stat(resolved)).isFile()) continue;
-        if (!noteExtensions.has(path.extname(resolved).toLowerCase()))
+        if (!markdownExtensions.has(path.extname(resolved).toLowerCase()))
           throw new Error('链接实际目标不是 Markdown 文件');
         await this.approveFile(resolved);
         return this.readNote(resolved);
@@ -602,7 +607,7 @@ export class NoteStore {
     }
     const indexed = await this.resolveLink(fromPath, matched.target);
     if (!indexed.path || !indexed.exists) return null;
-    if (!noteExtensions.has(path.extname(indexed.path).toLowerCase()))
+    if (!markdownExtensions.has(path.extname(indexed.path).toLowerCase()))
       throw new Error('链接实际目标不是 Markdown 文件');
     return this.readNote(indexed.path);
   }
