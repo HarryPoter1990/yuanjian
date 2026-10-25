@@ -313,18 +313,27 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       await insertPending(view, async () => {
         const content = await readClipboardContent(navigator.clipboard, plainOnly);
         if (viewRef.current !== view) return { markdown: '', notices: [] };
-        const result = content.files.length
-          ? await compoundClipboardToMarkdown(content.html, content.plain, content.files, (file) =>
-              importForView(view, file),
-            )
-          : {
-              markdown: content.html
-                ? richTextToMarkdown(content.html, content.plain)
-                : content.plain,
-              notices: [] as string[],
-            };
-        result.notices.unshift(...content.notices);
-        return result;
+        const results = [];
+        for (const part of content.items) {
+          if (viewRef.current !== view) return { markdown: '', notices: [] };
+          results.push(
+            part.files.length
+              ? await compoundClipboardToMarkdown(part.html, part.plain, part.files, (file) =>
+                  importForView(view, file),
+                )
+              : {
+                  markdown: part.html ? richTextToMarkdown(part.html, part.plain) : part.plain,
+                  notices: [] as string[],
+                },
+          );
+        }
+        return {
+          markdown: results
+            .map((result) => result.markdown)
+            .filter(Boolean)
+            .join('\n\n'),
+          notices: [...content.notices, ...results.flatMap((result) => result.notices)],
+        };
       });
     }
 
