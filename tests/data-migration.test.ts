@@ -16,17 +16,30 @@ import {
   LEGACY_DATA_NAME,
   migrateDataDirectory,
 } from '../electron/resources/data-migration';
+const fault = vi.hoisted(() => ({ locked: '' }));
 vi.mock('node:fs/promises', async () => {
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      if (String(args[0]) === fault.locked)
+        throw Object.assign(new Error(`resource busy or locked, open '${fault.locked}'`), {
+          code: 'EBUSY',
+        });
+      return actual.readFile(...args);
+    },
+  };
 });
 let root: string, original: string, target: string;
 beforeEach(async () => {
+  fault.locked = '';
   root = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-migration-'));
   original = path.join(root, LEGACY_DATA_NAME);
   target = path.join(root, DATA_NAME);
 });
 afterEach(async () => {
+  fault.locked = '';
   await rm(root, { recursive: true, force: true });
 });
 it('creates the new default on a first run without inventing legacy data', async () => {
@@ -147,4 +160,42 @@ it('skips regenerable runtime caches while retaining unknown user data', async (
   expect((await migrateDataDirectory(root)).migrated).toBe(true);
   expect(await readdir(target)).toEqual(['unknown-user-data.bin']);
   expect(await readFile(path.join(original, 'Cache', 'cache'), 'utf8')).toBe('cache');
+});
+it('does not read a locked GPUPersistentCache database while migrating user settings and drafts', async () => {
+  const cache = path.join(
+    original,
+    'GPUPersistentCache',
+    'DawnGraphiteCache',
+    'generated-cache-key',
+    'cache.db',
+  );
+  await mkdir(path.dirname(cache), { recursive: true });
+  await writeFile(cache, 'generated GPU cache');
+  await writeFile(path.join(original, 'settings.json'), '{}');
+  await writeFile(path.join(original, 'session.json'), 'generated unsaved draft');
+  fault.locked = cache;
+  await expect(readFile(cache)).rejects.toMatchObject({ code: 'EBUSY' });
+  const result = await migrateDataDirectory(root);
+  expect(result.migrated).toBe(true);
+  expect(result.directory).toBe(target);
+  expect(await readdir(target)).not.toContain('GPUPersistentCache');
+  expect(await readFile(path.join(target, 'session.json'), 'utf8')).toBe('generated unsaved draft');
+  expect(await readFile(path.join(original, 'session.json'), 'utf8')).toBe(
+    'generated unsaved draft',
+  );
+  fault.locked = '';
+  expect(await readFile(cache, 'utf8')).toBe('generated GPU cache');
+});
+it('still retains the original directory when a locked user file cannot be copied and verified', async () => {
+  const userFile = path.join(original, 'MyCache', 'user-state.db');
+  await mkdir(path.dirname(userFile), { recursive: true });
+  await writeFile(userFile, 'generated user data, not Chromium cache');
+  fault.locked = userFile;
+  const result = await migrateDataDirectory(root);
+  expect(result.migrated).toBe(false);
+  expect(result.directory).toBe(original);
+  expect(result.warnings.join(' ')).toContain('resource busy or locked');
+  expect(await readdir(root)).toEqual([LEGACY_DATA_NAME]);
+  fault.locked = '';
+  expect(await readFile(userFile, 'utf8')).toBe('generated user data, not Chromium cache');
 });

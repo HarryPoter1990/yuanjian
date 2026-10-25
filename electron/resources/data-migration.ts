@@ -14,6 +14,7 @@ const caches = new Set([
   'Cache',
   'Code Cache',
   'GPUCache',
+  'GPUPersistentCache',
   'DawnCache',
   'DawnGraphiteCache',
   'DawnWebGPUCache',
