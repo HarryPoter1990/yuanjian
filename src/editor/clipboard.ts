@@ -1,44 +1,95 @@
 import DOMPurify from 'dompurify';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import { markdownTableFromGrid, readHtmlTable } from './html-table';
 
-export function richTextToMarkdown(html: string, plainText = ''): string {
+export function convertRichText(
+  html: string,
+  plainText = '',
+): { markdown: string; notices: string[] } {
   const clean = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, mathMl: true },
     ADD_TAGS: ['annotation'],
     ADD_ATTR: ['encoding'],
   });
-  const turndown = new TurndownService({
-    headingStyle: 'atx',
-    codeBlockStyle: 'fenced',
-    bulletListMarker: '-',
-    emDelimiter: '*',
-    strongDelimiter: '**',
-  });
-  turndown.use(gfm);
-  turndown.addRule('latex', {
-    filter: (element) =>
-      element.tagName.toLowerCase() === 'math' ||
-      element.hasAttribute('data-latex') ||
-      element.classList.contains('katex'),
-    replacement: (content, node) => {
-      const element = node instanceof Element ? node : null;
-      const source =
-        element?.getAttribute('data-latex') ??
-        element?.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
-      if (!source) return content;
-      const display =
-        element?.getAttribute('display') === 'block' ||
-        element?.parentElement?.classList.contains('katex-display');
-      return display ? `\n\n$$\n${source}\n$$\n\n` : `$${source}$`;
-    },
-  });
+  const notices = new Set<string>();
+  const createConverter = (inCell = false): TurndownService => {
+    const turndown = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced',
+      bulletListMarker: '-',
+      emDelimiter: '*',
+      strongDelimiter: '**',
+    });
+    turndown.use(gfm);
+    // The plugin's row/cell rules cannot serialize multiline or headerless cells safely.
+    turndown.addRule('clipboardTableParts', {
+      filter: ['tr', 'td', 'th'],
+      replacement: (content) => content,
+    });
+    turndown.addRule('clipboardTable', {
+      filter: 'table',
+      replacement: (_content, node) => {
+        const table = node as HTMLTableElement;
+        const grid = readHtmlTable(table, (cell) => createConverter(true).turndown(cell));
+        grid.notices.forEach((notice) => notices.add(notice));
+        if (!grid.hasHeader && grid.rows.length)
+          notices.add('来源表格没有表头，已补空表头，首行仍保留为数据。');
+        const caption = table.caption
+          ? createConverter().turndown(table.caption.innerHTML).trim()
+          : '';
+        return (
+          '\n\n' +
+          [caption, markdownTableFromGrid(grid.rows, grid.hasHeader, grid.alignments)]
+            .filter(Boolean)
+            .join('\n\n') +
+          '\n\n'
+        );
+      },
+    });
+    if (inCell) {
+      turndown.addRule('clipboardCellBreak', { filter: 'br', replacement: () => '\n' });
+      turndown.addRule('clipboardCellBlock', {
+        filter: ['p', 'div'],
+        replacement: (content) => '\n\n' + content + '\n\n',
+      });
+    }
+    turndown.addRule('latex', {
+      filter: (element) =>
+        element.tagName.toLowerCase() === 'math' ||
+        element.hasAttribute('data-latex') ||
+        element.classList.contains('katex'),
+      replacement: (content, node) => {
+        const element = node instanceof Element ? node : null;
+        const source =
+          element?.getAttribute('data-latex') ??
+          element?.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+        if (!source) return content;
+        const display =
+          !inCell &&
+          (element?.getAttribute('display') === 'block' ||
+            element?.parentElement?.classList.contains('katex-display'));
+        const math = inCell ? source.replace(/\r\n?|\n/g, ' ') : source;
+        return display ? `\n\n$$\n${math}\n$$\n\n` : `$${math}$`;
+      },
+    });
+    return turndown;
+  };
   try {
-    const converted = turndown.turndown(clean).trim();
-    return converted || plainText;
+    const converted = createConverter().turndown(clean).trim();
+    return { markdown: converted || plainText, notices: [...notices] };
   } catch {
-    return plainText;
+    const body = document.createElement('div');
+    body.innerHTML = clean;
+    return {
+      markdown: plainText || body.textContent || '',
+      notices: ['富文本无法完整转换，已保留纯文字；表格或格式需要核对。'],
+    };
   }
+}
+
+export function richTextToMarkdown(html: string, plainText = ''): string {
+  return convertRichText(html, plainText).markdown;
 }
 
 function dataBytes(source: string): Uint8Array | null {
@@ -181,6 +232,10 @@ export async function compoundClipboardToMarkdown(
     if (appended.length && (html || plainText))
       notices.add('部分图片的位置无法确认，已放在文字之后。');
   }
-  const text = richTextToMarkdown(body.innerHTML, plainText);
-  return { markdown: [text, ...appended].filter(Boolean).join('\n\n'), notices: [...notices] };
+  const converted = convertRichText(body.innerHTML, plainText);
+  converted.notices.forEach((notice) => notices.add(notice));
+  return {
+    markdown: [converted.markdown, ...appended].filter(Boolean).join('\n\n'),
+    notices: [...notices],
+  };
 }
