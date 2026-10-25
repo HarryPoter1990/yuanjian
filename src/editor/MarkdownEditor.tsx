@@ -179,7 +179,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         codeFontSize: current.settings.appearance.codeFontSize ?? 16,
         codeLineHeight: current.settings.appearance.codeLineHeight ?? 1.6,
         resolveAssetAsync: (reference) =>
-          window.notes.assetUrl(reference, propsRef.current.notePath ?? undefined),
+          propsRef.current.resolveAssetAsync
+            ? propsRef.current.resolveAssetAsync(reference)
+            : window.notes.assetUrl(reference, propsRef.current.notePath ?? undefined),
         onLink: (target) => propsRef.current.onLink?.(target),
       });
     }
@@ -391,6 +393,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       focus: () => viewRef.current?.focus(),
       insert: (text) => {
         if (viewRef.current) replaceSelection(viewRef.current, text);
+      },
+      insertFiles: async (files, point) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const position = point && view.posAtCoords(point);
+        if (typeof position === 'number') view.dispatch({ selection: { anchor: position } });
+        await insertImages(view, files);
       },
       wrap: (before, after) => {
         if (viewRef.current) wrapSelection(viewRef.current, before, after);

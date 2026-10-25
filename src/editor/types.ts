@@ -48,12 +48,14 @@ export interface MarkdownEditorProps {
   onScroll?(top: number): void;
   onLink?(target: string): void;
   onImage?(file: File): Promise<string | null>;
+  resolveAssetAsync?(reference: string): Promise<string>;
   onError?(message: string): void;
 }
 
 export interface MarkdownEditorHandle {
   focus(): void;
   insert(text: string): void;
+  insertFiles(files: File[], point?: { x: number; y: number }): Promise<void>;
   wrap(before: string, after?: string): void;
   command(name: EditorCommand): boolean;
   setHeading(level: HeadingLevel): void;
