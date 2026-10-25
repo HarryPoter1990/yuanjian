@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronRight,
@@ -23,6 +23,7 @@ import { defaultAppearance, defaultSettings } from '../shared/defaults';
 import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
+import { FontBrowser } from './FontBrowser';
 import { searchSettings, settingsGroups as groups } from '../ui/settingsSearch';
 import {
   settingDefinitions,
@@ -111,7 +112,6 @@ export function SettingsPanel({
   const excludedValue = settings.excluded.join('\n');
   const [excludedDraft, setExcludedDraft] = useState(excludedValue);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
-  const [fontQuery, setFontQuery] = useState('');
   const [original] = useState(() => structuredClone(settings.appearance));
   const [themeName, setThemeName] = useState('我的主题');
   const [catalog, setCatalog] = useState<FontCatalogEntry[]>([]);
@@ -147,10 +147,6 @@ export function SettingsPanel({
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
   );
   const template = settings.templates.find((item) => item.id === templateId);
-  const displayedFonts = useMemo(
-    () => fonts.filter((font) => font.name.toLowerCase().includes(fontQuery.toLowerCase())),
-    [fonts, fontQuery],
-  );
   const patch = (value: Partial<Settings>) => onChange({ ...settings, ...value });
   const look = (value: Partial<Appearance>) => patch({ appearance: { ...appearance, ...value } });
   async function run(label: string, action: () => Promise<void | boolean>) {
@@ -567,77 +563,53 @@ export function SettingsPanel({
                 </SettingField>
               ))}
               <div
-                className="font-actions"
                 data-setting-id="fontImport"
                 data-setting-label={settingDefinitions.fontImport.label}
                 tabIndex={-1}
               >
-                <div className="input-with-icon">
-                  <Search size={14} />
-                  <input
-                    aria-label="搜索字体"
-                    placeholder="搜索字体名称…"
-                    value={fontQuery}
-                    onChange={(e) => setFontQuery(e.target.value)}
-                  />
-                </div>
-                <IconButton
+                <FontBrowser
+                  fonts={fonts}
+                  selected={[
+                    appearance.uiFont,
+                    appearance.bodyFont,
+                    appearance.headingFont,
+                    appearance.codeFont,
+                  ]}
                   disabled={Boolean(busy)}
-                  label="刷新系统字体"
-                  onClick={() =>
-                    void run('刷新字体', async () => onFonts(await window.notes.getFonts(true)))
-                  }
-                >
-                  <RefreshCw size={16} />
-                </IconButton>
-                <button
-                  disabled={Boolean(busy)}
-                  onClick={() =>
-                    void run('导入字体', async () => {
-                      const imported = await window.notes.importFonts();
-                      if (!imported.length) return false;
+                  onRemove={(font) =>
+                    void run('移除字体', async () => {
+                      await window.notes.removeFont(font.id);
                       onFonts(await window.notes.getFonts());
                     })
                   }
-                >
-                  {settingDefinitions.fontImport.label}
-                </button>
-              </div>
-              <div className="font-list">
-                {displayedFonts.map((font) => (
-                  <div className="font-row" key={font.id}>
-                    <div>
-                      <strong>{font.name}</strong>
-                      <small>
-                        {
-                          {
-                            system: '系统',
-                            bundled: '内置 · 离线可用',
-                            downloaded: '已下载 · 离线可用',
-                            imported: '已导入 · 离线可用',
-                          }[font.source]
+                  actions={
+                    <>
+                      <IconButton
+                        disabled={Boolean(busy)}
+                        label="刷新系统字体"
+                        onClick={() =>
+                          void run('刷新字体', async () =>
+                            onFonts(await window.notes.getFonts(true)),
+                          )
                         }
-                        {font.bytes ? ` · ${bytesLabel(font.bytes)}` : ''}
-                      </small>
-                      <p style={{ fontFamily: `"${font.name}"` }}>
-                        鸢笺，记录每一个想法。 Aa 0123 ∑
-                      </p>
-                    </div>
-                    {['downloaded', 'imported'].includes(font.source) && (
+                      >
+                        <RefreshCw size={16} />
+                      </IconButton>
                       <button
                         disabled={Boolean(busy)}
                         onClick={() =>
-                          void run('移除字体', async () => {
-                            await window.notes.removeFont(font.id);
+                          void run('导入字体', async () => {
+                            const imported = await window.notes.importFonts();
+                            if (!imported.length) return false;
                             onFonts(await window.notes.getFonts());
                           })
                         }
                       >
-                        移除
+                        {settingDefinitions.fontImport.label}
                       </button>
-                    )}
-                  </div>
-                ))}
+                    </>
+                  }
+                />
               </div>
               <SettingHeading id="fontDownloads" />
               {catalog.map((font) => (
