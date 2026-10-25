@@ -60,6 +60,7 @@ import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from
 import { compactSearch, openEditorSearch } from './search-panel';
 import { readClipboardContent } from './clipboard-reader';
 import { EditorContextMenu, editorMenuAt, type EditorMenuState } from './context-menu';
+import { selectedCopy, writeCopy } from './clipboard-output';
 import type {
   EditorCommand,
   EditorScrollAnchor,
@@ -113,6 +114,35 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       setError(message);
       propsRef.current.onError?.(message);
     };
+    function copyEvent(event: React.ClipboardEvent<HTMLDivElement>, cut: boolean): void {
+      const view = viewRef.current;
+      if (
+        !view ||
+        (event.target instanceof Element && event.target.closest('input,textarea,button,select'))
+      )
+        return;
+      const content = selectedCopy(view);
+      if (!content) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const doc = view.state.doc,
+        selection = view.state.selection;
+      void writeCopy(content)
+        .then((notices) => {
+          if (viewRef.current !== view) return;
+          if (cut) {
+            if (!content.range) notices.push('该渲染选区无法安全对应源码，已复制，本次未剪切。');
+            else if (!view.state.doc.eq(doc) || !view.state.selection.eq(selection))
+              notices.push('正文或选区已变化，已复制原文字，本次未剪切。');
+            else view.dispatch({ changes: content.range, userEvent: 'delete.cut' });
+          }
+          if (notices.length) report(notices.join('\n'));
+        })
+        .catch((error) => {
+          if (viewRef.current === view)
+            report(`复制未完成：${error instanceof Error ? error.message : String(error)}`);
+        });
+    }
 
     function getScrollAnchor(view: EditorView): EditorScrollAnchor {
       const snapshot = view.scrollSnapshot().value;
@@ -702,6 +732,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     return (
       <div
         className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}
+        onCopyCapture={(event) => copyEvent(event, false)}
+        onCutCapture={(event) => copyEvent(event, true)}
         onContextMenu={(event) => {
           const view = viewRef.current;
           const next = view && editorMenuAt(view, event.nativeEvent);

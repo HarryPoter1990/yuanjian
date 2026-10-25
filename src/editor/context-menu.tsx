@@ -3,7 +3,7 @@ import type { EditorView } from '@codemirror/view';
 import { createPortal } from 'react-dom';
 import { DropdownMenu } from '../components/Controls';
 import { sourcePositionAtPoint } from './live-preview';
-import { previewSourcePosition } from './preview-source-position';
+import { selectedCopy, writeCopy, type CopyContent } from './clipboard-output';
 
 const shortcuts: Record<string, string> = {
   撤销: 'Ctrl+Z',
@@ -19,45 +19,26 @@ export interface EditorMenuState {
   left: number;
   top: number;
   kind: 'text' | 'code' | 'table';
-  input?: HTMLInputElement;
+  input?: HTMLInputElement | HTMLTextAreaElement;
   code?: { source: string; from: number };
   nativeText: string;
   readOnly: boolean;
+  copy: CopyContent | null;
 }
 
 export function editorMenuAt(view: EditorView, event: MouseEvent): EditorMenuState | null {
   const target = event.target instanceof Element ? event.target : null;
   if (!target || !view.contentDOM.contains(target)) return null;
   const input =
-    target instanceof HTMLInputElement && target.closest('.markdown-table-widget')
+    (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) &&
+    target.closest('.markdown-table-widget')
       ? target
       : undefined;
-  if (!input && target.closest('input,button,select,summary')) return null;
+  if (!input && target.closest('input,textarea,button,select,summary')) return null;
   const selection = view.dom.ownerDocument.getSelection();
-  let readOnly = false;
-  if (selection && !selection.isCollapsed) {
-    for (const [node, offset] of [
-      [selection.anchorNode, selection.anchorOffset],
-      [selection.focusNode, selection.focusOffset],
-    ] as const) {
-      const element = node instanceof Element ? node : node?.parentElement;
-      const preview = element?.closest<HTMLElement>('.markdown-preview-block');
-      if (
-        preview &&
-        previewSourcePosition(
-          preview,
-          view.state.doc.sliceString(
-            Number(preview.dataset.sourceFrom),
-            Number(preview.dataset.sourceTo),
-          ),
-          node,
-          offset,
-        ) === null
-      )
-        readOnly = true;
-    }
-  }
-  if (!input && view.state.selection.main.empty && !readOnly) {
+  const copyData = selectedCopy(view);
+  let readOnly = Boolean(copyData && !copyData.range);
+  if (!input && !copyData && view.state.selection.main.empty && !readOnly) {
     const position =
       sourcePositionAtPoint(view, event) ??
       (!target.closest('.markdown-preview-block')
@@ -85,6 +66,7 @@ export function editorMenuAt(view: EditorView, event: MouseEvent): EditorMenuSta
     code,
     nativeText: selection?.toString() ?? '',
     readOnly,
+    copy: copyData,
   };
 }
 
@@ -121,26 +103,32 @@ export function EditorContextMenu({
       {state.kind !== 'table' && shortcuts[label] && <kbd>{shortcuts[label]}</kbd>}
     </button>
   );
-  const copySelection = () =>
-    copyText(
-      state.readOnly
-        ? state.nativeText
-        : view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
-    );
+  const copySelection = async () => {
+    if (!state.copy) return;
+    const notices = await writeCopy(state.copy);
+    if (notices.length) onError(notices.join('\n'));
+  };
   const cutSelection = async () => {
     const originalDoc = view.state.doc,
       selection = view.state.selection;
-    await copyText(view.state.sliceDoc(selection.main.from, selection.main.to));
+    if (!state.copy?.range) return;
+    const { from, to } = state.copy.range;
+    if (view.state.sliceDoc(from, to) !== (state.copy.sourceText ?? state.copy.markdown)) {
+      onError('原选区内容已变化，请重新选择后剪切。');
+      return;
+    }
+    const notices = await writeCopy(state.copy);
     if (!view.dom.isConnected) return;
     if (!view.state.doc.eq(originalDoc) || !view.state.selection.eq(selection)) {
       onError('正文或选区已变化，已复制原文字，本次未剪切。');
       return;
     }
     view.dispatch({
-      changes: { from: selection.main.from, to: selection.main.to },
+      changes: { from, to },
       userEvent: 'delete.cut',
     });
     view.focus();
+    if (notices.length) onError(notices.join('\n'));
   };
   const tableAction = (label: string) => {
     if (!state.input?.isConnected) return;
@@ -177,7 +165,7 @@ export function EditorContextMenu({
       onError('单元格已变化，未覆盖新内容，请重新粘贴。');
       return;
     }
-    const insert = text.replace(/\r\n?|\n/g, ' ');
+    const insert = text.replace(/\r\n?/g, '\n');
     input.value = value.slice(0, from) + insert + value.slice(to);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
@@ -222,12 +210,8 @@ export function EditorContextMenu({
               redo(view);
               view.focus();
             })}
-            {item('剪切', cutSelection, state.readOnly || view.state.selection.main.empty)}
-            {item(
-              '复制',
-              copySelection,
-              state.readOnly ? !state.nativeText : view.state.selection.main.empty,
-            )}
+            {item('剪切', cutSelection, state.readOnly || !state.copy?.range)}
+            {item('复制', copySelection, !state.copy)}
             {item('粘贴', pasteRich, state.readOnly)}
             {item('粘贴为纯文本', pastePlain, state.readOnly)}
             {item('全选', () => {

@@ -222,7 +222,9 @@ describe('local editor context actions', () => {
   });
   it('copies a grid cell and adds a row through the existing table action', async () => {
     const { view } = await mount('| A | B |\n| --- | --- |\n| 旧 | 值 |\n\n尾段', true);
-    const cell = host.querySelector<HTMLInputElement>('input[data-row="1"][data-column="0"]')!;
+    const cell = host.querySelector<HTMLTextAreaElement>(
+      'textarea[data-row="1"][data-column="0"]',
+    )!;
     await open(cell);
     await click('复制单元格');
     expect(write).toHaveBeenCalledWith('旧');
