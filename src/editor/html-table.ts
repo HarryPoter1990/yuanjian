@@ -19,6 +19,8 @@ export function markdownTableFromGrid(
 ): string {
   const columns = rows.reduce((width, row) => Math.max(width, row.length), 0);
   if (!columns) return '';
+  if (columns * (rows.length + (hasHeader ? 0 : 1)) > 100000)
+    throw new Error('表格展开后超过 100000 个单元格');
   const complete = rows.map((row) => Array.from({ length: columns }, (_, i) => row[i] ?? ''));
   return serializeTable({
     rows: hasHeader ? complete : [Array<string>(columns).fill(''), ...complete],
@@ -98,6 +100,7 @@ export function readHtmlTable(
   if (input.filter((row) => row.parentElement?.tagName === 'THEAD').length > 1)
     notices.add('多层表头已简化为首行表头，其余行保留为普通行。');
   const width = rows.reduce((width, row) => Math.max(width, row.length), 0);
+  if (width * rows.length > 100000) throw new Error('表格展开后超过 100000 个单元格');
   return {
     rows: rows.map((row) => Array.from({ length: width }, (_, i) => row[i] ?? '')),
     alignments: Array.from({ length: width }, (_, i) => alignments[i] ?? 'none'),
