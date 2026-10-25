@@ -200,6 +200,44 @@ try {
     },
     500,
   );
+  await check('whole-table-native-clipboard-item', async (page) => {
+    await page.evaluate(() =>
+      window.workflowFixture.setSource('| A | B |\n| --- | --- |\n| 值 | 数据 |\n\n尾段'),
+    );
+    const input = page.getByRole('textbox', { name: '表格第 2 行第 1 列', exact: true });
+    await input.click();
+    await page.getByRole('button', { name: '复制整表', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.formattedCopies.length))
+      .toBe(1);
+    const [copy] = await page.evaluate(() => window.workflowFixture.formattedCopies);
+    assert.equal(copy.plain, '| A | B |\n| --- | --- |\n| 值 | 数据 |');
+    assert.match(copy.html, /<table>/);
+    assert.match(copy.html, /<td>数据<\/td>/);
+    assert.doesNotMatch(copy.html, /<button|<textarea|复制整表/);
+  });
+  await check('internal-selection-physical-move', async (page) => {
+    await page.evaluate(() => {
+      const state = window.workflowFixture;
+      state.setSource('MOVE keep TARGET');
+      state.editor().dispatch({ selection: { anchor: 0, head: 4 } });
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    const points = await page.evaluate(() => {
+      const view = window.workflowFixture.editor();
+      const start = view.coordsAtPos(2),
+        end = view.coordsAtPos(view.state.doc.length);
+      return {
+        start: { x: start.left, y: (start.top + start.bottom) / 2 },
+        end: { x: end.left, y: (end.top + end.bottom) / 2 },
+      };
+    });
+    await page.mouse.move(points.start.x, points.start.y);
+    await page.mouse.down();
+    await page.mouse.move(points.end.x, points.end.y, { steps: 20 });
+    await page.mouse.up();
+    await expect.poll(() => doc(page)).toBe(' keep TARGETMOVE');
+  });
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
@@ -221,6 +259,6 @@ for (const result of results)
     `${result.passed ? 'PASS' : 'FAIL'} ${result.name}${result.message ? '\n' + result.message : ''}`,
   );
 assert.ok(
-  results.length === 6 && results.every((result) => result.passed),
+  results.length === 8 && results.every((result) => result.passed),
   'Transfer UI checks failed',
 );

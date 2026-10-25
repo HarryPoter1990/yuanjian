@@ -1,4 +1,5 @@
 import './workflow-app.jsx';
+import { EditorView } from '@codemirror/view';
 
 const state = window.workflowFixture;
 state.transferItems = [];
@@ -8,6 +9,25 @@ state.encodingRequests = [];
 state.transferPending = false;
 state.releaseTransfer = null;
 state.encodedText = '姓名;说明\n甲;"中文,内容"';
+state.formattedCopies = [];
+state.editor = () => EditorView.findFromDOM(document.querySelector('.cm-content'));
+state.setSource = (text) => {
+  const view = state.editor();
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: text },
+    selection: { anchor: text.length },
+  });
+  view.focus();
+};
+Object.assign(navigator.clipboard, {
+  write: async (items) => {
+    for (const item of items)
+      state.formattedCopies.push({
+        plain: await (await item.getType('text/plain')).text(),
+        html: await (await item.getType('text/html')).text(),
+      });
+  },
+});
 Object.assign(window.notes, {
   prepareFiles: async (files) => {
     state.transferredNames.push(files.map((file) => file.name));
