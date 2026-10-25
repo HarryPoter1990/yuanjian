@@ -213,6 +213,31 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       token.attrSet('id', count ? `${id}-${count}` : id);
     });
   });
+  md.inline.ruler.before('html_inline', 'table_cell_break', (state, silent) => {
+    if (!state.env.yuanjianTableCellBreaks || state.src[state.pos] !== '<') return false;
+    const match = /^<br[ \t]*\/?>/i.exec(state.src.slice(state.pos));
+    if (!match) return false;
+    if (!silent) state.push('hardbreak', 'br', 0);
+    state.pos += match[0].length;
+    return true;
+  });
+  md.core.ruler.after('inline', 'table_cell_breaks', (state) => {
+    let inCell = false;
+    for (const token of state.tokens) {
+      if (token.type === 'td_open' || token.type === 'th_open') inCell = true;
+      else if (token.type === 'td_close' || token.type === 'th_close') inCell = false;
+      else if (inCell && token.type === 'inline') {
+        // Reparse the original cell source so escapes, entities and code remain distinct.
+        token.children = [];
+        md.inline.parse(
+          token.content,
+          md,
+          { ...state.env, yuanjianTableCellBreaks: true },
+          token.children,
+        );
+      }
+    }
+  });
   return md;
 }
 
