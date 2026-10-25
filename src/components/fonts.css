@@ -49,3 +49,93 @@
   font-size: 10px;
   white-space: nowrap;
 }
+.font-picker-trigger {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.font-picker-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-picker-trigger svg {
+  flex-shrink: 0;
+}
+.font-picker-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 4px 16px #0002;
+}
+.font-picker-panel:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.font-picker-panel .input-with-icon {
+  flex-shrink: 0;
+}
+.font-picker-panel input {
+  width: 100%;
+}
+.font-picker-options {
+  min-height: 0;
+  overflow: auto;
+  max-height: 300px;
+  overscroll-behavior: contain;
+}
+.font-option-group {
+  padding: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.font-option {
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.font-option:hover,
+.font-option.is-active {
+  background: var(--selected);
+}
+.font-option-name {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.font-option small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin: 4px 0;
+}
+.font-option-preview {
+  display: block;
+  font-size: 16px;
+}
+.font-picker-system {
+  flex-shrink: 0;
+  font-size: 11px;
+  background: transparent;
+}
+@media (max-width: 600px) {
+  .font-actions {
+    flex-wrap: wrap;
+  }
+  .font-actions .input-with-icon {
+    flex-basis: 100%;
+  }
+}

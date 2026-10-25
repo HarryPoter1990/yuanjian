@@ -121,3 +121,67 @@ it('keeps same-name managed files separately removable without removing the othe
   expect(remaining[0].textContent).toContain('已下载');
   expect(saved).not.toHaveBeenCalled();
 });
+
+const popup = () => host.querySelector<HTMLElement>('[aria-label="选择正文字体"]')!;
+async function key(input: HTMLElement, value: string, composing = false) {
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: value,
+        bubbles: true,
+        cancelable: true,
+        isComposing: composing,
+      }),
+    ),
+  );
+}
+it('provides four search pickers, merges exact names and marks all sources without changing settings', async () => {
+  for (const label of ['界面字体', '正文字体', '标题字体', '代码字体'])
+    expect(button(label)).toBeInstanceOf(HTMLButtonElement);
+  await act(async () => button('正文字体').click());
+  const choices = [...popup().querySelectorAll('[role="option"]')];
+  expect(choices.filter((font) => font.textContent?.includes('Inter Variable'))).toHaveLength(1);
+  expect(
+    choices.find((font) => font.textContent?.includes('Inter Variable'))?.textContent,
+  ).toContain('内置 / 系统');
+  expect(popup().textContent).not.toContain('System Alpha');
+  expect(popup().querySelector('[aria-selected="true"]')?.textContent).toContain(
+    current.appearance.bodyFont,
+  );
+  expect(saved).not.toHaveBeenCalled();
+});
+it('finds a collapsed system font and applies keyboard selection only to the chosen text role', async () => {
+  const before = structuredClone(current.appearance);
+  await act(async () => button('正文字体').click());
+  const input = await type('搜索正文字体', 'system alpha');
+  expect(popup().querySelectorAll('[role="option"]')).toHaveLength(1);
+  expect(saved).not.toHaveBeenCalled();
+  await key(input, 'Enter');
+  expect(current.appearance).toEqual({ ...before, bodyFont: 'System Alpha' });
+  expect(popup()).toBeNull();
+  expect(document.activeElement).toBe(button('正文字体'));
+  await act(async () => button('正文字体').click());
+  expect(popup().querySelector('[role="group"][aria-label="当前使用"]')?.textContent).toContain(
+    'System Alpha',
+  );
+});
+it('cancels picker navigation with Escape while keeping the settings dialog and font unchanged', async () => {
+  await act(async () => button('正文字体').click());
+  const input = await type('搜索正文字体', 'not-found');
+  expect(popup().textContent).toContain('没有匹配的字体');
+  await key(input, 'Enter');
+  expect(saved).not.toHaveBeenCalled();
+  await key(input, 'Escape');
+  expect(popup()).toBeNull();
+  expect(host.querySelector('dialog')?.open).toBe(true);
+  expect(document.activeElement).toBe(button('正文字体'));
+});
+it('does not treat composing Enter or Escape as a font selection or picker dismissal', async () => {
+  await act(async () => button('正文字体').click());
+  const input = await type('搜索正文字体', 'System Alpha');
+  await key(input, 'Enter', true);
+  expect(saved).not.toHaveBeenCalled();
+  await key(input, 'Escape', true);
+  expect(popup()).not.toBeNull();
+  expect(saved).not.toHaveBeenCalled();
+});

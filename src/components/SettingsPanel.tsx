@@ -24,6 +24,7 @@ import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
 import { FontBrowser } from './FontBrowser';
+import { FontPicker } from './FontPicker';
 import { searchSettings, settingsGroups as groups } from '../ui/settingsSearch';
 import {
   settingDefinitions,
@@ -546,20 +547,12 @@ export function SettingsPanel({
               </p>
               {(['uiFont', 'bodyFont', 'headingFont', 'codeFont'] as const).map((key) => (
                 <SettingField key={key} id={key}>
-                  <select
-                    aria-label={settingDefinitions[key].label}
+                  <FontPicker
+                    label={settingDefinitions[key].label}
                     value={appearance[key]}
-                    onChange={(e) => look({ [key]: e.target.value })}
-                  >
-                    {!fonts.some((font) => font.name === appearance[key]) && (
-                      <option>{appearance[key]}</option>
-                    )}
-                    {fonts.map((font) => (
-                      <option key={font.id} value={font.name}>
-                        {font.name}
-                      </option>
-                    ))}
-                  </select>
+                    fonts={fonts}
+                    onChange={(value) => look({ [key]: value })}
+                  />
                 </SettingField>
               ))}
               <div
