@@ -127,6 +127,7 @@ export interface Settings {
   graph: GraphPreferences;
 }
 export interface TabState extends NoteDocument {
+  importSourceId?: string;
   baseContent: string;
   dirty: boolean;
   cursor: number;
@@ -165,6 +166,7 @@ export interface Bootstrap {
   warnings?: string[];
 }
 export interface SaveRequest {
+  importSourceId?: string;
   path: string | null;
   content: string;
   baseContent: string;
@@ -172,6 +174,7 @@ export interface SaveRequest {
   title: string;
 }
 export interface SaveOutcome {
+  notices?: string[];
   status: 'saved' | 'cancelled' | 'conflict';
   note?: NoteDocument;
   merged?: boolean;
@@ -231,7 +234,26 @@ export interface WindowModeState {
   mode: WindowMode;
   pinned: boolean;
 }
+export type ImportEncoding = 'utf-8' | 'gb18030' | 'utf-16le' | 'utf-16be';
+export interface ImportSource {
+  id: string;
+  path: string;
+  name: string;
+  format: 'html' | 'csv' | 'tsv';
+  text: string;
+  encoding: ImportEncoding;
+}
+export type TransferItem =
+  | { kind: 'note'; name: string; note: NoteDocument }
+  | { kind: 'directory'; name: string; path: string }
+  | { kind: 'image'; name: string; bytes: number[]; mime: string }
+  | { kind: 'source'; name: string; source: ImportSource }
+  | { kind: 'error'; name: string; message: string };
 export interface DesktopAPI {
+  prepareFiles(files: File[]): Promise<TransferItem[]>;
+  chooseImports(): Promise<TransferItem[]>;
+  readImport(id: string, encoding: ImportEncoding): Promise<ImportSource>;
+  importAssetUrl(id: string, reference: string): Promise<string>;
   centerWindow(): Promise<void>;
   getWindowMode(): Promise<WindowModeState>;
   setWindowMode(mode: WindowMode): Promise<WindowModeState>;

@@ -1,9 +1,40 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAPI } from '../src/shared/types';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { DesktopAPI, TransferItem } from '../src/shared/types';
 
 // Fixed methods, never expose arbitrary ipcRenderer.send/invoke to rendered Markdown.
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
+  prepareFiles: async (files) => {
+    if (!Array.isArray(files) || files.length > 100) throw new Error('一次最多处理 100 个文件');
+    const candidates = files.map((file) => {
+      try {
+        const path = webUtils.getPathForFile(file);
+        if (!path) throw new Error('没有可读取的磁盘文件身份');
+        return { path };
+      } catch {
+        return {
+          error: {
+            kind: 'error' as const,
+            name: file?.name || '未知文件',
+            message: '无法识别此磁盘文件，请使用导入文件选择框。',
+          },
+        };
+      }
+    });
+    const paths = candidates.flatMap((item) => (item.path ? [item.path] : []));
+    const prepared: TransferItem[] = paths.length
+      ? await ipcRenderer.invoke('notes:prepareFiles', paths)
+      : [];
+    let next = 0;
+    return candidates.map(
+      (item) =>
+        item.error ??
+        prepared[next++] ?? { kind: 'error', name: '文件', message: '文件处理未返回结果。' },
+    );
+  },
+  chooseImports: () => ipcRenderer.invoke('notes:chooseImports'),
+  readImport: (id, encoding) => ipcRenderer.invoke('notes:readImport', id, encoding),
+  importAssetUrl: (id, reference) => ipcRenderer.invoke('notes:importAssetUrl', id, reference),
   getWindowMode: () => ipcRenderer.invoke('notes:getWindowMode'),
   centerWindow: () => ipcRenderer.invoke('notes:centerWindow'),
   setWindowMode: (mode) => ipcRenderer.invoke('notes:setWindowMode', mode),

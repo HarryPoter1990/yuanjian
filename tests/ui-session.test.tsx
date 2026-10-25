@@ -101,6 +101,14 @@ function Harness() {
 function makeAPI(session: SessionState): DesktopAPI {
   const settings = structuredClone(defaultSettings);
   return {
+    prepareFiles: vi.fn(async () => []),
+    chooseImports: vi.fn(async () => []),
+    readImport: vi.fn(async () => {
+      throw new Error('此夹具未提供导入来源');
+    }),
+    importAssetUrl: vi.fn(async () => {
+      throw new Error('此夹具未提供导入图片');
+    }),
     centerWindow: vi.fn(async () => undefined),
     bootstrap: vi.fn(async () => ({
       settings,

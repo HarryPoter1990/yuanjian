@@ -99,6 +99,7 @@ export const settingsSchema = z.object({
   }),
 });
 const tab = z.object({
+  importSourceId: z.string().min(1).max(200).optional(),
   id: file,
   path: file.nullable(),
   title: short,
@@ -132,6 +133,13 @@ export const windowThemeSchema = z
   .strict();
 
 export const argumentSchemas = {
+  prepareFiles: z.tuple([z.array(file).min(1).max(100)]),
+  chooseImports: z.tuple([]),
+  readImport: z.tuple([
+    z.string().min(1).max(200),
+    z.enum(['utf-8', 'gb18030', 'utf-16le', 'utf-16be']),
+  ]),
+  importAssetUrl: z.tuple([z.string().min(1).max(200), z.string().min(1).max(32768)]),
   centerWindow: z.tuple([]),
   getWindowMode: z.tuple([]),
   setWindowMode: z.tuple([z.enum(['full', 'sticky'])]),
@@ -145,6 +153,7 @@ export const argumentSchemas = {
   saveFile: z.tuple([
     z.object({
       path: file.nullable(),
+      importSourceId: z.string().min(1).max(200).optional(),
       content: text,
       baseContent: text,
       hash: short,
