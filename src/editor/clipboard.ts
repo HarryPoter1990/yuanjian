@@ -1,11 +1,12 @@
 import DOMPurify from 'dompurify';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
-import { markdownTableFromGrid, readHtmlTable } from './html-table';
+import { markdownTableFromGrid, readHtmlTable, type HtmlTableGrid } from './html-table';
 
 export function convertRichText(
   html: string,
   plainText = '',
+  inTableCell = false,
 ): { markdown: string; notices: string[] } {
   const clean = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, mathMl: true },
@@ -76,7 +77,7 @@ export function convertRichText(
     return turndown;
   };
   try {
-    const converted = createConverter().turndown(clean).trim();
+    const converted = createConverter(inTableCell).turndown(clean).trim();
     return { markdown: converted || plainText, notices: [...notices] };
   } catch {
     const body = document.createElement('div');
@@ -90,6 +91,39 @@ export function convertRichText(
 
 export function richTextToMarkdown(html: string, plainText = ''): string {
   return convertRichText(html, plainText).markdown;
+}
+
+export function richTableGrid(html: string): HtmlTableGrid | null {
+  if (!html) return null;
+  const root = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true, mathMl: true },
+    ADD_TAGS: ['annotation'],
+    ADD_ATTR: ['encoding'],
+    RETURN_DOM: true,
+  });
+  if (!(root instanceof HTMLElement)) return null;
+  const tables = [...root.querySelectorAll('table')].filter(
+    (table) => !table.parentElement?.closest('table'),
+  );
+  if (tables.length !== 1) return null;
+  const table = tables[0];
+  const rest = root.cloneNode(true) as HTMLElement;
+  rest.querySelector('table')?.remove();
+  if (rest.textContent?.trim() || rest.querySelector('img')) return null;
+  const notices = new Set<string>();
+  const grid = readHtmlTable(table, (cell) => {
+    const converted = convertRichText(cell, '', true);
+    converted.notices.forEach((notice) => notices.add(notice));
+    return converted.markdown;
+  });
+  if (!grid.rows.some((row) => row.length > 0)) return null;
+  if (table.caption?.textContent?.trim()) {
+    const caption = convertRichText(table.caption.innerHTML, '', true);
+    grid.rows.unshift([caption.markdown, ...grid.alignments.slice(1).map(() => '')]);
+    notices.add('表格说明已作为首行保留。');
+  }
+  grid.notices.push(...notices);
+  return grid;
 }
 
 function dataBytes(source: string): Uint8Array | null {

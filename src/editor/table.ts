@@ -53,7 +53,7 @@ export function tableCellRange(
 
 export const serializeTableCell = (value: string): string =>
   value
-    .replace(/\r?\n/g, '<br>')
+    .replace(/\r\n?|\n/g, '<br>')
     .replace(
       /(\\*)\|/g,
       (_match, slashes: string) => slashes + (slashes.length % 2 ? '' : '\\') + '|',

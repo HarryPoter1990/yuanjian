@@ -42,8 +42,13 @@ async function mount(source: string) {
   return { view: ref.current!.getView()!, onChange };
 }
 const cell = (row: number, column: number) =>
-  host.querySelector<HTMLInputElement>(`input[data-row="${row}"][data-column="${column}"]`)!;
-async function key(input: HTMLInputElement, value: string, shiftKey = false, isComposing = false) {
+  host.querySelector<HTMLTextAreaElement>(`textarea[data-row="${row}"][data-column="${column}"]`)!;
+async function key(
+  input: HTMLTextAreaElement,
+  value: string,
+  shiftKey = false,
+  isComposing = false,
+) {
   await act(async () => {
     input.focus();
     input.dispatchEvent(

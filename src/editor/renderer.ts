@@ -217,7 +217,10 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     if (!state.env.yuanjianTableCellBreaks || state.src[state.pos] !== '<') return false;
     const match = /^<br[ \t]*\/?>/i.exec(state.src.slice(state.pos));
     if (!match) return false;
-    if (!silent) state.push('hardbreak', 'br', 0);
+    if (!silent) {
+      const token = state.push('hardbreak', 'br', 0);
+      token.meta = { tableCellBreak: { from: state.pos, to: state.pos + match[0].length } };
+    }
     state.pos += match[0].length;
     return true;
   });

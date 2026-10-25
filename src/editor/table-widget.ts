@@ -1,7 +1,11 @@
 import { WidgetType, type EditorView } from '@codemirror/view';
+import { undo, redo, isolateHistory } from '@codemirror/commands';
 import { parseTable, serializeTable, tableCellChange, type Alignment } from './table';
+import { decodeTableCellBreaks } from './table-cell';
+import { clipboardMatrix, planMatrixPaste } from './table-paste';
+import { convertRichText } from './clipboard';
 
-const gridStates = new WeakMap<HTMLElement, { update(source: string): boolean }>();
+const gridStates = new WeakMap<HTMLElement, { update(source: string): boolean; destroy(): void }>();
 
 export class TableWidget extends WidgetType {
   constructor(
@@ -31,9 +35,70 @@ export class TableWidget extends WidgetType {
     const table = parseTable(this.source);
     if (!table) return container;
     let currentSource = this.source;
-    const inputs: HTMLInputElement[][] = [];
+    const inputs: HTMLTextAreaElement[][] = [];
+    let pending: { source: string; rows: string[][]; row: number; column: number } | null = null;
+    const confirmation = document.createElement('div');
+    confirmation.className = 'table-paste-confirm';
+    confirmation.setAttribute('role', 'alertdialog');
+    confirmation.setAttribute('aria-label', '确认覆盖表格内容');
+    confirmation.hidden = true;
+    const notice = (message: string, error = false) =>
+      container.dispatchEvent(
+        new CustomEvent('yuanjian:editor-notice', { bubbles: true, detail: { message, error } }),
+      );
+    const resizeCell = (input: HTMLTextAreaElement) => {
+      input.style.height = 'auto';
+      input.rows = Math.max(1, input.value.split('\n').length);
+      if (input.scrollHeight) input.style.height = `${input.scrollHeight}px`;
+    };
+    const resizeAll = () => {
+      if (!container.isConnected) return;
+      const cells = inputs.flat();
+      cells.forEach((input) => {
+        input.style.height = 'auto';
+      });
+      const heights = cells.map((input) => input.scrollHeight);
+      cells.forEach((input, index) => {
+        if (heights[index]) input.style.height = `${heights[index]}px`;
+      });
+    };
+    let lastWidth = -1;
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver((entries) => {
+            const width = entries[0]?.contentRect.width;
+            if (width !== undefined && width !== lastWidth) {
+              lastWidth = width;
+              resizeAll();
+            }
+          });
+    const focusCell = (r: number, c: number) =>
+      queueMicrotask(() => {
+        if (!view.dom.isConnected) return;
+        const widget = view.dom.querySelector<HTMLElement>(
+          `[data-table-from="${container.dataset.tableFrom}"]`,
+        );
+        const target =
+          widget?.querySelector<HTMLTextAreaElement>(`[data-row="${r}"][data-column="${c}"]`) ??
+          [...(widget?.querySelectorAll<HTMLTextAreaElement>('textarea[data-row]') ?? [])].at(-1);
+        if (target) target.focus({ preventScroll: true });
+        else view.focus();
+      });
+    const cancelConfirmation = (focus = true) => {
+      const previous = pending;
+      pending = null;
+      confirmation.hidden = true;
+      confirmation.replaceChildren();
+      confirmation.remove();
+      if (focus && previous) focusCell(previous.row, previous.column);
+    };
     gridStates.set(container, {
       update(source) {
+        if (pending && source !== pending.source) {
+          cancelConfirmation(false);
+          notice('表格已变化，本次待确认粘贴已取消，请重新粘贴。');
+        }
         const next = parseTable(source);
         if (
           !next ||
@@ -48,11 +113,18 @@ export class TableWidget extends WidgetType {
         }
         inputs.forEach((row, r) =>
           row.forEach((input, c) => {
-            if (input.value !== table.rows[r][c]) input.value = table.rows[r][c];
+            const value = decodeTableCellBreaks(table.rows[r][c]);
+            if (input.value !== value) {
+              input.value = value;
+              resizeCell(input);
+            }
             input.style.textAlign = table.alignments[c] === 'none' ? 'left' : table.alignments[c];
           }),
         );
         return true;
+      },
+      destroy() {
+        observer?.disconnect();
       },
     });
     let rowIndex = 0;
@@ -68,8 +140,8 @@ export class TableWidget extends WidgetType {
       if (keepFocus)
         queueMicrotask(() =>
           view.dom
-            .querySelector<HTMLInputElement>(
-              `[data-table-from="${from}"] input[data-row="${Math.min(rowIndex, table.rows.length - 1)}"][data-column="${Math.min(columnIndex, table.alignments.length - 1)}"]`,
+            .querySelector<HTMLTextAreaElement>(
+              `[data-table-from="${from}"] [data-row="${Math.min(rowIndex, table.rows.length - 1)}"][data-column="${Math.min(columnIndex, table.alignments.length - 1)}"]`,
             )
             ?.focus({ preventScroll: true }),
         );
@@ -86,6 +158,17 @@ export class TableWidget extends WidgetType {
       button.addEventListener('click', run);
       toolbar.append(button);
     };
+    action('复制整表', () => {
+      const from = Number(container.dataset.tableFrom),
+        to = Number(container.dataset.tableTo);
+      if (view.state.doc.sliceString(from, to) !== currentSource) return;
+      container.dispatchEvent(
+        new CustomEvent('yuanjian:copy-table', {
+          bubbles: true,
+          detail: { from, to, source: currentSource },
+        }),
+      );
+    });
     action('+ 行', () => {
       table.rows.splice(
         rowIndex + 1,
@@ -123,6 +206,92 @@ export class TableWidget extends WidgetType {
         commit();
       });
     container.append(toolbar);
+    const applyMatrix = (rows: string[][], r: number, c: number, expected: string) => {
+      if (!container.isConnected || !view.dom.isConnected) return;
+      const from = Number(container.dataset.tableFrom),
+        to = Number(container.dataset.tableTo);
+      if (expected !== currentSource || view.state.doc.sliceString(from, to) !== expected) {
+        notice('表格已变化，请重新粘贴。', true);
+        return;
+      }
+      const plan = planMatrixPaste(expected, r, c, rows);
+      if (!plan) return;
+      cancelConfirmation(false);
+      view.dispatch({
+        changes: { from, to, insert: plan.source },
+        userEvent: 'input.table.paste',
+        annotations: isolateHistory.of('full'),
+      });
+      focusCell(r, c);
+    };
+    const pasteIntoCell = (
+      input: HTMLTextAreaElement,
+      r: number,
+      c: number,
+      html: string,
+      plain: string,
+      plainOnly = false,
+    ) => {
+      try {
+        const matrix = plainOnly ? null : clipboardMatrix(html, plain);
+        if (matrix) {
+          const plan = planMatrixPaste(currentSource, r, c, matrix.rows);
+          if (!plan) return;
+          matrix.notices.forEach((message) => notice(message));
+          if (!plan.overwrite) {
+            applyMatrix(matrix.rows, r, c, currentSource);
+            return;
+          }
+          cancelConfirmation(false);
+          const request = { source: currentSource, rows: matrix.rows, row: r, column: c };
+          pending = request;
+          const text = document.createElement('p');
+          text.textContent = `将覆盖 ${plan.overwrite} 个非空单元格，是否继续？`;
+          const cancel = document.createElement('button');
+          cancel.type = 'button';
+          cancel.textContent = '取消';
+          cancel.addEventListener('click', () => cancelConfirmation());
+          const accept = document.createElement('button');
+          accept.type = 'button';
+          accept.textContent = '覆盖并粘贴';
+          accept.addEventListener('click', () => {
+            if (pending === request)
+              applyMatrix(request.rows, request.row, request.column, request.source);
+          });
+          confirmation.replaceChildren(text, cancel, accept);
+          confirmation.hidden = false;
+          container.insertBefore(confirmation, scroll);
+          cancel.focus();
+          return;
+        }
+        const converted =
+          html && !plainOnly
+            ? convertRichText(html, plain, true)
+            : { markdown: plain, notices: [] };
+        converted.notices.forEach((message) => notice(message));
+        if (!converted.markdown) return;
+        input.setRangeText(
+          converted.markdown.replace(/\r\n?/g, '\n'),
+          input.selectionStart ?? 0,
+          input.selectionEnd ?? 0,
+          'end',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+      } catch (reason) {
+        notice(
+          `表格粘贴未完成：${reason instanceof Error ? reason.message : String(reason)}`,
+          true,
+        );
+      }
+    };
+    confirmation.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelConfirmation();
+      }
+    });
     const scroll = document.createElement('div');
     scroll.className = 'table-scroll';
     const grid = document.createElement('table');
@@ -132,9 +301,11 @@ export class TableWidget extends WidgetType {
       const tr = document.createElement('tr');
       row.forEach((value, columnNumber) => {
         const td = document.createElement(rowNumber === 0 ? 'th' : 'td');
-        const input = document.createElement('input');
-        input.value = value;
-        let originalValue = value;
+        const input = document.createElement('textarea');
+        input.value = decodeTableCellBreaks(value);
+        resizeCell(input);
+        let originalValue = input.value;
+        let plainPaste = false;
         input.setAttribute('aria-label', `表格第 ${rowNumber + 1} 行第 ${columnNumber + 1} 列`);
         input.style.textAlign =
           table.alignments[columnNumber] === 'none' ? 'left' : table.alignments[columnNumber];
@@ -150,6 +321,7 @@ export class TableWidget extends WidgetType {
           const change = tableCellChange(currentSource, rowNumber, columnNumber, input.value);
           if (!change) return;
           table.rows[rowNumber][columnNumber] = input.value;
+          resizeCell(input);
           if (currentSource.slice(change.from, change.to) === change.insert) return;
           currentSource =
             currentSource.slice(0, change.from) + change.insert + currentSource.slice(change.to);
@@ -159,10 +331,56 @@ export class TableWidget extends WidgetType {
           });
         };
         input.addEventListener('input', writeCell);
+        input.addEventListener('paste', (event) => {
+          if (!event.clipboardData) return;
+          const html = event.clipboardData.getData('text/html'),
+            plain = event.clipboardData.getData('text/plain');
+          const usePlain = plainPaste;
+          plainPaste = false;
+          if (!html && !plain) return;
+          event.preventDefault();
+          event.stopPropagation();
+          pasteIntoCell(input, rowNumber, columnNumber, html, plain, usePlain);
+        });
+        input.addEventListener('yuanjian:paste-cell', (event) => {
+          event.stopPropagation();
+          const detail: unknown = (event as CustomEvent).detail;
+          if (
+            !detail ||
+            typeof detail !== 'object' ||
+            !('html' in detail) ||
+            !('plain' in detail) ||
+            typeof detail.html !== 'string' ||
+            typeof detail.plain !== 'string'
+          )
+            return;
+          pasteIntoCell(
+            input,
+            rowNumber,
+            columnNumber,
+            detail.html,
+            detail.plain,
+            'plainOnly' in detail && detail.plainOnly === true,
+          );
+        });
         input.dataset.row = String(rowNumber);
         input.dataset.column = String(columnNumber);
         input.addEventListener('keydown', (event) => {
           if (event.isComposing || event.keyCode === 229) return;
+          if (
+            (event.ctrlKey || event.metaKey) &&
+            !event.altKey &&
+            ['z', 'y'].includes(event.key.toLowerCase())
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key.toLowerCase() === 'y' || event.shiftKey) redo(view);
+            else undo(view);
+            focusCell(rowNumber, columnNumber);
+            return;
+          }
+          plainPaste =
+            (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v' && event.shiftKey;
           if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
             const columns = table.alignments.length;
             const next = rowNumber * columns + columnNumber + (event.shiftKey ? -1 : 1);
@@ -180,8 +398,8 @@ export class TableWidget extends WidgetType {
               });
               queueMicrotask(() =>
                 view.dom
-                  .querySelector<HTMLInputElement>(
-                    `[data-table-from="${from}"] input[data-row="${table.rows.length}"][data-column="0"]`,
+                  .querySelector<HTMLTextAreaElement>(
+                    `[data-table-from="${from}"] [data-row="${table.rows.length}"][data-column="0"]`,
                   )
                   ?.focus(),
               );
@@ -189,7 +407,10 @@ export class TableWidget extends WidgetType {
           }
           if (event.key === 'Enter') {
             event.preventDefault();
-            input.blur();
+            if (event.shiftKey) {
+              input.setRangeText('\n', input.selectionStart ?? 0, input.selectionEnd ?? 0, 'end');
+              writeCell();
+            } else input.blur();
           }
           if (event.key === 'Escape') {
             input.value = originalValue;
@@ -206,7 +427,13 @@ export class TableWidget extends WidgetType {
     });
     scroll.append(grid);
     container.append(scroll);
+    observer?.observe(scroll);
+    queueMicrotask(resizeAll);
     return container;
+  }
+  destroy(dom: HTMLElement): void {
+    gridStates.get(dom)?.destroy();
+    gridStates.delete(dom);
   }
   ignoreEvent(): boolean {
     return true;

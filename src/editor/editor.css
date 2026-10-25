@@ -516,7 +516,7 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   min-width: 100%;
   width: max-content;
 }
-.markdown-table-widget input {
+.markdown-table-widget textarea {
   width: 100%;
   border: 0;
   outline: none;
@@ -525,9 +525,30 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   font: inherit;
   padding: 3px 1px;
   min-width: 55px;
+  resize: none;
+  overflow-y: hidden;
+  display: block;
+  line-height: inherit;
 }
-.markdown-table-widget input:focus {
+.markdown-table-widget textarea:focus {
   box-shadow: 0 1px 0 var(--accent, #3b756b);
+}
+.table-paste-confirm {
+  position: relative;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border, #8884);
+  border-radius: 6px;
+  background: var(--surface-strong, var(--background, #fafaf8));
+}
+.table-paste-confirm[hidden] {
+  display: none;
+}
+.table-paste-confirm p {
+  margin: 0 0 8px;
+}
+.table-paste-confirm button + button {
+  margin-left: 8px;
 }
 .table-toolbar {
   position: absolute;
