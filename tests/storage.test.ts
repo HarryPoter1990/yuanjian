@@ -9,7 +9,7 @@ describe('desktop storage boundary and concurrent edits', () => {
   let root: string;
   let store: NoteStore;
   beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-storage-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-storage-'));
     root = path.join(sandbox, '中文笔记');
     await mkdir(root);
     store = new NoteStore(path.join(sandbox, 'app-data'), {

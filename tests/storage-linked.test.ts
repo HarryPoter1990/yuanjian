@@ -12,7 +12,7 @@ describe('explicit navigation from a standalone note', () => {
   let store: NoteStore;
 
   beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-linked-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-linked-'));
     notes = path.join(sandbox, '独立中文目录');
     await mkdir(notes);
     source = path.join(notes, '入口.md');

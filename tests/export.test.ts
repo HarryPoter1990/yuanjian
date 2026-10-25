@@ -12,7 +12,7 @@ describe('standalone document and Markdown exports', () => {
   let build: string;
   let store: NoteStore;
   beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-export-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-export-'));
     root = path.join(sandbox, '中文资料');
     build = path.join(sandbox, 'build');
     await mkdir(root);

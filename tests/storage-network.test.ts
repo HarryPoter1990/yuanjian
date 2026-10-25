@@ -10,7 +10,7 @@ afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
 });
 async function fixture(fetchImage: typeof fetch) {
-  const sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-network-'));
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-network-'));
   sandboxes.push(sandbox);
   const root = path.join(sandbox, '笔记');
   await mkdir(root);

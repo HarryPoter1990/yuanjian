@@ -24,7 +24,7 @@ describe('atomic-save failure handling', () => {
   let root: string;
   let store: NoteStore;
   beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-atomic-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-atomic-'));
     root = path.join(sandbox, '笔记');
     await mkdir(root);
     store = new NoteStore(path.join(sandbox, 'data'));

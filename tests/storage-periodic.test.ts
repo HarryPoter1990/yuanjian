@@ -9,7 +9,7 @@ describe('additional periodic notes', () => {
   let journal: string;
   let store: NoteStore;
   beforeEach(async () => {
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-periodic-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-periodic-'));
     journal = path.join(sandbox, '我的日记');
     await mkdir(journal);
     store = new NoteStore(path.join(sandbox, 'data'));

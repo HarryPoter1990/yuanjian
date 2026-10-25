@@ -11,7 +11,7 @@ describe('storage edge cases', () => {
   let now: number;
   beforeEach(async () => {
     now = 1800000000000;
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-edge-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-edge-'));
     root = path.join(sandbox, '笔记');
     await mkdir(root);
     store = new NoteStore(path.join(sandbox, 'data'), {

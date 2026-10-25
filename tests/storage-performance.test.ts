@@ -14,7 +14,7 @@ describe('long-note storage regression', () => {
   it.each(['LF', 'CRLF', 'mixed'] as const)(
     'saves the %s repeated-paragraph desktop fixture without a long backend stall',
     async (style) => {
-      const directory = await mkdtemp(path.join(os.tmpdir(), 'qingjian-long-note-'));
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-long-note-'));
       sandboxes.push(directory);
       const notes = path.join(directory, '笔记');
       await mkdir(notes);

@@ -12,7 +12,7 @@ describe('moves, recovery and attachments', () => {
   let now = 1800000000000;
   beforeEach(async () => {
     now = 1800000000000;
-    sandbox = await mkdtemp(path.join(os.tmpdir(), 'qingjian-history-'));
+    sandbox = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-history-'));
     root = path.join(sandbox, '测试资料');
     await mkdir(root);
     store = new NoteStore(path.join(sandbox, 'app-data'), {
