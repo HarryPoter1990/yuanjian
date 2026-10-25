@@ -396,9 +396,18 @@ export class NoteStore {
       ) {
         return this.conflict(file, request, theirs, currentHash);
       }
+      const prepared = this.adapters.prepareSave
+        ? await this.adapters.prepareSave({ ...request, content }, file)
+        : { content };
+      content = prepared.content;
       const encoded = this.encode(file, content, current ? theirs : undefined);
       if (current && hash(encoded) === currentHash)
-        return { status: 'saved', note: await this.readNote(file), merged };
+        return {
+          status: 'saved',
+          note: await this.readNote(file),
+          merged,
+          notices: prepared.notices,
+        };
       if (current && !this.baseline.has(file)) {
         await this.history.snapshot(
           file,
@@ -420,7 +429,12 @@ export class NoteStore {
       await this.history.snapshot(file, encoded, '编辑后', true);
       await this.history.prune();
       this.changed([file]);
-      return { status: 'saved', note: await this.readNote(file), merged };
+      return {
+        status: 'saved',
+        note: await this.readNote(file),
+        merged,
+        notices: prepared.notices,
+      };
     });
   }
 
