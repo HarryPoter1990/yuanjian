@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { defaultSettings } from '../src/shared/defaults';
 import type { SessionState } from '../src/shared/types';
 
-test('Yuanjian reuses the original default data directory after its display name changes', async () => {
+test('Yuanjian migrates a verified legacy data copy while retaining its original backup', async () => {
   const project = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
   const fixture = await mkdtemp(path.join(project, '.test-data/更名兼容-'));
   const appData = path.join(fixture, 'app-data');
@@ -73,9 +73,10 @@ test('Yuanjian reuses the original default data directory after its display name
     await expect(page).toHaveTitle('鸢笺 · Yuanjian');
     await expect(page.locator('.app')).toHaveAttribute('data-theme', 'dark');
     const boot = await page.evaluate(() => window.notes.bootstrap());
-    expect(boot.dataDirectory).toBe(originalData);
+    expect(boot.dataDirectory).toBe(path.join(appData, '鸢笺'));
     expect(await app.evaluate(({ app }) => app.getName())).toBe('鸢笺');
-    expect(existsSync(path.join(appData, '鸢笺'))).toBe(false);
+    expect(existsSync(path.join(appData, '鸢笺'))).toBe(true);
+    expect(existsSync(originalData)).toBe(true);
     await page.getByRole('button', { name: '打开设置', exact: true }).click();
     await expect(page.locator('.settings-about')).toContainText('鸢笺');
     await expect(page.locator('.settings-about')).toContainText('Yuanjian');
@@ -87,7 +88,8 @@ test('Yuanjian reuses the original default data directory after its display name
     await exited;
     app = undefined;
     expect(
-      JSON.parse(await readFile(path.join(originalData, 'session.json'), 'utf8')).tabs[0].content,
+      JSON.parse(await readFile(path.join(appData, '鸢笺', 'session.json'), 'utf8')).tabs[0]
+        .content,
     ).toBe('更名前尚未保存的中文内容');
   } finally {
     await app?.close();

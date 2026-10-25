@@ -87,7 +87,7 @@
     "vitest": "^4.0.0"
   },
   "build": {
-    "appId": "local.qingjian.notes",
+    "appId": "local.yuanjian.notes",
     "productName": "鸢笺",
     "directories": {
       "output": "release"
@@ -105,6 +105,7 @@
       "artifactName": "Yuanjian-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
+      "guid": "58a1b8fc-d62d-5703-a7f1-b5d93aedb8d7",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
