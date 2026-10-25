@@ -97,6 +97,7 @@ export class TransferService {
     if (!info.isFile() || info.size > MAX_SOURCE)
       throw new Error('导入来源不是普通文件或超过 64 MiB。');
     const bytes = await readFile(file);
+    if (bytes.byteLength > MAX_SOURCE) throw new Error('导入来源超过 64 MiB。');
     if (hash(bytes) !== record.digest)
       throw new Error('导入来源已在外部改变，请重新导入；当前草稿仍保留。');
     return {
@@ -134,10 +135,12 @@ export class TransferService {
         }
         if (imageExtensions.has(extension)) {
           if (info.size > MAX_IMAGE) throw new Error('图片超过 25 MiB 限制。');
+          const bytes = await readFile(file);
+          if (bytes.byteLength > MAX_IMAGE) throw new Error('图片超过 25 MiB 限制。');
           results.push({
             kind: 'image',
             name,
-            bytes: [...(await readFile(file))],
+            bytes: [...bytes],
             mime: mime[extension],
           });
           continue;
@@ -151,8 +154,9 @@ export class TransferService {
                 ? 'tsv'
                 : null;
         if (!format) throw new Error('不支持此文件；可导入 Markdown、TXT、HTML、CSV/TSV 或图片。');
-        const bytes = await readFile(file),
-          encoding = defaultEncoding(bytes),
+        const bytes = await readFile(file);
+        if (bytes.byteLength > MAX_SOURCE) throw new Error('导入来源超过 64 MiB。');
+        const encoding = defaultEncoding(bytes),
           text = decode(bytes, encoding);
         const record: SourceRecord = {
           id: randomUUID(),

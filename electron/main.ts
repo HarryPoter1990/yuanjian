@@ -12,6 +12,7 @@ import {
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import chokidar, { type FSWatcher } from 'chokidar';
@@ -19,8 +20,10 @@ import { NoteStore } from './storage/store';
 import { within } from './storage/access';
 import { bundledFonts, FontManager, fontCatalog } from './resources/fonts';
 import { ExportManager } from './resources/export';
+import { TransferService } from './resources/import';
+import { DATA_NAME, LEGACY_DATA_NAME, migrateDataDirectory } from './resources/data-migration';
 import { argumentSchemas, windowThemeSchema, type InvokeMethod } from './validation';
-import type { Bootstrap, OperationProgress, WindowMode } from '../src/shared/types';
+import type { Bootstrap, ImportEncoding, OperationProgress, WindowMode } from '../src/shared/types';
 import { appearanceColors } from '../src/ui/model';
 import { WindowModeController } from './window-mode';
 import {
@@ -45,8 +48,13 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 app.setName('鸢笺');
-// Preserve the original settings, history and drafts when changing the display name.
-app.setPath('userData', path.join(app.getPath('appData'), '轻笺'));
+const appDataRoot = app.getPath('appData');
+const legacyDataDirectory = path.join(appDataRoot, LEGACY_DATA_NAME);
+// Keep the same singleton scope as the previous release until its verified data copy is ready.
+app.setPath(
+  'userData',
+  existsSync(legacyDataDirectory) ? legacyDataDirectory : path.join(appDataRoot, DATA_NAME),
+);
 const testMode = process.env.LOCAL_NOTES_TEST === '1';
 const dataFlag = process.argv.find((argument) => argument.startsWith('--data-dir='));
 if (testMode && dataFlag) {
@@ -58,6 +66,7 @@ if (testMode && dataFlag) {
   if (!within(testRoot, candidate)) throw new Error('测试数据目录必须在程序目录的 .test-data 内');
   app.setPath('userData', candidate);
 }
+let migrationWarnings: string[] = [];
 let window: BrowserWindow | null = null;
 let windowModes: WindowModeController | null = null;
 const requireWindowModes = () => {
@@ -139,7 +148,7 @@ async function refreshWatcher() {
   const approved = store.getApprovedPaths();
   const files = [
     ...approved.directories,
-    ...approved.files.filter((file) => /\.(?:md|markdown|mdown|mkd)$/i.test(file)),
+    ...approved.files.filter((file) => /\.(?:md|markdown|mdown|mkd|txt)$/i.test(file)),
   ].sort();
   const key = JSON.stringify({ files, excluded: store.getSettings().excluded });
   if (key === watchedKey) return;
@@ -233,15 +242,19 @@ async function boot() {
       proxyRules: `${proxy.hostname}:${proxy.port || '80'}`,
     });
   }
+  let importer: TransferService;
   store = new NoteStore(dataDirectory, {
     openFile: async () => {
       const result = await dialog.showOpenDialog(window!, {
         properties: ['openFile'],
-        filters: [{ name: 'Markdown 笔记', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
+        filters: [
+          { name: 'Markdown 或纯文本笔记', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] },
+        ],
       });
       return result.canceled ? null : result.filePaths[0] || null;
     },
     saveFile: (suggested) => chooseSave(suggested, 'md'),
+    prepareSave: (request, target) => importer.prepareSave(request, target),
     selectDirectory: async () => {
       const result = await dialog.showOpenDialog(window!, {
         properties: ['openDirectory', 'createDirectory'],
@@ -254,6 +267,39 @@ async function boot() {
     fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
   });
   await store.initialize();
+  importer = new TransferService(store, {
+    chooseFiles: async () => {
+      const result = await dialog.showOpenDialog(window!, {
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: '笔记、表格或图片',
+            extensions: [
+              'md',
+              'markdown',
+              'mdown',
+              'mkd',
+              'txt',
+              'html',
+              'htm',
+              'csv',
+              'tsv',
+              'png',
+              'jpg',
+              'jpeg',
+              'webp',
+              'gif',
+              'avif',
+              'bmp',
+              'svg',
+              'ico',
+            ],
+          },
+        ],
+      });
+      return result.canceled ? [] : result.filePaths;
+    },
+  });
   const fonts = new FontManager(dataDirectory, {
     selectFiles: async () => {
       const result = await dialog.showOpenDialog(window!, {
@@ -296,6 +342,14 @@ async function boot() {
     }
   });
   const handlers = {
+    prepareFiles: (paths: string[]) => importer.preparePaths(paths),
+    chooseImports: () => importer.chooseImports(),
+    readImport: (id: string, encoding: ImportEncoding) => importer.readImport(id, encoding),
+    importAssetUrl: async (id: string, reference: string) => {
+      const file = await importer.resolveAsset(id, reference);
+      await store.approveFile(file);
+      return assetUrl(file);
+    },
     getWindowMode: async () => requireWindowModes().getMode(),
     centerWindow: () => requireWindowModes().center(),
     setWindowMode: (mode: WindowMode) => requireWindowModes().setMode(mode),
@@ -306,7 +360,7 @@ async function boot() {
     },
     bootstrap: async (): Promise<Bootstrap> => {
       let availableFonts = bundledFonts;
-      const warnings: string[] = [];
+      const warnings: string[] = [...migrationWarnings];
       try {
         availableFonts = await fonts.getFonts();
       } catch (error) {
@@ -381,6 +435,8 @@ async function boot() {
           'saveSettings',
           'saveFile',
           'periodicNote',
+          'prepareFiles',
+          'chooseImports',
         ].includes(method)
       )
         await refreshWatcher();
@@ -502,7 +558,7 @@ async function boot() {
   await window.loadURL(mainUrl);
   await refreshWatcher();
   const initialFile = process.argv.find(
-    (value) => /\.(md|markdown|mdown|mkd)$/i.test(value) && !value.startsWith('--'),
+    (value) => /\.(md|markdown|mdown|mkd|txt)$/i.test(value) && !value.startsWith('--'),
   );
   if (initialFile) {
     await store.approveFile(path.resolve(initialFile));
@@ -514,7 +570,7 @@ const lock = testMode || app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', async (_event, argv) => {
-    const file = argv.find((value) => /\.(md|markdown|mdown|mkd)$/i.test(value));
+    const file = argv.find((value) => /\.(md|markdown|mdown|mkd|txt)$/i.test(value));
     if (file && windowModes) {
       try {
         await windowModes.setMode('full');
@@ -532,7 +588,14 @@ else {
   });
   app
     .whenReady()
-    .then(boot)
+    .then(async () => {
+      if (!(testMode && dataFlag)) {
+        const result = await migrateDataDirectory(appDataRoot);
+        app.setPath('userData', result.directory);
+        migrationWarnings = result.warnings;
+      }
+      await boot();
+    })
     .catch((error) => {
       dialog.showErrorBox('鸢笺启动失败', error instanceof Error ? error.message : String(error));
       app.exit(1);
