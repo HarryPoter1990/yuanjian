@@ -211,3 +211,34 @@ it('blocks non-image file fallback instead of inserting binary text into the doc
   expect(view.state.doc.toString()).toBe('正文保留');
   expect(error).toHaveBeenCalledWith(expect.stringContaining('非图片文件未插入正文'));
 });
+it('keeps an internal selection drag on CodeMirror move semantics despite an HTML flavor', async () => {
+  const { view } = await mount('甲\n\n乙');
+  await act(async () => view.dispatch({ selection: { anchor: 0, head: 1 } }));
+  vi.spyOn(view, 'posAtCoords').mockReturnValue(4);
+  const values: Record<string, string> = {
+    'text/html': '<table><tr><td>不应转换</td></tr></table>',
+  };
+  const transfer = {
+    files: [],
+    types: ['Text', 'text/plain', 'text/html'],
+    getData: vi.fn((type: string) => values[type] ?? ''),
+    setData: (type: string, value: string) => {
+      values[type] = value;
+    },
+    effectAllowed: 'copyMove',
+  };
+  const event = (type: string) => {
+    const value = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100,
+    });
+    Object.defineProperty(value, 'dataTransfer', { value: transfer });
+    return value;
+  };
+  await act(async () => view.contentDOM.dispatchEvent(event('dragstart')));
+  await act(async () => view.contentDOM.dispatchEvent(event('drop')));
+  expect(view.state.doc.toString()).toBe('\n\n乙甲');
+  expect(transfer.getData).not.toHaveBeenCalledWith('text/html');
+});
