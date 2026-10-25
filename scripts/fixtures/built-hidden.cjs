@@ -56,7 +56,21 @@ app
     await wait(()=>document.querySelector('.graph-canvas canvas')&&document.querySelector('.graph-legend')?.textContent.includes('2 个节点'));
     document.querySelector('.tabs-bar [role="tab"]').click();
     await wait(()=>document.querySelector('.cm-content')?.textContent.includes('生成内容'));
-    return {protocol:location.protocol,bodyPreserved:true,fontsReady:document.fonts.status==='loaded'};
+    document.querySelector('button[aria-label="打开设置"]').click();
+    await wait(()=>document.querySelector('.settings-nav'));
+    [...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('字体管理')).click();
+    await wait(()=>document.querySelector('button[aria-label="正文字体"]'));
+    document.querySelector('button[aria-label="正文字体"]').click();
+    await wait(()=>document.querySelector('.font-picker-panel')?.matches(':popover-open'));
+    const input=document.querySelector('input[aria-label="搜索正文字体"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Generated System Font');
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    await wait(()=>[...document.querySelectorAll('.font-option-name')].some(node=>node.textContent==='Generated System Font'));
+    [...document.querySelectorAll('.font-option-name')].find(node=>node.textContent==='Generated System Font').closest('[role="option"]').click();
+    await wait(()=>!document.querySelector('.font-picker-panel')&&document.querySelector('button[aria-label="正文字体"]').textContent.includes('Generated System Font'));
+    document.querySelector('button[aria-label="关闭对话框"]').click();
+    await wait(()=>!document.querySelector('.settings-layout'));
+    return {protocol:location.protocol,bodyPreserved:true,fontsReady:document.fonts.status==='loaded',fontPickerVerified:true};
   })()`);
     details.initialGraphRequests = initialGraphRequests;
     details.graphResources = requests.filter((url) => url.includes('yuanjian-graph'));
@@ -64,6 +78,7 @@ app
     assert.equal(details.initialGraphRequests, 0);
     assert.ok(details.graphResources.some((url) => url.includes('yuanjian-graph-engine')));
     assert.equal(details.fontsReady, true);
+    assert.equal(details.fontPickerVerified, true);
     assert.equal(target.isVisible(), false);
     fs.writeFileSync(
       report,

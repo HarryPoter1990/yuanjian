@@ -18,7 +18,12 @@ const preload = await build({
   const tab={id:'generated-A',path:'D:/generated-built/A.md',title:'隔离产物检查',content,baseContent:content,hash:'a',modifiedAt:1,dirty:false,cursor:content.length,scrollTop:0,mode:'live'};
   const settings={...defaultSettings,autoSave:false};
   contextBridge.exposeInMainWorld('notes',{
-    bootstrap:async()=>({settings,session:{tabs:[tab],activeId:tab.id},fonts:[],dataDirectory:'isolated-memory',version:'built-hidden'}),
+    bootstrap:async()=>({settings,session:{tabs:[tab],activeId:tab.id},fonts:[
+      {id:'sans',name:'Noto Sans SC Variable',source:'bundled'},
+      {id:'inter',name:'Inter Variable',source:'bundled'},
+      {id:'system-generated',name:'Generated System Font',source:'system'}
+    ],dataDirectory:'isolated-memory',version:'built-hidden'}),
+    getFontCatalog:async()=>[],
     getIndex:async()=>['A','B'].map(name=>({path:'D:/generated-built/'+name+'.md',title:name,tags:[],links:[],headings:[],modifiedAt:1})),
     getTree:async()=>[],saveSession:async()=>{},saveSettings:async value=>value,
     getWindowMode:async()=>({mode:'full',pinned:false}),setWindowTheme:async()=>{},

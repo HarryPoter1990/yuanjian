@@ -65,8 +65,19 @@ export function FontPicker({
     const element = panel.current!;
     const place = () => {
       const rect = trigger.current!.getBoundingClientRect();
-      const below = innerHeight - rect.bottom - 12;
-      const above = rect.top - 12;
+      const owner = trigger.current!.closest('dialog');
+      const header = owner?.querySelector('.modal-header')?.getBoundingClientRect();
+      const topEdge = Math.max(12, (header?.bottom ?? 4) + 8);
+      const bottomEdge = Math.min(
+        innerHeight - 12,
+        (owner?.getBoundingClientRect().bottom ?? innerHeight) - 8,
+      );
+      if (rect.bottom <= topEdge || rect.top >= bottomEdge) {
+        setOpen(false);
+        return;
+      }
+      const below = bottomEdge - rect.bottom - 8;
+      const above = rect.top - topEdge - 8;
       const upward = below < 280 && above > below;
       const width = Math.min(Math.max(rect.width, 320), innerWidth - 24);
       setPosition({
@@ -192,6 +203,7 @@ export function FontPicker({
             className="font-picker-options"
             id={`${id}-options`}
             role="listbox"
+            tabIndex={-1}
             aria-label={`${label}选项`}
           >
             {groups.map(

@@ -543,10 +543,10 @@ export function SettingsPanel({
                 字体管理
               </h3>
               <p className="section-description">
-                直接预览系统字体；导入和下载的字体仅在鸢笺内使用。
+                内置和我的字体优先显示，系统字体可展开或搜索。导入和下载的字体仅在鸢笺内使用。
               </p>
               {(['uiFont', 'bodyFont', 'headingFont', 'codeFont'] as const).map((key) => (
-                <SettingField key={key} id={key}>
+                <SettingField key={key} id={key} description={settingDefinitions[key].description}>
                   <FontPicker
                     label={settingDefinitions[key].label}
                     value={appearance[key]}

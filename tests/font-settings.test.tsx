@@ -17,11 +17,19 @@ const fonts: FontEntry[] = [
   { id: 'system-b', name: 'System Beta', source: 'system' },
 ];
 let host: HTMLDivElement, root: Root, current: Settings;
+let replaceSettings: (settings: Settings) => void;
 const saved = vi.fn(),
   removed = vi.fn();
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   window.matchMedia = () => ({ matches: false }) as MediaQueryList;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this instanceof HTMLDialogElement) return new DOMRect(0, 0, 1000, 800);
+    if (this.classList.contains('modal-header')) return new DOMRect(0, 0, 1000, 60);
+    return new DOMRect(400, 180, 200, 32);
+  });
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -41,6 +49,7 @@ beforeEach(async () => {
   root = createRoot(host);
   function Harness() {
     const [settings, setSettings] = useState(structuredClone(defaultSettings));
+    replaceSettings = setSettings;
     const [available, setAvailable] = useState(fonts);
     current = settings;
     return (
@@ -72,6 +81,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const button = (label: string) =>
   [...host.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -183,5 +193,21 @@ it('does not treat composing Enter or Escape as a font selection or picker dismi
   expect(saved).not.toHaveBeenCalled();
   await key(input, 'Escape', true);
   expect(popup()).not.toBeNull();
+  expect(saved).not.toHaveBeenCalled();
+});
+it('preserves a configured font absent from the current list and keeps it available as the current choice', async () => {
+  await act(async () =>
+    replaceSettings({
+      ...current,
+      appearance: { ...current.appearance, bodyFont: 'Saved Missing Font' },
+    }),
+  );
+  await act(async () => button('正文字体').click());
+  expect(popup().querySelector('[aria-selected="true"]')?.textContent).toContain(
+    'Saved Missing Font',
+  );
+  expect(popup().textContent).toContain('当前设置 · 未在列表中');
+  await key(host.querySelector<HTMLInputElement>('input[aria-label="搜索正文字体"]')!, 'Escape');
+  expect(current.appearance.bodyFont).toBe('Saved Missing Font');
   expect(saved).not.toHaveBeenCalled();
 });
