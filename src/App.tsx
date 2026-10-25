@@ -39,6 +39,7 @@ import {
 } from './ui/icons';
 import type {
   FontEntry,
+  ImportSource,
   NoteMeta,
   Settings as AppSettings,
   TabState,
@@ -47,6 +48,8 @@ import type {
 } from './shared/types';
 import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from './shared/markdown';
 import { MarkdownEditor } from './editor/MarkdownEditor';
+import { convertRichText } from './editor/clipboard';
+import { ImportPanel } from './components/ImportPanel';
 import type {
   EditorCommand,
   EditorSession,
@@ -83,6 +86,7 @@ import { exportCanvasStyle } from './ui/exportStyle';
 import { frameValue, panelWidth, visiblePanels } from './ui/layout';
 import { useWindowMode } from './ui/useWindowMode';
 import {
+  acceptSave,
   appearanceColors,
   dateKey,
   errorText,
@@ -94,6 +98,8 @@ import {
 type Panel =
   | 'settings'
   | 'quick-open'
+  | 'import'
+  | 'import-results'
   | 'new'
   | 'history'
   | 'attachments'
@@ -145,6 +151,11 @@ export default function App() {
   const [fonts, setFonts] = useState<FontEntry[]>([]);
   const [wallpaperUrl, setWallpaperUrl] = useState('');
   const [busy, setBusy] = useState('');
+  const [importSources, setImportSources] = useState<ImportSource[]>([]);
+  const [transferResults, setTransferResults] = useState<
+    { name: string; message: string; error?: boolean; sourceId?: string }[]
+  >([]);
+  const transferring = useRef(false);
   const [exportTheme, setExportTheme] = useState(false);
   const [exportWallpaper, setExportWallpaper] = useState(false);
   const [localizeTarget, setLocalizeTarget] = useState('');
@@ -588,6 +599,171 @@ export default function App() {
       setBusy('');
     }
   }
+  function importedDraft(source: ImportSource, content: string) {
+    const leaving = positionFor();
+    const id = workspace.newDraft(content, source.name.replace(/\.[^.]+$/, ''));
+    updateTab(id, { importSourceId: source.id });
+    activateNote(id, leaving);
+    return id;
+  }
+  async function transferFiles(files?: File[], point?: { x: number; y: number }, bodyDrop = false) {
+    if (transferring.current || panel || workspace.conflict) {
+      notify('请先完成当前操作或关闭面板，再导入文件。');
+      return;
+    }
+    transferring.current = true;
+    const originId = activeRef.current?.id,
+      originView = editor.current?.getView();
+    try {
+      await run('导入文件', async () => {
+        const items = files
+          ? await window.notes.prepareFiles(files)
+          : await window.notes.chooseImports();
+        if (!items.length) return;
+        const statuses: typeof transferResults = [];
+        const pending: ImportSource[] = [];
+        const pictures = items.filter((item) => item.kind === 'image');
+        if (pictures.length) {
+          if (
+            (bodyDrop || !files) &&
+            originView &&
+            editor.current?.getView() === originView &&
+            activeRef.current?.id === originId
+          ) {
+            const values = pictures.map(
+              (item) => new File([new Uint8Array(item.bytes)], item.name, { type: item.mime }),
+            );
+            await editor.current.insertFiles(values, point);
+            for (const item of pictures)
+              statuses.push({
+                name: item.name,
+                message: '已交给原笔记附件流程处理；保存或图片失败会单独提示。',
+              });
+          } else
+            for (const item of pictures)
+              statuses.push({
+                name: item.name,
+                message: '图片未插入，请把图片拖到目标笔记正文；目标已切换时不会插入另一篇。',
+                error: true,
+              });
+        }
+        const actionable = items.filter(
+          (item) => item.kind === 'note' || item.kind === 'source' || item.kind === 'directory',
+        );
+        const canProcess = !(actionable.length && sticky && !(await windowMode.change('full')));
+        if (!canProcess) {
+          for (const item of actionable)
+            statuses.push({
+              name: item.name,
+              message: '无法返回完整窗口，本文件尚未导入。',
+              error: true,
+            });
+        }
+        for (const item of items) {
+          if (item.kind === 'image') continue;
+          if (item.kind === 'error') {
+            statuses.push({ name: item.name, message: item.message, error: true });
+            continue;
+          }
+          if (!canProcess) continue;
+          try {
+            if (item.kind === 'directory') {
+              const current = settingsRef.current;
+              if (current)
+                changeSettings({
+                  ...current,
+                  roots: [...new Set([...current.roots, item.path])],
+                });
+              statuses.push({ name: item.name, message: '已添加到左侧目录。' });
+            } else if (item.kind === 'note') {
+              const leaving = positionFor();
+              const id = workspace.openDocument(item.note);
+              activateNote(id, leaving);
+              statuses.push({
+                name: item.name,
+                message: '已打开原文件；没有把原文插入其他笔记。',
+              });
+            } else if (item.source.format === 'html') {
+              const converted = convertRichText(item.source.text);
+              importedDraft(item.source, converted.markdown);
+              statuses.push({
+                name: item.name,
+                message: converted.notices.length
+                  ? `已生成草稿；${converted.notices.join('；')}`
+                  : '已生成 Markdown 草稿，原文件未修改。',
+                sourceId: item.source.id,
+              });
+            } else {
+              pending.push(item.source);
+              statuses.push({
+                name: item.name,
+                message: '等待确认表格预览。',
+                sourceId: item.source.id,
+              });
+            }
+          } catch (reason) {
+            statuses.push({
+              name: item.name,
+              message: `未完成处理：${errorText(reason)}；原文件未修改。`,
+              error: true,
+            });
+          }
+        }
+        setTransferResults(statuses);
+        setImportSources(pending);
+        if (pending.length) setPanel('import');
+        else if (actionable.length || statuses.some((item) => item.error))
+          setPanel('import-results');
+        else notify(`已处理 ${pictures.length} 张图片，请查看原笔记中的附件结果。`);
+      });
+    } finally {
+      transferring.current = false;
+    }
+  }
+  function finishTableImport(source: ImportSource, content?: string) {
+    if (content !== undefined) importedDraft(source, content);
+    setTransferResults((previous) =>
+      previous.map((item) =>
+        item.sourceId === source.id
+          ? {
+              ...item,
+              message:
+                content === undefined
+                  ? '已取消本文件导入；原文件未修改。'
+                  : '已生成 Markdown 草稿；原文件未修改。',
+            }
+          : item,
+      ),
+    );
+    setImportSources((previous) => previous.filter((item) => item.id !== source.id));
+    if (importSources.length <= 1) setPanel('import-results');
+  }
+  const transferHandler = useRef(transferFiles);
+  transferHandler.current = transferFiles;
+  useEffect(() => {
+    const over = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+    };
+    const drop = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const values = Array.from(event.dataTransfer.files);
+      const inBody =
+        event.target instanceof Element && Boolean(event.target.closest('.editor-surface'));
+      if (!values.length) {
+        notify('未取得拖入文件身份，目录或文件尚未处理。', true);
+        return;
+      }
+      void transferHandler.current(values, { x: event.clientX, y: event.clientY }, inBody);
+    };
+    window.addEventListener('dragover', over, true);
+    window.addEventListener('drop', drop, true);
+    return () => {
+      window.removeEventListener('dragover', over, true);
+      window.removeEventListener('drop', drop, true);
+    };
+  }, [notify]);
   async function ensureSaved(id: string): Promise<boolean> {
     const latest = workspace.getTab(id);
     if (!latest) return false;
@@ -1287,6 +1463,7 @@ export default function App() {
         <DropdownMenu label={more ? '更多操作' : '应用菜单'} onClose={() => setAppMenu(false)}>
           {[
             ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
+            ['导入文件', () => void transferFiles(), ''],
             ['快速打开笔记', () => setPanel('quick-open'), settings.shortcuts.quickOpen],
             ['重新打开关闭的笔记', () => void reopenLastClosed(), settings.shortcuts.reopen],
             ['新建空白笔记', newNote, settings.shortcuts.new],
@@ -1437,6 +1614,7 @@ export default function App() {
               },
               { label: '新建空白笔记', run: newNote },
               { label: '打开 Markdown 文件', run: () => void open() },
+              { label: '导入文件', run: () => void transferFiles() },
               { label: '撤销', run: () => editor.current?.command('undo') },
               { label: '重做', run: () => editor.current?.command('redo') },
               { label: '查找与替换', run: () => editor.current?.command('replace') },
@@ -1759,6 +1937,12 @@ export default function App() {
                       mode={active.mode}
                       settings={settings}
                       notePath={active.path}
+                      resolveAssetAsync={
+                        active.importSourceId
+                          ? (reference) =>
+                              window.notes.importAssetUrl(active.importSourceId!, reference)
+                          : undefined
+                      }
                       initialCursor={active.cursor}
                       initialScroll={active.scrollTop}
                       initialSession={editorSessions.current.get(active.id)}
@@ -2090,6 +2274,32 @@ export default function App() {
             onClose={() => setPanel(null)}
             busy={quickOpenBusy}
           />
+        )}
+        {panel === 'import' && importSources[0] && (
+          <ImportPanel
+            key={importSources[0].id}
+            source={importSources[0]}
+            onClose={() => finishTableImport(importSources[0])}
+            onImport={(source, content) => finishTableImport(source, content)}
+          />
+        )}
+        {panel === 'import-results' && (
+          <Modal title="文件处理结果" onClose={() => setPanel(null)} pending={false}>
+            <div className="panel-content">
+              <p>原始文件保持不变。导入生成的草稿需要另行保存。</p>
+              <ul className="transfer-results">
+                {transferResults.map((item, index) => (
+                  <li key={index}>
+                    <strong>{item.name}</strong>
+                    <p className={item.error ? 'inline-error' : ''}>{item.message}</p>
+                  </li>
+                ))}
+              </ul>
+              <footer className="dialog-actions">
+                <button onClick={() => setPanel(null)}>完成</button>
+              </footer>
+            </div>
+          </Modal>
         )}
         {panel === 'settings' && (
           <SettingsPanel
@@ -2434,15 +2644,22 @@ export default function App() {
                         baseContent: conflict.detail.theirs,
                         hash: conflict.detail.hash,
                         title: tab.title,
+                        importSourceId: tab.importSourceId,
                       });
                       if (result.status === 'saved' && result.note) {
-                        updateTab(tab.id, {
-                          ...result.note,
-                          baseContent: result.note.content,
-                          dirty: false,
-                        });
-                        workspace.setConflict(null);
-                        notify('已按选择保存本地版本；外部版本已由历史保留');
+                        const latest = workspace.getTab(tab.id);
+                        if (!latest) return;
+                        const accepted = acceptSave(latest, tab.content, result);
+                        if (!accepted.conflict && !accepted.tab.dirty)
+                          accepted.tab.importSourceId = undefined;
+                        updateTab(tab.id, accepted.tab);
+                        workspace.setConflict(
+                          accepted.conflict ? { tabId: tab.id, detail: accepted.conflict } : null,
+                        );
+                        for (const notice of result.notices ?? []) notify(notice, true);
+                        if (accepted.conflict)
+                          error('保存期间有新输入，双方内容已保留，请继续比较。');
+                        else notify('已按选择保存本地版本；外部版本已由历史保留');
                       } else if (result.conflict) {
                         workspace.setConflict({ tabId: tab.id, detail: result.conflict });
                         error('文件再次变化，请重新比较。');

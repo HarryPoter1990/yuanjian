@@ -1,0 +1,44 @@
+.import-panel {
+  padding: 0 18px 18px;
+  min-width: 0;
+}
+.import-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.import-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.import-preview {
+  max-height: 40vh;
+  overflow: auto;
+  margin: 12px 0;
+}
+.import-preview table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+.import-preview th,
+.import-preview td {
+  border: 1px solid var(--border);
+  padding: 6px 9px;
+  white-space: pre-wrap;
+  min-width: 70px;
+  overflow-wrap: anywhere;
+}
+.transfer-results {
+  padding-left: 20px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.transfer-results li {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.transfer-results p {
+  margin: 4px 0;
+}

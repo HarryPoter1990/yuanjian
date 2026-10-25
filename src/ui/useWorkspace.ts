@@ -254,6 +254,7 @@ export function useWorkspace(onExternalOpen?: () => void) {
             baseContent: tab.baseContent,
             hash: tab.hash,
             title: tab.title,
+            importSourceId: tab.importSourceId,
           });
           if (outcome.status === 'conflict' && outcome.conflict) {
             const latest = current.current.tabs.find((item) => item.id === id);
@@ -270,7 +271,9 @@ export function useWorkspace(onExternalOpen?: () => void) {
           const latest = current.current.tabs.find((item) => item.id === id);
           if (!latest) return true;
           const accepted = acceptSave(latest, tab.content, outcome);
+          if (!accepted.conflict && !accepted.tab.dirty) accepted.tab.importSourceId = undefined;
           updateTab(id, accepted.tab);
+          for (const notice of outcome.notices ?? []) notify(notice, true);
           if (accepted.conflict) {
             const next = { tabId: id, detail: accepted.conflict };
             current.current.conflict = next;
@@ -519,8 +522,10 @@ export function useWorkspace(onExternalOpen?: () => void) {
       baseContent: detail.theirs,
       hash: detail.hash,
       dirty: false,
+      importSourceId: undefined,
     });
-    newDraft(ours.content, `${ours.title.replace(/\.md$/i, '')} · 本地保留`);
+    const retained = newDraft(ours.content, `${ours.title.replace(/\.md$/i, '')} · 本地保留`);
+    if (ours.importSourceId) updateTab(retained, { importSourceId: ours.importSourceId });
     setConflict(null);
     notify('外部文件已保留；本地内容已放入独立草稿，可另存。');
   }
