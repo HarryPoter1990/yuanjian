@@ -25,8 +25,7 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
 });
-async function mount() {
-  const value = '# 顶\n\n**加粗文字**\n\n$x+1$\n\n尾段';
+async function mount(value = '# 顶\n\n**加粗文字**\n\n$x+1$\n\n尾段') {
   await act(async () =>
     root.render(
       <MarkdownEditor
@@ -72,4 +71,13 @@ it('preserves formatting when the selected visible text is contained inside a st
   const html = document.createElement('div');
   html.innerHTML = content.html;
   expect(html.querySelector('strong')?.textContent).toBe('加粗文字');
+});
+it('preserves all enclosing inline formats for a selection inside a formatted link', async () => {
+  const view = await mount('# 顶\n\n***[嵌套文字](https://example.org)***\n\n尾段');
+  textSelection(host.querySelector('.markdown-preview-block a')!);
+  const content = selectedCopy(view)!;
+  const html = document.createElement('div');
+  html.innerHTML = content.html;
+  expect(html.querySelector('strong em a, em strong a')?.textContent).toBe('嵌套文字');
+  expect(content.markdown).toContain('https://example.org');
 });

@@ -3,7 +3,7 @@ import type { EditorView } from '@codemirror/view';
 import { createPortal } from 'react-dom';
 import { DropdownMenu } from '../components/Controls';
 import { sourcePositionAtPoint } from './live-preview';
-import { selectedCopy, writeCopy, type CopyContent } from './clipboard-output';
+import { selectedCopy, type CopyContent } from './clipboard-output';
 
 const shortcuts: Record<string, string> = {
   撤销: 'Ctrl+Z',
@@ -77,6 +77,8 @@ export function EditorContextMenu({
   onError,
   pastePlain,
   pasteRich,
+  copyContent,
+  pasteCell: pasteCellAction,
 }: {
   state: EditorMenuState;
   view: EditorView;
@@ -84,6 +86,8 @@ export function EditorContextMenu({
   onError(message: string): void;
   pastePlain(): void;
   pasteRich(): void;
+  copyContent(content: CopyContent): Promise<string[]>;
+  pasteCell(input: HTMLInputElement | HTMLTextAreaElement, plainOnly: boolean): Promise<void>;
 }) {
   const copyText = (text: string) => navigator.clipboard.writeText(text);
   const run = (action: () => void | Promise<void>) => {
@@ -105,7 +109,7 @@ export function EditorContextMenu({
   );
   const copySelection = async () => {
     if (!state.copy) return;
-    const notices = await writeCopy(state.copy);
+    const notices = await copyContent(state.copy);
     if (notices.length) onError(notices.join('\n'));
   };
   const cutSelection = async () => {
@@ -117,7 +121,7 @@ export function EditorContextMenu({
       onError('原选区内容已变化，请重新选择后剪切。');
       return;
     }
-    const notices = await writeCopy(state.copy);
+    const notices = await copyContent(state.copy);
     if (!view.dom.isConnected) return;
     if (!view.state.doc.eq(originalDoc) || !view.state.selection.eq(selection)) {
       onError('正文或选区已变化，已复制原文字，本次未剪切。');
@@ -154,22 +158,17 @@ export function EditorContextMenu({
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
   };
-  const pasteCell = async () => {
-    const input = state.input!,
-      value = input.value,
-      from = input.selectionStart ?? 0,
-      to = input.selectionEnd ?? from;
-    const text = await navigator.clipboard.readText();
-    if (!input.isConnected) return;
-    if (input.value !== value) {
-      onError('单元格已变化，未覆盖新内容，请重新粘贴。');
-      return;
-    }
-    const insert = text.replace(/\r\n?/g, '\n');
-    input.value = value.slice(0, from) + insert + value.slice(to);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-    input.setSelectionRange(from + insert.length, from + insert.length);
+  const copyTable = () => {
+    const table = state.input?.closest<HTMLElement>('.markdown-table-widget');
+    if (!table) return;
+    const from = Number(table.dataset.tableFrom),
+      to = Number(table.dataset.tableTo);
+    table.dispatchEvent(
+      new CustomEvent('yuanjian:copy-table', {
+        bubbles: true,
+        detail: { from, to, source: view.state.sliceDoc(from, to) },
+      }),
+    );
   };
   const label =
     state.kind === 'table'
@@ -183,8 +182,10 @@ export function EditorContextMenu({
         {state.input ? (
           <>
             {item('复制单元格', () => copyText(state.input!.value))}
+            {item('复制整个表格', copyTable)}
             {item('剪切单元格', cutCell)}
-            {item('粘贴为纯文本', pasteCell)}
+            {item('粘贴', () => pasteCellAction(state.input!, false))}
+            {item('粘贴为纯文本', () => pasteCellAction(state.input!, true))}
             {item('在下方插入行', () => tableAction('+ 行'))}
             {item('在右侧插入列', () => tableAction('+ 列'))}
           </>

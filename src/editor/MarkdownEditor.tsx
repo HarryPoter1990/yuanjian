@@ -55,12 +55,13 @@ import {
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
-import { compoundClipboardToMarkdown, richTextToMarkdown } from './clipboard';
+import { compoundClipboardToMarkdown, convertRichText } from './clipboard';
 import { setHeading as applyHeading, toggleInlineFormat, toggleLineFormat } from './format';
 import { compactSearch, openEditorSearch } from './search-panel';
-import { readClipboardContent } from './clipboard-reader';
+import { readClipboardContent, type ClipboardPart } from './clipboard-reader';
 import { EditorContextMenu, editorMenuAt, type EditorMenuState } from './context-menu';
-import { selectedCopy, writeCopy } from './clipboard-output';
+import { markdownCopy, selectedCopy, writeCopy, type CopyContent } from './clipboard-output';
+import { embeddedClipboardImages } from './clipboard-images';
 import type {
   EditorCommand,
   EditorScrollAnchor,
@@ -107,6 +108,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const [error, setError] = useState('');
     const [menu, setMenu] = useState<EditorMenuState | null>(null);
     const pendingImages = useRef<Array<{ from: number; to: number; conflicted: boolean }>>([]);
+    const internalDrag = useRef(false);
+    const plainClipboardIntent = useRef(false);
     const scrollRestore = useRef<{ top: number; anchor?: EditorScrollAnchor } | null>(null);
     const lastScroll = useRef<number | undefined>(undefined);
     const scrollMeasureKey = useRef({});
@@ -114,6 +117,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       setError(message);
       propsRef.current.onError?.(message);
     };
+    function copyContent(content: CopyContent): Promise<string[]> {
+      const current = propsRef.current;
+      return writeCopy(
+        content,
+        current.resolveAssetAsync ??
+          ((reference) => window.notes.assetUrl(reference, current.notePath ?? undefined)),
+      );
+    }
     function copyEvent(event: React.ClipboardEvent<HTMLDivElement>, cut: boolean): void {
       const view = viewRef.current;
       if (
@@ -127,7 +138,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       event.stopPropagation();
       const doc = view.state.doc,
         selection = view.state.selection;
-      void writeCopy(content)
+      void copyContent(content)
         .then((notices) => {
           if (viewRef.current !== view) return;
           if (cut) {
@@ -342,22 +353,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
 
     async function pasteClipboard(view: EditorView, plainOnly = false): Promise<void> {
+      const position = view.state.selection.main.head;
+      const usePlain = plainOnly || inCode(view.state, position) || inMath(view.state, position);
       await insertPending(view, async () => {
-        const content = await readClipboardContent(navigator.clipboard, plainOnly);
+        const content = await readClipboardContent(navigator.clipboard, usePlain);
         if (viewRef.current !== view) return { markdown: '', notices: [] };
         const results = [];
         for (const part of content.items) {
           if (viewRef.current !== view) return { markdown: '', notices: [] };
-          results.push(
-            part.files.length
-              ? await compoundClipboardToMarkdown(part.html, part.plain, part.files, (file) =>
-                  importForView(view, file),
-                )
-              : {
-                  markdown: part.html ? richTextToMarkdown(part.html, part.plain) : part.plain,
-                  notices: [] as string[],
-                },
-          );
+          results.push(await convertPart(view, part));
         }
         return {
           markdown: results
@@ -367,6 +371,78 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           notices: [...content.notices, ...results.flatMap((result) => result.notices)],
         };
       });
+    }
+    async function convertPart(view: EditorView, original: ClipboardPart) {
+      const { part, notices } = embeddedClipboardImages(original);
+      const result =
+        part.html || part.files.length
+          ? await compoundClipboardToMarkdown(part.html, part.plain, part.files, (file) =>
+              importForView(view, file),
+            )
+          : { markdown: part.plain, notices: [] as string[] };
+      return { markdown: result.markdown, notices: [...notices, ...result.notices] };
+    }
+    async function pasteIntoCell(
+      input: HTMLInputElement | HTMLTextAreaElement,
+      plainOnly: boolean,
+      eventPart?: ClipboardPart,
+    ): Promise<void> {
+      const view = viewRef.current;
+      if (!view) return;
+      const source = view.state.doc,
+        value = input.value;
+      const selectionStart = input.selectionStart,
+        selectionEnd = input.selectionEnd;
+      const content = eventPart
+        ? { items: [eventPart], notices: [] as string[] }
+        : await readClipboardContent(navigator.clipboard, plainOnly);
+      const parts: ClipboardPart[] = [],
+        notices = [...content.notices];
+      for (const part of content.items) {
+        if (part.files.length || /<img\b[^>]*\bsrc\s*=\s*["']?data:/i.test(part.html)) {
+          const converted = await convertPart(view, part);
+          notices.push(...converted.notices);
+          parts.push({
+            html: markdownCopy(converted.markdown).html,
+            plain: converted.markdown,
+            files: [],
+          });
+        } else parts.push(part);
+      }
+      if (viewRef.current !== view || !input.isConnected) return;
+      if (
+        !view.state.doc.eq(source) ||
+        input.value !== value ||
+        input.selectionStart !== selectionStart ||
+        input.selectionEnd !== selectionEnd
+      ) {
+        report('等待粘贴期间正文、单元格或选区已变化，未覆盖新输入，请重新粘贴。');
+        return;
+      }
+      const plain = parts
+        .map((part) => part.plain || (part.html ? convertRichText(part.html).markdown : ''))
+        .join('\n');
+      const html =
+        parts.length === 1
+          ? parts[0].html
+          : parts
+              .map((part) => {
+                if (part.html) return part.html;
+                const paragraph = document.createElement('p');
+                for (const [index, line] of part.plain.split('\n').entries()) {
+                  if (index) paragraph.append(document.createElement('br'));
+                  paragraph.append(document.createTextNode(line));
+                }
+                return paragraph.outerHTML;
+              })
+              .join('\n');
+      input.dispatchEvent(
+        new CustomEvent('yuanjian:paste-cell', {
+          bubbles: true,
+          detail: { html, plain, plainOnly },
+        }),
+      );
+      if (notices.length) report(notices.join('\n'));
     }
 
     const runCommand = (name: EditorCommand): boolean => {
@@ -620,40 +696,62 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
                 if (!data) return false;
                 const plain = data.getData('text/plain');
                 const html = data.getData('text/html');
-                const usePlain = plainPaste;
+                const position = editor.state.selection.main.head;
+                const usePlain =
+                  plainPaste ||
+                  plainClipboardIntent.current ||
+                  inCode(editor.state, position) ||
+                  inMath(editor.state, position);
                 plainPaste = false;
-                if (usePlain) return false;
+                plainClipboardIntent.current = false;
+                if (usePlain) {
+                  event.preventDefault();
+                  replaceSelection(editor, plain);
+                  if (!plain && (html || data.files.length))
+                    report('当前代码或公式位置仅接受纯文字，未插入图片或富文本。');
+                  return true;
+                }
                 const files = Array.from(data.files).filter((file) =>
                   file.type.startsWith('image/'),
                 );
-                if (files.length) {
+                if (files.length || html) {
                   event.preventDefault();
-                  void insertImages(editor, files, html || plain ? { html, plain } : undefined);
-                  return true;
-                }
-                if (html && !usePlain) {
-                  event.preventDefault();
-                  replaceSelection(editor, richTextToMarkdown(html, plain));
+                  void insertPending(editor, () => convertPart(editor, { html, plain, files }));
                   return true;
                 }
                 return false;
               },
               dragover(event) {
-                if (event.dataTransfer?.types.includes('Files')) {
+                if (
+                  event.dataTransfer?.types.includes('Files') ||
+                  (!internalDrag.current && event.dataTransfer?.types.includes('text/html'))
+                ) {
                   event.preventDefault();
                   return true;
                 }
                 return false;
               },
               drop(event, editor) {
-                const files = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
-                  file.type.startsWith('image/'),
-                );
-                if (!files.length) return false;
+                if (internalDrag.current) return false;
+                const allFiles = Array.from(event.dataTransfer?.files ?? []);
+                const files = allFiles.filter((file) => file.type.startsWith('image/'));
+                const html = event.dataTransfer?.getData('text/html') ?? '',
+                  plain = event.dataTransfer?.getData('text/plain') ?? '';
+                if (!allFiles.length && !html) return false;
                 event.preventDefault();
                 const position = editor.posAtCoords({ x: event.clientX, y: event.clientY });
                 if (position !== null) editor.dispatch({ selection: { anchor: position } });
-                void insertImages(editor, files);
+                if (allFiles.length) {
+                  if (files.length) void insertImages(editor, files);
+                  if (files.length !== allFiles.length)
+                    report('非图片文件未插入正文，请通过打开或导入文件入口处理。');
+                } else if (
+                  inCode(editor.state, editor.state.selection.main.head) ||
+                  inMath(editor.state, editor.state.selection.main.head)
+                )
+                  replaceSelection(editor, plain);
+                else
+                  void insertPending(editor, () => convertPart(editor, { html, plain, files: [] }));
                 return true;
               },
             }),
@@ -661,6 +759,52 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         }),
       });
       viewRef.current = view;
+      const copyTable = (event: Event): void => {
+        const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+        if (
+          !detail ||
+          typeof detail !== 'object' ||
+          !('from' in detail) ||
+          !('to' in detail) ||
+          !('source' in detail)
+        )
+          return;
+        const { from, to, source } = detail;
+        if (
+          typeof from !== 'number' ||
+          typeof to !== 'number' ||
+          typeof source !== 'string' ||
+          !Number.isInteger(from) ||
+          !Number.isInteger(to) ||
+          from < 0 ||
+          to > view.state.doc.length ||
+          to < from ||
+          view.state.sliceDoc(from, to) !== source
+        ) {
+          report('表格已变化，请重新复制。');
+          return;
+        }
+        void copyContent(markdownCopy(source))
+          .then((notices) => {
+            if (viewRef.current === view && notices.length) report(notices.join('\n'));
+          })
+          .catch((error) => {
+            if (viewRef.current === view)
+              report(`复制表格未完成：${error instanceof Error ? error.message : String(error)}`);
+          });
+      };
+      const editorNotice = (event: Event): void => {
+        const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+        if (
+          detail &&
+          typeof detail === 'object' &&
+          'message' in detail &&
+          typeof detail.message === 'string'
+        )
+          report(detail.message);
+      };
+      view.dom.addEventListener('yuanjian:copy-table', copyTable);
+      view.dom.addEventListener('yuanjian:editor-notice', editorNotice);
       const cancelRestore = (): void => {
         scrollRestore.current = null;
       };
@@ -678,6 +822,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           scrollAnchor: scrollRestore.current?.anchor ?? getScrollAnchor(view),
         });
         scrollRestore.current = null;
+        view.dom.removeEventListener('yuanjian:copy-table', copyTable);
+        view.dom.removeEventListener('yuanjian:editor-notice', editorNotice);
         for (const event of ['wheel', 'touchstart', 'mousedown'])
           view.scrollDOM.removeEventListener(event, cancelRestore, true);
         viewRef.current = null;
@@ -734,6 +880,41 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         className={`markdown-editor ${props.mode === 'source' ? 'is-source' : 'is-live'}`}
         onCopyCapture={(event) => copyEvent(event, false)}
         onCutCapture={(event) => copyEvent(event, true)}
+        onKeyDownCapture={(event) => {
+          plainClipboardIntent.current =
+            (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'v';
+        }}
+        onDragStartCapture={(event) => {
+          internalDrag.current =
+            event.target instanceof Node &&
+            Boolean(viewRef.current?.contentDOM.contains(event.target));
+        }}
+        onDragEndCapture={() => {
+          internalDrag.current = false;
+        }}
+        onPasteCapture={(event) => {
+          const input = event.target;
+          if (
+            !(input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) ||
+            !input.closest('.markdown-table-widget')
+          )
+            return;
+          const usePlain = plainClipboardIntent.current;
+          plainClipboardIntent.current = false;
+          if (usePlain) return;
+          const html = event.clipboardData.getData('text/html'),
+            files = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'));
+          if (!files.length && !/<img\b[^>]*\bsrc\s*=\s*["']?data:/i.test(html)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void pasteIntoCell(input, false, {
+            html,
+            plain: event.clipboardData.getData('text/plain'),
+            files,
+          }).catch((error) =>
+            report(`表格粘贴未完成：${error instanceof Error ? error.message : String(error)}`),
+          );
+        }}
         onContextMenu={(event) => {
           const view = viewRef.current;
           const next = view && editorMenuAt(view, event.nativeEvent);
@@ -750,6 +931,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             view={viewRef.current}
             onClose={() => setMenu(null)}
             onError={report}
+            copyContent={copyContent}
+            pasteCell={pasteIntoCell}
             pastePlain={() => {
               const view = viewRef.current;
               if (view) void pasteClipboard(view, true);

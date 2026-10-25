@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify';
 import { createMarkdownParser, renderMarkdown } from './renderer';
 import { convertRichText } from './clipboard';
 import { previewSourcePosition } from './preview-source-position';
+import { inlineClipboardImages } from './clipboard-images';
 
 export interface CopyContent {
   markdown: string;
@@ -72,6 +73,9 @@ function covers(range: Range, node: Node): boolean {
 }
 
 function cleanHTML(root: HTMLElement): string {
+  for (const image of root.querySelectorAll<HTMLImageElement>('img[data-asset-src]')) {
+    image.setAttribute('src', image.dataset.assetSrc ?? '');
+  }
   for (const control of root.querySelectorAll(
     '.code-caption,.code-language-toolbar,.code-line-number,.table-toolbar,button,select,summary',
   ))
@@ -191,12 +195,20 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       };
     const root = document.createElement('div');
     const fragment = range.cloneContents();
-    const ancestor = elementOf(range.commonAncestorContainer);
-    if (ancestor?.matches('strong,b,em,i,a,code,s,del')) {
-      const wrapper = ancestor.cloneNode(false);
-      wrapper.appendChild(fragment);
-      root.append(wrapper);
-    } else root.append(fragment);
+    let copied: Node = fragment;
+    for (
+      let ancestor = elementOf(range.commonAncestorContainer);
+      ancestor && ancestor !== view.contentDOM;
+      ancestor = ancestor.parentElement
+    ) {
+      if (ancestor.matches('strong,b,em,i,a,code,s,del,mark,sub,sup')) {
+        const wrapper = ancestor.cloneNode(false);
+        wrapper.appendChild(copied);
+        copied = wrapper;
+      }
+      if (ancestor.classList.contains('markdown-preview-block')) break;
+    }
+    root.append(copied);
     const originals = [...view.contentDOM.querySelectorAll('.katex,.katex-error')].filter((node) =>
       range.intersectsNode(node),
     );
@@ -235,15 +247,19 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       };
 }
 
-export async function writeCopy(content: CopyContent): Promise<string[]> {
+export async function writeCopy(
+  content: CopyContent,
+  resolveAsset?: (reference: string) => Promise<string>,
+): Promise<string[]> {
   if (typeof ClipboardItem !== 'undefined' && typeof navigator.clipboard.write === 'function') {
+    const prepared = inlineClipboardImages(content.html, resolveAsset);
     await navigator.clipboard.write([
       new ClipboardItem({
         'text/plain': new Blob([content.markdown], { type: 'text/plain' }),
-        'text/html': new Blob([content.html], { type: 'text/html' }),
+        'text/html': prepared.then((result) => new Blob([result.html], { type: 'text/html' })),
       }),
     ]);
-    return [];
+    return (await prepared).notices;
   }
   await navigator.clipboard.writeText(content.markdown);
   return ['当前环境不支持双格式剪贴板，已复制 Markdown 文字；富文本格式未携带。'];

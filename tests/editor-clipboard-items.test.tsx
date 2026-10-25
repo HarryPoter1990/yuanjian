@@ -63,16 +63,14 @@ it('pastes rich and plain-only items in their original order without losing eith
     ),
   );
   await act(async () =>
-    host
-      .querySelector('.cm-content')!
-      .dispatchEvent(
-        new MouseEvent('contextmenu', {
-          bubbles: true,
-          cancelable: true,
-          clientX: 100,
-          clientY: 100,
-        }),
-      ),
+    host.querySelector('.cm-content')!.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    ),
   );
   await act(async () =>
     [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
