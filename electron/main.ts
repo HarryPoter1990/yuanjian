@@ -361,6 +361,11 @@ async function boot() {
     bootstrap: async (): Promise<Bootstrap> => {
       let availableFonts = bundledFonts;
       const warnings: string[] = [...migrationWarnings];
+      const pending = await store.pendingHistory();
+      if (pending.length)
+        warnings.push(
+          `有 ${pending.length} 项历史补记未完成，可在版本历史中重试；正文不会被重写。`,
+        );
       try {
         availableFonts = await fonts.getFonts();
       } catch (error) {

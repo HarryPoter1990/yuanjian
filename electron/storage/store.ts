@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import { diff3Merge, diffComm } from 'node-diff3';
 import { defaultSettings } from '../../src/shared/defaults';
 import { extractLinks, parseNote, setFrontmatterTags } from '../../src/shared/markdown';
@@ -87,6 +88,7 @@ export class NoteStore {
   private readonly formats = new Map<string, SavedFormat>();
   private readonly baseline = new Set<string>();
   private initialized = false;
+  private pendingHistorySaves: { id: string; path: string; content: string; createdAt?: number }[] = [];
 
   constructor(
     readonly dataDirectory: string,
@@ -151,6 +153,18 @@ export class NoteStore {
     if (!Array.isArray(this.session.tabs)) throw new Error('会话文件损坏，原文件已保留');
     for (const tab of this.session.tabs) if (tab.path) await this.access.approveFile(tab.path);
     await this.history.initialize();
+    this.pendingHistorySaves = z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          path: z.string().refine(path.isAbsolute),
+          content: z.string().max(MAX_DOCUMENT_BYTES),
+          createdAt: z.number().finite().optional(),
+        }),
+      )
+      .max(10000)
+      .parse(await readJson(path.join(this.dataDirectory, 'pending-history-saves.json'), []));
+    await this.moves.initialize();
     await this.history.prune();
     this.initialized = true;
   }
@@ -431,15 +445,58 @@ export class NoteStore {
           latest ? hash(latest) : '',
         );
       await atomicWrite(file, encoded);
-      await this.history.snapshot(file, encoded, '编辑后', true);
-      await this.history.prune();
+      let historyWarning: string | undefined;
+      let historyRetryId: string | undefined;
+      const historyCreatedAt = Math.max(this.now(), ...this.history.list(file).map((item) => item.createdAt + 1), ...this.pendingHistorySaves.filter((item) => item.path === file).map((item) => (item.createdAt ?? 0) + 1));
+      try {
+        await this.history.snapshot(file, encoded, '编辑后', true, historyCreatedAt);
+        await this.history.prune();
+      } catch (error) {
+        const job = { id: crypto.randomUUID(), path: file, content: encoded, createdAt: historyCreatedAt };
+        const pending = [...this.pendingHistorySaves, job];
+        this.pendingHistorySaves = pending;
+        historyRetryId = `save:${job.id}`;
+        historyWarning = `正文已保存，历史备份未完成：${error instanceof Error ? error.message : String(error)}`;
+        if (!this.history.hasPrepared(file, encoded) && !this.history.hasSnapshotContent(file, encoded))
+          historyWarning += '；图片备份或补记索引未完整落盘，退出后补记只能使用重试时可读取的附件';
+        try {
+          await writeJson(path.join(this.dataDirectory, 'pending-history-saves.json'), pending);
+        } catch {
+          historyWarning += '；补记记录暂未写入磁盘，请在退出前重试历史补记';
+        }
+      }
       this.changed([file]);
       return {
         status: 'saved',
         note: await this.readNote(file),
         merged,
         notices: prepared.notices,
+        historyWarning,
+        historyRetryId,
       };
+    });
+  }
+
+  async pendingHistory(): Promise<{ id: string; label: string }[]> {
+    return [
+      ...this.pendingHistorySaves.map((job) => ({
+        id: `save:${job.id}`,
+        label: `保存历史 · ${path.basename(job.path)}`,
+      })),
+      ...this.moves.pendingHistory(),
+    ];
+  }
+  async retryHistoryWork(id: string): Promise<void> {
+    if (!id.startsWith('save:')) return this.moves.retryHistory(id);
+    await this.queue.run(async () => {
+      const job = this.pendingHistorySaves.find((job) => `save:${job.id}` === id);
+      if (!job) throw new Error('此历史补记已完成或不存在');
+      await this.authorize(job.path);
+      await this.history.snapshot(job.path, job.content, '保存后补记', false, job.createdAt);
+      await this.history.prune();
+      const next = this.pendingHistorySaves.filter((item) => item !== job);
+      await writeJson(path.join(this.dataDirectory, 'pending-history-saves.json'), next);
+      this.pendingHistorySaves = next;
     });
   }
 
@@ -538,10 +595,12 @@ export class NoteStore {
     fromPath = await this.authorize(fromPath);
     if (/^https?:\/\//i.test(target))
       return { path: null, exists: false, candidates: [], external: target };
-    const [raw, heading] = target
+    const [raw, fragment] = target
       .replace(/^\[\[|\]\]$/g, '')
       .split('|')[0]
       .split('#');
+    let heading = fragment;
+    try { if (fragment) heading = decodeURIComponent(fragment); } catch { /* Keep malformed fragments literal. */ }
     let decoded: string;
     try {
       decoded = decodeURIComponent(raw);

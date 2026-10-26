@@ -274,6 +274,22 @@ export function useWorkspace(onExternalOpen?: () => void) {
           if (!accepted.conflict && !accepted.tab.dirty) accepted.tab.importSourceId = undefined;
           updateTab(id, accepted.tab);
           for (const notice of outcome.notices ?? []) notify(notice, true);
+          if (outcome.historyWarning)
+            notify(
+              outcome.historyWarning,
+              true,
+              outcome.historyRetryId
+                ? {
+                    label: '重试历史补记',
+                    run: () => {
+                      void window.notes
+                        .retryHistoryWork(outcome.historyRetryId!)
+                        .then(() => notify('历史补记已完成'))
+                        .catch((error) => notify(`历史补记未完成：${errorText(error)}`, true));
+                    },
+                  }
+                : undefined,
+            );
           if (accepted.conflict) {
             const next = { tabId: id, detail: accepted.conflict };
             current.current.conflict = next;

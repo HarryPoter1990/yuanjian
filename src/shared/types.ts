@@ -174,6 +174,8 @@ export interface SaveRequest {
   title: string;
 }
 export interface SaveOutcome {
+  historyWarning?: string;
+  historyRetryId?: string;
   notices?: string[];
   status: 'saved' | 'cancelled' | 'conflict';
   note?: NoteDocument;
@@ -274,6 +276,8 @@ export interface DesktopAPI {
   moveFile(fromPath: string, toPath?: string): Promise<MoveOutcome | null>;
   undoMove(undoId: string): Promise<MoveOutcome>;
   retryMoveHistory(operationId: string): Promise<void>;
+  pendingHistory(): Promise<{ id: string; label: string }[]>;
+  retryHistoryWork(id: string): Promise<void>;
   trashFile(path: string): Promise<void>;
   setTags(path: string, tags: string[]): Promise<NoteDocument>;
   putAttachment(

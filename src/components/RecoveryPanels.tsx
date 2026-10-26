@@ -20,6 +20,7 @@ export function HistoryPanel({
   const [content, setContent] = useState('');
   const [busy, setBusy] = useState(true);
   const [failure, setFailure] = useState('');
+  const [pending, setPending] = useState<{ id: string; label: string }[]>([]);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const readRequest = useRef(0);
   async function load() {
@@ -27,6 +28,7 @@ export function HistoryPanel({
     setFailure('');
     try {
       setEntries(await window.notes.listHistory(tab.path || undefined));
+      setPending((await window.notes.pendingHistory?.()) ?? []);
     } catch (error) {
       setFailure(errorText(error));
     } finally {
@@ -54,6 +56,26 @@ export function HistoryPanel({
   }
   return (
     <Modal title={`版本历史 · ${tab.title}`} onClose={onClose} busy={busy} wide>
+      {pending.length > 0 && (
+        <div aria-label="未完成历史补记">
+          {pending.map((item) => (
+            <button
+              key={item.id}
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                void window.notes
+                  .retryHistoryWork(item.id)
+                  .then(load)
+                  .catch((error) => setFailure(errorText(error)))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              重试{item.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="history-layout">
         <nav className="history-list" aria-label="历史版本">
           {entries.map((entry) => (

@@ -26,6 +26,8 @@ interface HistoryOptions {
 
 export class HistoryStore {
   private entries: StoredEntry[] = [];
+  private prepared: StoredEntry[] = [];
+  private durablePrepared = new Set<string>();
   private readonly directory: string;
   constructor(private readonly options: HistoryOptions) {
     this.directory = path.join(options.directory, 'history');
@@ -36,14 +38,20 @@ export class HistoryStore {
   private blobPath(blob: string): string {
     return path.join(this.directory, 'images', blob);
   }
-  private persist(): Promise<void> {
-    return writeJson(path.join(this.directory, 'index.json'), this.entries);
+  private async persist(entries = this.entries): Promise<void> {
+    await writeJson(path.join(this.directory, 'index.json'), entries);
+    this.entries = entries;
   }
   async initialize(): Promise<void> {
     this.entries = await readJson<StoredEntry[]>(path.join(this.directory, 'index.json'), []);
+    this.prepared = await readJson<StoredEntry[]>(
+      path.join(this.directory, 'pending-snapshots.json'),
+      [],
+    );
     if (
       !Array.isArray(this.entries) ||
-      this.entries.some(
+      !Array.isArray(this.prepared) ||
+      [...this.entries, ...this.prepared].some(
         (entry) =>
           !/^[\da-f-]{36}$/.test(entry.id) ||
           (entry.sourcePath !== undefined &&
@@ -59,14 +67,39 @@ export class HistoryStore {
       )
     )
       throw new Error('历史索引损坏，原文件已保留');
+    this.durablePrepared = new Set(this.prepared.map((entry) => entry.id));
   }
 
-  async snapshot(file: string, content: string, reason: string, coalesce = false): Promise<void> {
+  async snapshot(file: string, content: string, reason: string, coalesce = false, createdAt?: number): Promise<void> {
     const contentHash = hash(content);
+    const prepared = this.prepared.find(
+      (entry) => entry.path === file && entry.contentHash === contentHash,
+    );
     const latest = this.entries
       .filter((entry) => entry.path === file)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
-    if (latest?.contentHash === contentHash && reason !== '恢复前') return;
+    if (
+      (prepared && this.entries.some((entry) => entry.id === prepared.id)) ||
+      (latest?.contentHash === contentHash && reason !== '恢复前')
+    ) {
+      if (prepared) await this.clearPrepared(prepared);
+      return;
+    }
+    if (prepared) {
+      const replace =
+        coalesce &&
+        latest &&
+        !latest.pinned &&
+        latest.reason === prepared.reason &&
+        prepared.createdAt >= latest.createdAt &&
+        prepared.createdAt - latest.createdAt < 30_000
+          ? latest
+          : undefined;
+      await this.persist([...this.entries.filter((entry) => entry.id !== replace?.id), prepared]);
+      await this.clearPrepared(prepared);
+      if (replace) await rm(this.textPath(replace.id), { force: true }).catch(() => undefined);
+      return;
+    }
     const images: ImageCopy[] = [];
     for (const link of extractLinks(content).filter((link) => link.image)) {
       if (
@@ -93,17 +126,19 @@ export class HistoryStore {
         if (!isMissing(error) && error instanceof Error && !/授权/.test(error.message)) throw error;
       }
     }
-    const now = Math.max(this.options.now(), (latest?.createdAt ?? 0) + 1);
+    const now = createdAt ?? Math.max(this.options.now(), (latest?.createdAt ?? 0) + 1);
     const replace =
       coalesce &&
       latest &&
       !latest.pinned &&
       latest.reason === reason &&
+      now >= latest.createdAt &&
       now - latest.createdAt < 30_000
         ? latest
         : undefined;
     const entry: StoredEntry = {
-      id: replace?.id ?? randomUUID(),
+      // A new text file keeps the last committed index valid if publishing the new index fails.
+      id: randomUUID(),
       path: file,
       sourcePath: file,
       createdAt: now,
@@ -115,9 +150,29 @@ export class HistoryStore {
       contentHash,
     };
     await atomicWrite(this.textPath(entry.id), content);
-    this.entries = this.entries.filter((item) => item.id !== replace?.id);
-    this.entries.push(entry);
-    await this.persist();
+    try {
+      await this.persist([...this.entries.filter((item) => item.id !== replace?.id), entry]);
+    } catch (error) {
+      // Keep the captured image blobs as well as the text; retry must not recapture newer images.
+      this.prepared.push(entry);
+      try {
+        await writeJson(path.join(this.directory, 'pending-snapshots.json'), this.prepared);
+        this.durablePrepared = new Set(this.prepared.map((item) => item.id));
+      } catch { /* The caller reports that only the in-memory capture is available. */ }
+      throw error;
+    }
+    if (replace) await rm(this.textPath(replace.id), { force: true }).catch(() => undefined);
+  }
+  hasPrepared(file: string, content: string): boolean {
+    return this.prepared.some(
+      (entry) => entry.path === file && entry.contentHash === hash(content) && this.durablePrepared.has(entry.id),
+    );
+  }
+  private async clearPrepared(entry: StoredEntry): Promise<void> {
+    const next = this.prepared.filter((item) => item.id !== entry.id);
+    await writeJson(path.join(this.directory, 'pending-snapshots.json'), next);
+    this.prepared = next;
+    this.durablePrepared.delete(entry.id);
   }
 
   list(file?: string): HistoryEntry[] {
@@ -155,20 +210,21 @@ export class HistoryStore {
   async pin(id: string, pinned: boolean): Promise<void> {
     const entry = this.entries.find((entry) => entry.id === id);
     if (!entry) throw new Error('历史版本不存在');
-    entry.pinned = pinned;
-    await this.persist();
+    await this.persist(this.entries.map((item) => (item.id === id ? { ...item, pinned } : item)));
   }
   async markDeleted(file: string): Promise<void> {
-    for (const entry of this.entries) if (entry.path === file) entry.deletedAt = this.options.now();
-    await this.persist();
+    await this.persist(
+      this.entries.map((entry) =>
+        entry.path === file ? { ...entry, deletedAt: this.options.now() } : entry,
+      ),
+    );
   }
   async moved(from: string, to: string): Promise<void> {
-    for (const entry of this.entries)
-      if (entry.path === from) {
-        entry.sourcePath ??= from;
-        entry.path = to;
-      }
-    await this.persist();
+    await this.persist(
+      this.entries.map((entry) =>
+        entry.path === from ? { ...entry, sourcePath: entry.sourcePath ?? from, path: to } : entry,
+      ),
+    );
   }
   stats(warning?: string): HistoryStats {
     const textBytes = this.entries.reduce((total, entry) => total + entry.textBytes, 0);
@@ -190,11 +246,12 @@ export class HistoryStore {
     };
   }
   async prune(): Promise<HistoryStats> {
+    let next = this.entries.map((entry) => ({ ...entry }));
     const settings = this.options.settings();
     const cutoff = this.options.now() - settings.historyDays * 86400_000;
     const deletedCutoff = this.options.now() - Math.min(settings.historyDays, 30) * 86400_000;
     const latest = new Map<string, string>();
-    for (const entry of [...this.entries].sort((a, b) => a.createdAt - b.createdAt)) {
+    for (const entry of [...next].sort((a, b) => a.createdAt - b.createdAt)) {
       try {
         if ((await stat(entry.path)).isFile()) {
           delete entry.deletedAt;
@@ -208,7 +265,7 @@ export class HistoryStore {
     const protectedEntry = (entry: StoredEntry): boolean =>
       !entry.deletedAt && (entry.pinned || latest.get(entry.path) === entry.id);
     const removed: StoredEntry[] = [];
-    this.entries = this.entries.filter((entry) => {
+    next = next.filter((entry) => {
       const expired = entry.deletedAt
         ? entry.deletedAt < deletedCutoff
         : entry.createdAt < cutoff && !protectedEntry(entry);
@@ -216,16 +273,27 @@ export class HistoryStore {
       return !expired;
     });
     const limit = settings.historyLimitMB * 1024 * 1024;
-    for (const entry of [...this.entries].sort((a, b) => a.createdAt - b.createdAt)) {
-      if (this.stats().totalBytes <= limit) break;
+    for (const entry of [...next].sort((a, b) => a.createdAt - b.createdAt)) {
+      const bytes =
+        next.reduce((sum, item) => sum + item.textBytes, 0) +
+        [
+          ...new Map(
+            next.flatMap((item) => item.images.map((image) => [image.blob, image.bytes] as const)),
+          ).values(),
+        ].reduce((sum, size) => sum + size, 0);
+      if (bytes <= limit) break;
       if (protectedEntry(entry)) continue;
-      this.entries = this.entries.filter((item) => item.id !== entry.id);
+      next = next.filter((item) => item.id !== entry.id);
       removed.push(entry);
     }
     // Persist references before deleting blobs so an interrupted prune cannot orphan a live entry.
-    await this.persist();
+    await this.persist(next);
     for (const entry of removed) await rm(this.textPath(entry.id), { force: true });
-    const used = new Set(this.entries.flatMap((entry) => entry.images.map((image) => image.blob)));
+    const used = new Set(
+      [...this.entries, ...this.prepared].flatMap((entry) =>
+        entry.images.map((image) => image.blob),
+      ),
+    );
     await mkdir(path.join(this.directory, 'images'), { recursive: true });
     for (const name of await readdir(path.join(this.directory, 'images')))
       if (/^[\da-f]{64}$/.test(name) && !used.has(name))

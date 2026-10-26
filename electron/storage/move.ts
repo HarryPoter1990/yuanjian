@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { MoveOutcome, NoteMeta } from '../../src/shared/types';
-import { atomicWrite, hash, readOptional } from './io';
+import { atomicWrite, hash, readOptional, readJson, writeJson } from './io';
+import { z } from 'zod';
 import { moveExclusive, type NoteStore } from './store';
 import { noteExtensions } from './adapters';
 import { linkTargetRanges } from './markdown-ranges';
@@ -28,6 +29,73 @@ interface MoveRecord {
 export class MoveStore {
   private readonly undoRecords = new Map<string, MoveRecord>();
   constructor(private readonly store: NoteStore) {}
+  async initialize(): Promise<void> {
+    const file = z.string().refine(path.isAbsolute);
+    const bytes = z.string().max(128 * 1024 * 1024);
+    const records = z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          from: file,
+          to: file,
+          direction: z.enum(['moved', 'undone']),
+          history: z.object({
+            from: file,
+            to: file,
+            expected: bytes,
+            snapshots: z.array(z.object({ path: file, expected: bytes })).max(10000),
+          }),
+        }),
+      )
+      .max(10000)
+      .parse(await readJson(path.join(this.store.dataDirectory, 'pending-move-history.json'), []));
+    for (const record of records)
+      this.undoRecords.set(record.id, {
+        ...record,
+        rewrites: [],
+        history: {
+          ...record.history,
+          expected: Buffer.from(record.history.expected, 'base64'),
+          snapshots: record.history.snapshots.map((item) => ({
+            ...item,
+            expected: Buffer.from(item.expected, 'base64'),
+          })),
+        },
+      });
+  }
+  pendingHistory(): { id: string; label: string }[] {
+    return [...this.undoRecords]
+      .filter(([, record]) => record.history)
+      .map(([id, record]) => ({
+        id,
+        label: `移动历史 · ${path.basename(record.direction === 'moved' ? record.to : record.from)}`,
+      }));
+  }
+  private async persistPending(): Promise<void> {
+    await writeJson(
+      path.join(this.store.dataDirectory, 'pending-move-history.json'),
+      [...this.undoRecords].flatMap(([id, record]) =>
+        record.history
+          ? [
+              {
+                id,
+                from: record.from,
+                to: record.to,
+                direction: record.direction,
+                history: {
+                  ...record.history,
+                  expected: record.history.expected.toString('base64'),
+                  snapshots: record.history.snapshots.map((item) => ({
+                    ...item,
+                    expected: item.expected.toString('base64'),
+                  })),
+                },
+              },
+            ]
+          : [],
+      ),
+    );
+  }
 
   private async finishHistory(record: MoveRecord): Promise<void> {
     const pending = record.history;
@@ -53,16 +121,23 @@ export class MoveStore {
     await this.store.history.moved(pending.from, pending.to);
     for (const snapshot of snapshots)
       await this.store.history.snapshot(snapshot.path, snapshot.content, '移动修复后');
+  }
+  private async finishAndPersist(record: MoveRecord): Promise<void> {
+    await this.finishHistory(record);
+    const pending = record.history;
     record.history = undefined;
+    try { await this.persistPending(); }
+    catch (error) { record.history = pending; throw error; }
   }
 
   private async completion(id: string, record: MoveRecord): Promise<MoveOutcome> {
     let historyWarning: string | undefined;
     try {
-      await this.finishHistory(record);
+      await this.finishAndPersist(record);
     } catch (error) {
       historyWarning = `文件操作已完成，但历史记录尚未完成：${error instanceof Error ? error.message : String(error)}`;
     }
+    if (historyWarning) try { await this.persistPending(); } catch { historyWarning += '；补记状态未持久化，请退出前重试'; }
     return {
       path: record.direction === 'moved' ? record.to : record.from,
       affected: record.rewrites
@@ -77,7 +152,7 @@ export class MoveStore {
     return this.store.queue.run(async () => {
       const record = this.undoRecords.get(id);
       if (!record) throw new Error('此移动历史重试记录已失效');
-      await this.finishHistory(record);
+      await this.finishAndPersist(record);
       if (record.direction === 'undone') this.undoRecords.delete(id);
     });
   }
@@ -263,6 +338,7 @@ export class MoveStore {
     return this.store.queue.run(async () => {
       const record = this.undoRecords.get(id);
       if (!record) throw new Error('此移动撤销记录已失效');
+      if (!record.rewrites.length) throw new Error('重启后的记录仅支持历史补记，不能撤销移动');
       if (record.direction === 'undone')
         throw new Error('此移动已撤销，请仅重试尚未完成的历史记录');
       if (await readOptional(record.from)) throw new Error('原位置已出现其他文件，无法撤销');

@@ -102,6 +102,8 @@ function makeAPI(session: SessionState): DesktopAPI {
   const settings = structuredClone(defaultSettings);
   return {
     prepareFiles: vi.fn(async () => []),
+    pendingHistory: vi.fn(async () => []),
+    retryHistoryWork: vi.fn(async () => {}),
     chooseImports: vi.fn(async () => []),
     readImport: vi.fn(async () => {
       throw new Error('此夹具未提供导入来源');
