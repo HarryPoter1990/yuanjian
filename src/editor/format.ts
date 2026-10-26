@@ -1,13 +1,76 @@
-import { EditorSelection } from '@codemirror/state';
+import {
+  EditorSelection,
+  type EditorState,
+  type SelectionRange,
+  type TransactionSpec,
+} from '@codemirror/state';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import { isolateHistory } from '@codemirror/commands';
 import type { EditorView } from '@codemirror/view';
 import { inspectFrontmatter } from './frontmatter';
 import type { HeadingLevel } from './types';
+import { createMarkdownParser } from './renderer';
 
 export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): void {
-  const source = view.state.doc.toString();
-  const selection = view.state.selection.main;
+  const { state } = view;
+  const selection = state.selection.main;
+  if (selection.empty || !state.sliceDoc(selection.from, selection.to).includes('\n')) {
+    view.dispatch(inlineFormatSpec(state, kind, selection));
+  } else {
+    const source = state.doc.toString();
+    const properties = inspectFrontmatter(source);
+    const ranges = createMarkdownParser()
+      .parse(source, {})
+      .flatMap((token) => {
+        if (token.type !== 'inline' || !token.map || !token.content.trim()) return [];
+        const first = state.doc.line(token.map[0] + 1),
+          last = state.doc.line(token.map[1]);
+        if (properties && first.from < properties.end) return [];
+        const parts = token.content.split('\n');
+        const start = first.text.lastIndexOf(parts[0]),
+          end = last.text.lastIndexOf(parts.at(-1)!);
+        if (start < 0 || end < 0) return [];
+        const from = Math.max(selection.from, first.from + start),
+          to = Math.min(selection.to, last.from + end + parts.at(-1)!.length);
+        return from < to ? [EditorSelection.range(from, to)] : [];
+      });
+    const tree = markdownLanguage.parser.parse(source);
+    const target = kind === 'bold' ? 'StrongEmphasis' : 'Emphasis';
+    const enabled = !ranges.every((range) => {
+      for (let pos = range.from; pos < range.to; pos++) {
+        if (/\s/.test(source[pos])) continue;
+        let node = tree.resolveInner(pos, 1);
+        while (node.parent && node.name !== target) node = node.parent;
+        if (node.name !== target) return false;
+      }
+      return true;
+    });
+    const changes = ranges.flatMap((range) => {
+      const spec = inlineFormatSpec(state, kind, range, enabled);
+      return spec.changes ? [state.changes(spec.changes)] : [];
+    });
+    if (changes.length) {
+      const combined = state.changes(changes);
+      view.dispatch({
+        changes: combined,
+        selection: EditorSelection.range(
+          combined.mapPos(selection.anchor, selection.anchor === selection.from ? -1 : 1),
+          combined.mapPos(selection.head, selection.head === selection.from ? -1 : 1),
+        ),
+        userEvent: 'input.format',
+        annotations: isolateHistory.of('full'),
+      });
+    }
+  }
+  view.focus();
+}
+function inlineFormatSpec(
+  state: EditorState,
+  kind: 'bold' | 'italic',
+  selection: SelectionRange,
+  force?: boolean,
+): TransactionSpec {
+  const source = state.doc.toString();
   const marker = kind === 'bold' ? '**' : '*';
   const nodes: { from: number; to: number; contentFrom: number; contentTo: number }[] = [];
   markdownLanguage.parser.parse(source).iterate({
@@ -24,7 +87,7 @@ export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): v
       .filter((node) => selection.head >= node.contentFrom && selection.head <= node.contentTo)
       .sort((a, b) => a.to - a.from - (b.to - b.from))[0];
     if (node) {
-      view.dispatch({
+      return {
         changes: [
           { from: node.from, to: node.contentFrom },
           { from: node.contentTo, to: node.to },
@@ -32,17 +95,15 @@ export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): v
         selection: { anchor: selection.head - (node.contentFrom - node.from) },
         userEvent: 'input.format',
         annotations: isolateHistory.of('full'),
-      });
+      };
     } else {
-      view.dispatch({
+      return {
         changes: { from: selection.from, insert: marker + marker },
         selection: { anchor: selection.from + marker.length },
         userEvent: 'input.format',
         annotations: isolateHistory.of('full'),
-      });
+      };
     }
-    view.focus();
-    return;
   }
   const marks = nodes
     .flatMap((node) => [
@@ -78,7 +139,7 @@ export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): v
     if (from === node.contentFrom) from = node.from;
     if (to === node.contentTo) to = node.to;
   }
-  const enabled = !(allStyled && sawText);
+  const enabled = force ?? !(allStyled && sawText);
   const left = nodes.find((node) => from > node.contentFrom && from <= node.contentTo);
   const right = nodes.find((node) => to >= node.contentFrom && to < node.contentTo);
   const leftMarker = left ? source.slice(left.from, left.contentFrom) : marker;
@@ -96,7 +157,7 @@ export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): v
   const insert = before + strip(from, to) + after;
   const selectedFrom = from + before.length + strip(from, selection.from).length;
   const selectedTo = selectedFrom + strip(selection.from, selection.to).length;
-  view.dispatch({
+  return {
     changes: { from, to, insert },
     selection:
       selection.anchor > selection.head
@@ -104,8 +165,7 @@ export function toggleInlineFormat(view: EditorView, kind: 'bold' | 'italic'): v
         : EditorSelection.range(selectedFrom, selectedTo),
     userEvent: 'input.format',
     annotations: isolateHistory.of('full'),
-  });
-  view.focus();
+  };
 }
 
 function selectedBodyLines(view: EditorView) {

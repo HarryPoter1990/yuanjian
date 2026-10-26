@@ -44,6 +44,29 @@ async function command(value: EditorCommand) {
   await act(async () => ref.current!.command(value));
 }
 describe('format actions respect selected source and existing styles', () => {
+  it.each(['bold', 'italic'] as const)(
+    'formats separate paragraphs with %s and toggles the whole selection back',
+    async (kind) => {
+      const source = '# 标题\n\n第一段\n\n- 第二段\n\n$$\nx^2\n$$\n\n```js\nconst x=1\n```';
+      const view = await mount(source, 0, source.length);
+      await command(kind);
+      const mark = kind === 'bold' ? '**' : '*';
+      expect(view.state.doc.toString()).toBe(
+        `# ${mark}标题${mark}\n\n${mark}第一段${mark}\n\n- ${mark}第二段${mark}\n\n$$\nx^2\n$$\n\n\`\`\`js\nconst x=1\n\`\`\``,
+      );
+      await command(kind);
+      expect(view.state.doc.toString()).toBe(source);
+      await command('undo');
+      expect(view.state.doc.toString()).toContain(`${mark}第一段${mark}`);
+    },
+  );
+  it('unifies mixed paragraph formatting and preserves a reversed partial selection', async () => {
+    const source = '**甲段**\n\n乙段';
+    const view = await mount(source, source.length, 0);
+    await command('bold');
+    expect(view.state.doc.toString()).toBe('**甲段**\n\n**乙段**');
+    expect(view.state.selection.main.anchor > view.state.selection.main.head).toBe(true);
+  });
   it('keeps underscore delimiter identity while removing bold from a partial range', async () => {
     const view = await mount('__abcdef__', 4, 6);
     await command('bold');
