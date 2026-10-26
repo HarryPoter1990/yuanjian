@@ -1,7 +1,7 @@
 {
   "name": "local-notes-desktop",
   "productName": "鸢笺",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "本地优先、自由打开文件的 Markdown 笔记软件",
@@ -34,7 +34,8 @@
     "verify:transfer-ui": "node scripts/check-transfer-ui.mjs",
     "verify:table-input": "node scripts/check-table-input.mjs",
     "package": "npm run verify && node scripts/package.mjs",
-    "start": "electron ."
+    "start": "electron .",
+    "verify:editor-scale": "node scripts/check-editor-scale.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.0.0",
