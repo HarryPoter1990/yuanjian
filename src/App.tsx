@@ -38,6 +38,7 @@ import {
   X,
 } from './ui/icons';
 import type {
+  Appearance,
   FontEntry,
   ImportSource,
   NoteMeta,
@@ -82,6 +83,7 @@ import { LazyGraphView } from './components/LazyGraphView';
 import { LinkPanel } from './components/LinkPanel';
 import { QuickOpenPanel, type QuickOpenTarget } from './components/QuickOpenPanel';
 import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
+import { syntaxColors } from './shared/appearance';
 import { useWorkspace } from './ui/useWorkspace';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
@@ -219,6 +221,22 @@ export default function App() {
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
+  const [appearancePreview, setAppearancePreview] = useState<Appearance | null>(null);
+  const [appearancePreviewDark, setAppearancePreviewDark] = useState<boolean | null>(null);
+  const previewAppearance = useCallback((value: Appearance | null, dark: boolean | null = null) => {
+    setAppearancePreview(value);
+    setAppearancePreviewDark(dark);
+  }, []);
+  const effectiveAppearance = appearancePreview ?? settings?.appearance;
+  const displayedAppearance =
+    effectiveAppearance && appearancePreviewDark !== null
+      ? {
+          ...effectiveAppearance,
+          mode: (appearancePreviewDark ? 'dark' : 'light') as Appearance['mode'],
+        }
+      : effectiveAppearance;
+  const displaySettings =
+    settings && displayedAppearance ? { ...settings, appearance: displayedAppearance } : settings;
   const editor = useRef<MarkdownEditorHandle>(null);
   const editorSessions = useRef(new Map<string, EditorSession>());
   const [headingLevel, setHeadingLevel] = useState<HeadingLevel>(0);
@@ -283,7 +301,9 @@ export default function App() {
       setTimeout(() => editor.current?.focus(), 0);
     }
   }
-  const windowColors = settings ? appearanceColors(settings.appearance, systemDark) : null;
+  const windowColors = displayedAppearance
+    ? appearanceColors(displayedAppearance, systemDark)
+    : null;
   useEffect(() => {
     if (windowColors)
       void window.notes
@@ -371,7 +391,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     let alive = true;
-    const path = settings?.appearance.wallpaper;
+    const path = displayedAppearance?.wallpaper;
     if (!path) {
       setWallpaperUrl('');
       return;
@@ -385,7 +405,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [settings?.appearance.wallpaper, error]);
+  }, [displayedAppearance?.wallpaper, error]);
   useEffect(() => {
     for (const [id, face] of loadedFonts.current)
       if (!fonts.some((font) => font.id === id)) {
@@ -1420,7 +1440,7 @@ export default function App() {
         <p role="status">正在恢复你的笔记…</p>
       </main>
     );
-  const appearance = settings.appearance;
+  const appearance = displayedAppearance!;
   const preferredPanels = visiblePanels(settings, windowWidth, forcedPanels);
   const panels = sticky ? { left: false, right: false } : preferredPanels;
   const togglePanel = (side: 'left' | 'right') => {
@@ -1444,6 +1464,7 @@ export default function App() {
   const toggleGroup = (key: 'outline' | 'tags' | 'backlinks') =>
     changeSettings({ ...settings, rightGroups: { ...rightGroups, [key]: !rightGroups[key] } });
   const style = {
+    ...syntaxColors(appearance.codeTheme, dark),
     '--accent': accent,
     '--background': background,
     '--foreground': foreground,
@@ -1564,6 +1585,8 @@ export default function App() {
     >
       <div
         ref={appElement}
+        data-density={appearance.density ?? 'standard'}
+        data-code-theme={appearance.codeTheme ?? 'classic'}
         className="app"
         data-theme={dark ? 'dark' : 'light'}
         data-window-mode={windowMode.mode}
@@ -1720,7 +1743,9 @@ export default function App() {
                 trees={workspace.trees}
                 index={workspace.index}
                 activePath={active?.path || null}
-                onSettings={changeSettings}
+                onSettings={(value) =>
+                  changeSettings({ ...value, appearance: settingsRef.current!.appearance })
+                }
                 onOpen={(path, targetLine) => void open(path, targetLine)}
                 onNew={newNote}
                 onJournal={(kind, date, templateId, createAdditional) =>
@@ -1764,9 +1789,11 @@ export default function App() {
             {graphActive && graphOpen ? (
               <LazyGraphView
                 index={workspace.index}
-                settings={settings}
+                settings={displaySettings!}
                 activePath={active?.path || null}
-                onSettings={changeSettings}
+                onSettings={(value) =>
+                  changeSettings({ ...value, appearance: settingsRef.current!.appearance })
+                }
                 onOpen={(path) => void open(path)}
                 onError={error}
                 onBack={() => {
@@ -1991,7 +2018,7 @@ export default function App() {
                       ref={editor}
                       value={active.content}
                       mode={active.mode}
-                      settings={settings}
+                      settings={displaySettings!}
                       notePath={active.path}
                       resolveAssetAsync={
                         active.importSourceId
@@ -2360,6 +2387,8 @@ export default function App() {
         {panel === 'settings' && (
           <SettingsPanel
             settings={settings}
+            onPreview={previewAppearance}
+            onApplyAppearance={workspace.applyAppearance}
             fonts={fonts}
             dataDirectory={workspace.bootstrap.dataDirectory}
             version={workspace.bootstrap.version}

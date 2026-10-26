@@ -286,3 +286,74 @@ describe('workspace save and external change coordination', () => {
     });
   });
 });
+
+it('commits appearance only after a successful write; later general saves cannot persist a failed preview', async () => {
+  await mount();
+  const original = structuredClone(workspace.settings!.appearance);
+  const appearance = { ...original, bodyFont: 'generated-font' };
+  vi.mocked(api.saveSettings).mockRejectedValueOnce(Error('generated failure'));
+  await act(async () => {
+    await expect(workspace.applyAppearance(appearance)).rejects.toThrow('generated failure');
+  });
+  expect(workspace.settings!.appearance).toEqual(original);
+  await act(async () => workspace.setSettings({ ...workspace.settings!, autoSave: true }));
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(vi.mocked(api.saveSettings).mock.calls.at(-1)![0].appearance).toEqual(original);
+});
+it('serializes appearance application with general edits without losing either', async () => {
+  await mount();
+  const next = { ...workspace.settings!.appearance, bodyFont: 'generated-font' };
+  let finish!: (value: NonNullable<typeof workspace.settings>) => void;
+  vi.mocked(api.saveSettings).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let pending!: ReturnType<typeof workspace.applyAppearance>;
+  await act(async () => {
+    pending = workspace.applyAppearance(next);
+  });
+  expect(workspace.settings!.appearance.bodyFont).not.toBe('generated-font');
+  await act(async () => workspace.setSettings({ ...workspace.settings!, autoSave: true }));
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => {
+    finish({ ...workspace.settings!, appearance: next });
+    await pending;
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(workspace.settings!.autoSave).toBe(true);
+  expect(workspace.settings!.appearance.bodyFont).toBe('generated-font');
+  expect(vi.mocked(api.saveSettings).mock.calls.at(-1)![0]).toMatchObject({
+    autoSave: true,
+    appearance: next,
+  });
+});
+
+it('persists applied-scheme deletion and fallback in the same write and retains both when the write fails', async () => {
+  await mount();
+  const original = { ...workspace.settings!.appearance, schemeId: 'active' };
+  const theme = { id: 'active', name: 'generated', appearance: original };
+  await act(async () =>
+    workspace.setSettings({ ...workspace.settings!, appearance: original, themes: [theme] }),
+  );
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  const fallback = { ...original, schemeId: undefined };
+  vi.mocked(api.saveSettings).mockRejectedValueOnce(Error('generated deletion failure'));
+  await act(async () => {
+    await expect(
+      workspace.applyAppearance(fallback, { colors: [], schemes: ['active'] }),
+    ).rejects.toThrow('generated deletion failure');
+  });
+  expect(workspace.settings!.themes).toHaveLength(1);
+  expect(workspace.settings!.appearance.schemeId).toBe('active');
+  await act(async () => {
+    await workspace.applyAppearance(fallback, { colors: [], schemes: ['active'] });
+  });
+  expect(workspace.settings!.themes).toHaveLength(0);
+  expect(workspace.settings!.appearance.schemeId).toBeUndefined();
+  expect(vi.mocked(api.saveSettings).mock.calls.at(-1)![0]).toMatchObject({
+    themes: [],
+    appearance: fallback,
+  });
+});

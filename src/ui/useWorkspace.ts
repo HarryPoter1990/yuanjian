@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   Bootstrap,
+  Appearance,
+  AppearanceRemovals,
   FileEntry,
   NoteDocument,
   NoteMeta,
@@ -48,6 +50,7 @@ export function useWorkspace(onExternalOpen?: () => void) {
   const externalReads = useRef(new Map<string, symbol>());
   const refreshGeneration = useRef(0);
   const savedSettings = useRef('');
+  const settingsWrite = useRef<Promise<unknown>>(Promise.resolve());
   const sessionWrite = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(true);
   const applyViews = useCallback((notes: TabState[], order: readonly ViewTab[]) => {
@@ -163,6 +166,67 @@ export function useWorkspace(onExternalOpen?: () => void) {
     setIndex(notes);
     setTrees(Object.fromEntries(config.roots.map((root, i) => [root, entries[i]])));
   }, []);
+  const persistSettings = useCallback(
+    (appearance?: Appearance, removals?: AppearanceRemovals): Promise<Settings> => {
+      setSettingsState('正在保存设置…');
+      const task = settingsWrite.current
+        .catch(() => undefined)
+        .then(async () => {
+          const latest = current.current.settings;
+          if (!latest) throw new Error('设置尚未载入');
+          let target = appearance ? { ...latest, appearance: structuredClone(appearance) } : latest;
+          if (removals)
+            target = {
+              ...target,
+              colorThemes: (target.colorThemes ?? []).filter(
+                (item) => !removals.colors.includes(item.id),
+              ),
+              themes: target.themes.filter((item) => !removals.schemes.includes(item.id)),
+            };
+          const value = await window.notes.saveSettings(target);
+          const previous: Settings = savedSettings.current
+            ? JSON.parse(savedSettings.current)
+            : target;
+          savedSettings.current = JSON.stringify(value);
+          if (appearance) {
+            const latestSettings = current.current.settings!;
+            const next = {
+              ...latestSettings,
+              appearance: value.appearance,
+              ...(removals
+                ? {
+                    colorThemes: (latestSettings.colorThemes ?? []).filter(
+                      (item) => !removals.colors.includes(item.id),
+                    ),
+                    themes: latestSettings.themes.filter(
+                      (item) => !removals.schemes.includes(item.id),
+                    ),
+                  }
+                : {}),
+            };
+            current.current.settings = next;
+            setSettings(next);
+          } else if (JSON.stringify(current.current.settings) === JSON.stringify(target)) {
+            current.current.settings = value;
+            setSettings(value);
+          }
+          if (JSON.stringify(current.current.settings) === savedSettings.current)
+            setSettingsState('设置已保存');
+          if (
+            JSON.stringify([previous.roots, previous.excluded, previous.showAllFiles]) !==
+            JSON.stringify([value.roots, value.excluded, value.showAllFiles])
+          )
+            void refresh().catch((error) => notify(`刷新目录失败：${errorText(error)}`, true));
+          return value;
+        });
+      settingsWrite.current = task;
+      return task.catch((error) => {
+        setSettingsState('设置保存失败');
+        throw error;
+      });
+    },
+    [refresh, notify],
+  );
   const openDocument = useCallback(
     (note: NoteDocument) => {
       const existing = current.current.tabs.find((tab) => tab.path && tab.path === note.path);
@@ -375,28 +439,13 @@ export function useWorkspace(onExternalOpen?: () => void) {
     if (savedSettings.current === serialized) return;
     setSettingsState('正在保存设置…');
     const timer = setTimeout(() => {
-      void window.notes
-        .saveSettings(settings)
-        .then((value) => {
-          const previous: Settings = JSON.parse(savedSettings.current);
-          const indexChanged =
-            JSON.stringify([previous.roots, previous.excluded, previous.showAllFiles]) !==
-            JSON.stringify([value.roots, value.excluded, value.showAllFiles]);
-          savedSettings.current = JSON.stringify(value);
-          if (JSON.stringify(current.current.settings) === serialized) {
-            setSettings(value);
-            setSettingsState('设置已保存');
-          }
-          if (indexChanged)
-            void refresh().catch((error) => notify(`刷新目录失败：${errorText(error)}`, true));
-        })
-        .catch((error) => {
-          setSettingsState('设置保存失败');
-          notify(`设置保存失败：${errorText(error)}`, true);
-        });
+      void persistSettings().catch((error) => {
+        setSettingsState('设置保存失败');
+        notify(`设置保存失败：${errorText(error)}`, true);
+      });
     }, 250);
     return () => clearTimeout(timer);
-  }, [settings, notify, refresh]);
+  }, [settings, notify, persistSettings]);
   useEffect(() => {
     if (!bootstrap) return;
     const timer = setTimeout(
@@ -490,6 +539,7 @@ export function useWorkspace(onExternalOpen?: () => void) {
             return;
           }
           await persistSession();
+          await settingsWrite.current.catch(() => undefined);
           if (current.current.settings) await window.notes.saveSettings(current.current.settings);
           await window.notes.closeReady();
         })().catch((error) => {
@@ -550,6 +600,8 @@ export function useWorkspace(onExternalOpen?: () => void) {
     loadError,
     settings,
     setSettings,
+    applyAppearance: (appearance: Appearance, removals?: AppearanceRemovals) =>
+      persistSettings(appearance, removals),
     tabs,
     setTabs,
     activeId,

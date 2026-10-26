@@ -69,8 +69,9 @@ export interface Snippet {
 export interface Appearance {
   density?: 'standard' | 'compact';
   codeTheme?: 'classic' | 'calm' | 'contrast';
-  paletteByMode?: {light?: 'ink'|'moss'|'paper';dark?: 'ink'|'moss'|'paper'};
+  paletteByMode?: { light?: 'ink' | 'moss' | 'paper'; dark?: 'ink' | 'moss' | 'paper' };
   colorThemeId?: string;
+  schemeId?: string;
   palette?: 'ink' | 'moss' | 'paper';
   paletteOverrides?: {
     light?: Partial<Record<AppearanceColor, string>>;
@@ -98,13 +99,32 @@ export interface Appearance {
   editorOpacity: number;
   sidebarOpacity?: number;
 }
-export type AppearanceColor = 'background'|'foreground'|'accent'|'sidebar'|'surface'|'muted'|'border'|'selected';
-export interface ColorTheme {id:string;name:string;appearance:Pick<Appearance,'palette'|'paletteByMode'|'paletteOverrides'|'accent'|'background'|'foreground'|'density'|'codeTheme'>;}
+export type AppearanceColor =
+  'background' | 'foreground' | 'accent' | 'sidebar' | 'surface' | 'muted' | 'border' | 'selected';
+export interface AppearanceRemovals {
+  colors: string[];
+  schemes: string[];
+}
+export interface ColorTheme {
+  id: string;
+  name: string;
+  appearance: Pick<
+    Appearance,
+    | 'palette'
+    | 'paletteByMode'
+    | 'paletteOverrides'
+    | 'accent'
+    | 'background'
+    | 'foreground'
+    | 'density'
+    | 'codeTheme'
+  >;
+}
 export interface ThemePreset {
   id: string;
   name: string;
   appearance: Appearance;
-  includes?: {colors:boolean;fonts:boolean;wallpaper:boolean};
+  includes?: { colors: boolean; fonts: boolean; wallpaper: boolean };
 }
 export interface GraphPreferences {
   local: boolean;

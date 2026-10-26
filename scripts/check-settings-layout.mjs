@@ -126,7 +126,7 @@ try {
       .locator('.settings-nav')
       .getByRole('button', { name: '外观与主题', exact: true })
       .click();
-    await dialog.getByRole('textbox', { name: '主题名称', exact: true }).fill('未提交的主题');
+    await dialog.getByRole('textbox', { name: '方案名称', exact: true }).fill('未提交的主题');
     await page.keyboard.press('Escape');
     await expect(dialog.getByRole('button', { name: '继续编辑', exact: true })).toBeFocused();
     await checkLayout(page, `${width}x480 pending`);

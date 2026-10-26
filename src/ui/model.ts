@@ -2,7 +2,7 @@ import type { Appearance, NoteDocument, SaveOutcome, TabState } from '../shared/
 import { builtinPalettes } from '../shared/palettes';
 import { diff3Merge } from 'node-diff3';
 import { shortcutKey } from '../shared/shortcuts';
-import {accentForeground} from '../shared/appearance';
+import { accentForeground } from '../shared/appearance';
 
 export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const dark = appearance.mode === 'dark' || (appearance.mode === 'system' && systemDark);
@@ -13,7 +13,8 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   if (palette) {
     const colors = palette[dark ? 'dark' : 'light'];
     const resolve = (key: 'bg' | 'fg' | 'accent', value: string) =>
-      paired || [palette.light[key], palette.dark[key]].some(
+      paired ||
+      [palette.light[key], palette.dark[key]].some(
         (color) => color.toLowerCase() === value.toLowerCase(),
       )
         ? colors[key]
@@ -28,14 +29,17 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
       muted: overrides?.muted ?? colors.muted,
       border: overrides?.border ?? colors.border,
       selected: overrides?.selected ?? colors.selected,
-      accentText: accentForeground(overrides?.accent ?? resolve('accent',appearance.accent)),
+      accentText: accentForeground(overrides?.accent ?? resolve('accent', appearance.accent)),
     };
   }
   const background =
-    overrides?.background ?? (dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background);
+    overrides?.background ??
+    (dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background);
   const foreground =
-    overrides?.foreground ?? (dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground);
-  const accent = overrides?.accent ?? (dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent);
+    overrides?.foreground ??
+    (dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground);
+  const accent =
+    overrides?.accent ?? (dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent);
   return {
     dark,
     background,

@@ -4,8 +4,14 @@ const text = z.string().max(64 * 1024 * 1024);
 const file = z.string().min(1).max(32768);
 const short = z.string().max(1024);
 const number = z.number().finite();
-const paletteId = z.enum(['ink','moss','paper']);
-const colorOverrides=z.object(Object.fromEntries(['background','foreground','accent','sidebar','surface','muted','border','selected'].map(key=>[key,short.optional()])));
+const paletteId = z.enum(['ink', 'moss', 'paper']);
+const colorOverrides = z.object(
+  Object.fromEntries(
+    ['background', 'foreground', 'accent', 'sidebar', 'surface', 'muted', 'border', 'selected'].map(
+      (key) => [key, short.optional()],
+    ),
+  ),
+);
 const template = z.object({
   id: short,
   name: short,
@@ -13,10 +19,11 @@ const template = z.object({
   content: text,
 });
 const appearance = z.object({
-  density:z.enum(['standard','compact']).optional(),
-  codeTheme:z.enum(['classic','calm','contrast']).optional(),
-  colorThemeId:short.optional(),
-  paletteByMode:z.object({light:paletteId.optional(),dark:paletteId.optional()}).optional(),
+  density: z.enum(['standard', 'compact']).optional(),
+  codeTheme: z.enum(['classic', 'calm', 'contrast']).optional(),
+  colorThemeId: short.optional(),
+  schemeId: short.optional(),
+  paletteByMode: z.object({ light: paletteId.optional(), dark: paletteId.optional() }).optional(),
   mode: z.enum(['light', 'dark', 'system']),
   palette: z.enum(['ink', 'moss', 'paper']).optional(),
   paletteOverrides: z
@@ -60,8 +67,37 @@ export const settingsSchema = z.object({
   toolbarButtons: z.array(short).max(100),
   statusVisible: z.boolean(),
   appearance,
-  themes: z.array(z.object({ id: short, name: short, appearance, includes:z.object({colors:z.boolean(),fonts:z.boolean(),wallpaper:z.boolean()}).optional() })).max(500),
-  colorThemes:z.array(z.object({id:short,name:short,appearance:appearance.pick({palette:true,paletteByMode:true,paletteOverrides:true,accent:true,background:true,foreground:true,density:true,codeTheme:true})})).max(500).optional(),
+  themes: z
+    .array(
+      z.object({
+        id: short,
+        name: short,
+        appearance,
+        includes: z
+          .object({ colors: z.boolean(), fonts: z.boolean(), wallpaper: z.boolean() })
+          .optional(),
+      }),
+    )
+    .max(500),
+  colorThemes: z
+    .array(
+      z.object({
+        id: short,
+        name: short,
+        appearance: appearance.pick({
+          palette: true,
+          paletteByMode: true,
+          paletteOverrides: true,
+          accent: true,
+          background: true,
+          foreground: true,
+          density: true,
+          codeTheme: true,
+        }),
+      }),
+    )
+    .max(500)
+    .optional(),
   codeLineNumbers: z.boolean(),
   codeWrap: z.boolean(),
   codeFold: z.boolean(),

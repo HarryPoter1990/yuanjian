@@ -167,6 +167,8 @@ it('finds a collapsed system font and applies keyboard selection only to the cho
   expect(popup().querySelectorAll('[role="option"]')).toHaveLength(1);
   expect(saved).not.toHaveBeenCalled();
   await key(input, 'Enter');
+  expect(current.appearance).toEqual(before);
+  await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='应用外观')!.click());
   expect(current.appearance).toEqual({ ...before, bodyFont: 'System Alpha' });
   expect(popup()).toBeNull();
   expect(document.activeElement).toBe(button('正文字体'));

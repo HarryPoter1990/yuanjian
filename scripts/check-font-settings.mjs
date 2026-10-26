@@ -108,11 +108,16 @@ try {
     await input.press('ArrowDown');
     await input.press('Enter');
     await expect(panel).toHaveCount(0);
-    assert.equal(
+    assert.notEqual(
       await page.evaluate(() => window.fontFixture.settings.appearance.bodyFont),
       'System Font 341',
     );
     await expect(page.getByRole('button', { name: '正文字体', exact: true })).toBeFocused();
+    await page.getByRole('button', { name: '应用外观', exact: true }).click();
+    assert.equal(
+      await page.evaluate(() => window.fontFixture.settings.appearance.bodyFont),
+      'System Font 341',
+    );
     await page.getByRole('button', { name: '正文字体', exact: true }).click();
     await expect(chooser(page).getByRole('group', { name: '当前使用', exact: true })).toContainText(
       'System Font 341',

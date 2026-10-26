@@ -634,7 +634,7 @@ describe('desktop session and save lifecycle', () => {
       button.textContent?.includes('撤销本次外观修改'),
     );
     await act(async () => undo?.click());
-    expect(mode.value).toBe('light');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="明暗模式"]')?.value).toBe('light');
   });
   it('treats a cancelled wallpaper picker as cancellation', async () => {
     await mount();

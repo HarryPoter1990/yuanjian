@@ -162,7 +162,7 @@ it('indexes controls from every rendered category including current shortcut and
     await act(async () => category.click());
     const fields = [
       ...host.querySelectorAll<HTMLElement>('.settings-content [data-setting-id]'),
-    ].map((field) => ({ id: field.dataset.settingId!, label: field.dataset.settingLabel! }));
+    ].filter(field=>!field.closest('[hidden]')).map((field) => ({ id: field.dataset.settingId!, label: field.dataset.settingLabel! }));
     expect(fields.length).toBeGreaterThan(0);
     for (const field of fields) {
       await type('搜索设置', field.label);
