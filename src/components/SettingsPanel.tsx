@@ -1069,9 +1069,11 @@ export function SettingsPanel({
               {busy ? `${busy}中…` : message}
             </div>
           </div>
-          {['appearance', 'fonts', 'editor'].includes(visible) && (
-            <AppearancePreview appearance={appearance} dark={colors.dark} />
-          )}
+          <AppearancePreview
+            hidden={!['appearance', 'fonts', 'editor'].includes(visible)}
+            appearance={appearance}
+            dark={colors.dark}
+          />
         </div>
       </div>
       <footer className="appearance-footer">

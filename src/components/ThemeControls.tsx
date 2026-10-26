@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Appearance, AppearanceColor } from '../shared/types';
 import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { codeThemes, contrastRatio, syntaxColors } from '../shared/appearance';
@@ -88,7 +88,15 @@ function ColorControl({
 const sample =
   '# 把想法写下来\n\n中文笔记与 English words，自然相处。**清晰的文字**，留一点呼吸的空间。\n\n- [x] 留住今天的灵感\n- [ ] 明天继续\n\n```javascript\n// 一点小小的开始\nconst idea = "从这里开始";\nreturn idea.length + 1;\n```\n\n| 计划 | 状态 |\n| --- | --- |\n| 阅读与记录 | 进行中 |\n\n$E = mc^2$';
 
-export function AppearancePreview({ appearance, dark }: { appearance: Appearance; dark: boolean }) {
+export const AppearancePreview = memo(function AppearancePreview({
+  appearance,
+  dark,
+  hidden,
+}: {
+  appearance: Appearance;
+  dark: boolean;
+  hidden?: boolean;
+}) {
   const sampleHTML = useMemo(
     () =>
       renderMarkdown(sample, {
@@ -100,6 +108,7 @@ export function AppearancePreview({ appearance, dark }: { appearance: Appearance
   const c = appearanceColors({ ...appearance, mode: dark ? 'dark' : 'light' }, dark);
   return (
     <aside
+      hidden={hidden}
       className={`appearance-live-preview ${dark ? 'dark' : ''}`}
       aria-label="外观小预览"
       style={
@@ -155,7 +164,7 @@ export function AppearancePreview({ appearance, dark }: { appearance: Appearance
       <p>整体效果同步显示在后方窗口。预览不写入正式设置。</p>
     </aside>
   );
-}
+});
 export function ThemeControls({
   revealAdvanced,
   invalidColors,
