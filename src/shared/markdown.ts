@@ -9,6 +9,7 @@ const markdown = new MarkdownIt({ html: false, linkify: false });
 markdown.use(installFootnotes);
 const headingMarkdown = new MarkdownIt({ html: false, linkify: false });
 wikiLinks(headingMarkdown);
+headingMarkdown.use(installFootnotes);
 function readableTarget(target: string): string {
   try {
     return decodeURI(target);
@@ -93,7 +94,12 @@ function analyze(content: string) {
     const token = tokens[i];
     if (token.type === 'heading_open') {
       const inline = tokens[i + 1];
-      const text = (headingMarkdown.parseInline(inline?.content ?? '', {})[0]?.children ?? [])
+      const text = (
+        headingMarkdown.parseInline(inline?.content ?? '', {
+          ...environment,
+          footnotes: environment.footnotes ? structuredClone(environment.footnotes) : undefined,
+        })[0]?.children ?? []
+      )
         .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
         .map((child) => child.content)
         .join('');

@@ -1083,7 +1083,7 @@ export default function App() {
       ),
     ].filter((target) => !target.closest('[hidden]') && !target.hasAttribute('disabled'));
     const target = region.classList.contains('editor-column')
-      ? (region.querySelector<HTMLElement>('.cm-content') ?? targets[0] ?? region)
+      ? (targets.find((target) => target.classList.contains('cm-content')) ?? targets[0] ?? region)
       : (targets[0] ?? region);
     if (target === region) region.tabIndex = -1;
     target.focus();

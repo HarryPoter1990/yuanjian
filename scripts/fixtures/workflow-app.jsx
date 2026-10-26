@@ -9,6 +9,7 @@ import { searchDocument, sortSearchNotes } from '../../src/shared/search';
 // Generated documents only. Session storage belongs to this isolated test origin.
 const directory = 'D:/generated-workflow';
 const settings = { ...structuredClone(defaultSettings), autoSave: false, roots: [directory] };
+Object.assign(settings, JSON.parse(sessionStorage.getItem('workflow-settings') || '{}'));
 const makeNote = (name) => {
   const content = `# ${name}\n\n${name} 第一段。\n\n## 第二节\n\n${'练习内容。\n\n'.repeat(35)}结束。`;
   return {
@@ -40,6 +41,12 @@ for (const [title, content] of [
   documents[note.path] = note;
 }
 const initial = [documents[`${directory}/Alpha.md`], documents[`${directory}/Beta.md`]];
+const nested = {
+  ...makeNote('Nested'),
+  id: `${directory}/Parent/Child/Nested.md`,
+  path: `${directory}/Parent/Child/Nested.md`,
+};
+documents[nested.path] = nested;
 let mode = { mode: 'full', pinned: false };
 const state = {
   session: JSON.parse(sessionStorage.getItem('workflow-session') || 'null'),
@@ -100,12 +107,28 @@ const api = {
   }),
   getIndex: async () =>
     Object.values(documents).map((note) => parseNote(note.content, note.path, 1)),
-  getTree: async () =>
-    Object.values(documents).map((note) => ({
-      path: note.path,
-      name: `${note.title}.md`,
-      kind: 'note',
-    })),
+  getTree: async () => [
+    ...Object.values(documents)
+      .filter((note) => note.path !== nested.path)
+      .map((note) => ({
+        path: note.path,
+        name: `${note.title}.md`,
+        kind: 'note',
+      })),
+    {
+      path: `${directory}/Parent`,
+      name: 'Parent',
+      kind: 'directory',
+      children: [
+        {
+          path: `${directory}/Parent/Child`,
+          name: 'Child',
+          kind: 'directory',
+          children: [{ path: nested.path, name: 'Nested.md', kind: 'note' }],
+        },
+      ],
+    },
+  ],
   resolveLink: async (fromPath, target) => {
     if (/^https?:\/\//i.test(target))
       return { path: null, exists: true, candidates: [], external: target };
@@ -118,7 +141,10 @@ const api = {
       heading: url.hash.slice(1) || undefined,
     };
   },
-  saveSettings: async (value) => value,
+  saveSettings: async (value) => {
+    sessionStorage.setItem('workflow-settings', JSON.stringify(value));
+    return value;
+  },
   saveSession: async (value) => {
     state.session = structuredClone(value);
     sessionStorage.setItem('workflow-session', JSON.stringify(value));

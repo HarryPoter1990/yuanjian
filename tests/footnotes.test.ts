@@ -31,10 +31,17 @@ it('does not generate duplicate ids when a real heading uses a footnote id', () 
   expect(new Set(ids).size).toBe(ids.length);
   expect(extractHeadings(text)[0].id).toBe(root.querySelector('h1')?.id);
 });
+it('keeps heading metadata and rendered anchors aligned when a heading contains a footnote', () => {
+  const text = '# 标题[^注]\n\n[^注]: 注释\n';
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown(text);
+  expect(extractHeadings(text)[0].id).toBe(root.querySelector('h1')?.id);
+  expect(root.querySelectorAll('.footnote-ref')).toHaveLength(1);
+});
 it('copies rendered footnotes as Markdown references and definitions, including reference-only selections', () => {
   const host = document.createElement('div');
   document.body.append(host);
-  const view = new EditorView({state:EditorState.create({doc:source}),parent:host});
+  const view = new EditorView({ state: EditorState.create({ doc: source }), parent: host });
   const content = view.contentDOM;
   const block = document.createElement('div');
   block.className = 'markdown-preview-block';

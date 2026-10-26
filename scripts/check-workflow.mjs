@@ -446,6 +446,53 @@ try {
     await expect(page.locator('.tabs-bar [role="tab"]')).toHaveCount(count - 1);
     assert.equal(await page.evaluate(() => window.workflowFixture.saved.length), 0);
   });
+  await check('joplin-tree-fold-restart-and-keyboard', async (page) => {
+    const child = page.getByRole('treeitem', { name: 'Child', exact: true });
+    const parent = page.getByRole('treeitem', { name: 'Parent', exact: true });
+    await child.click();
+    await parent.click();
+    await parent.click();
+    await expect(child).toHaveAttribute('aria-expanded', 'false');
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            JSON.parse(sessionStorage.getItem('workflow-settings') || '{}').treeCollapsed?.length ??
+            0,
+        ),
+      )
+      .toBe(1);
+    await page.reload();
+    await page.locator('.cm-content').waitFor();
+    await expect(child).toHaveAttribute('aria-expanded', 'false');
+    await parent.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(child).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByRole('treeitem', { name: 'Nested.md', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.tabs-bar [aria-selected="true"]')).toContainText('Nested');
+  });
+  await check('joplin-footnote-jump-and-navigation-return', async (page) => {
+    await page.evaluate(
+      () => (window.workflowFixture.nextPath = 'D:/generated-workflow/Footnotes.md'),
+    );
+    await page.keyboard.press('Control+o');
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.document()))
+      .toContain('[^注]:');
+    const before = await page.evaluate(() => window.workflowFixture.cursor());
+    await page
+      .locator('.footnote-ref a')
+      .first()
+      .click({ modifiers: ['Control'] });
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.cursor()))
+      .toBe(await page.evaluate(() => window.workflowFixture.document().indexOf('[^注]:')));
+    await page.keyboard.press('Alt+ArrowLeft');
+    await expect.poll(() => page.evaluate(() => window.workflowFixture.cursor())).toBe(before);
+  });
   for (const width of [1440, 800, 600])
     await check(
       `header-${width}`,
