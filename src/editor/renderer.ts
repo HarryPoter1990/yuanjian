@@ -203,13 +203,14 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
   });
   md.core.ruler.after('inline', 'heading_ids', (state) => {
     const used = new Set(footnoteIds(state.env));
+    const suffixes = new Map<string, number>();
     state.tokens.forEach((token, index) => {
       if (token.type !== 'heading_open') return;
       const title = (state.tokens[index + 1]?.children ?? [])
         .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
         .map((child) => child.content)
         .join('');
-      token.attrSet('id', uniqueHeadingId(title, used));
+      token.attrSet('id', uniqueHeadingId(title, used, suffixes));
     });
   });
   md.inline.ruler.before('html_inline', 'table_cell_break', (state, silent) => {

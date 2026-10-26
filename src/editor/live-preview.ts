@@ -5,6 +5,7 @@ import {
   type EditorState,
   type Range,
   type RangeSet,
+  type Transaction,
 } from '@codemirror/state';
 import {
   BlockWrapper,
@@ -43,6 +44,14 @@ export interface MarkdownBlock {
   error?: string;
 }
 const parser = createMarkdownParser();
+const semanticKey = (tokens: MarkdownBlock['tokens']) =>
+  JSON.stringify(
+    tokens.map((item) => [
+      item.type,
+      item.attrs,
+      item.children?.map((child) => [child.type, child.attrs]),
+    ]),
+  );
 
 export function markdownBlocks(state: EditorState): MarkdownBlock[] {
   const source = state.doc.toString();
@@ -93,16 +102,83 @@ export function markdownBlocks(state: EditorState): MarkdownBlock[] {
       headingLevel: token.type === 'heading_open' ? Number(token.tag.slice(1)) : undefined,
       tokens,
       environment,
-      semanticKey: JSON.stringify(
-        tokens.map((item) => [
-          item.type,
-          item.attrs,
-          item.children?.map((child) => [child.type, child.attrs]),
-        ]),
-      ),
+      semanticKey: semanticKey(tokens),
     });
   });
   return blocks;
+}
+
+function updatePlainParagraph(
+  blocks: MarkdownBlock[],
+  transaction: Transaction,
+): MarkdownBlock[] | null {
+  let count = 0,
+    from = 0,
+    to = 0,
+    inserted = '';
+  transaction.changes.iterChanges((a, b, _c, _d, text) => {
+    count++;
+    from = a;
+    to = b;
+    inserted = text.toString();
+  });
+  if (count !== 1 || /[\r\n]/.test(inserted)) return null;
+  const plain = /^[\p{L}\p{N}\p{M} \t.,，。！？!?；;、（）()'"%]*$/u;
+  if (!plain.test(inserted)) return null;
+  const target = blocks.find(
+    (block) =>
+      block.type === 'paragraph_open' &&
+      from >= block.from &&
+      to <= block.to &&
+      plain.test(block.source),
+  );
+  if (!target) return null;
+  // Task checkboxes carry absolute source offsets. A preceding length change needs a full rebuild.
+  if (
+    transaction.newDoc.length !== transaction.startState.doc.length &&
+    blocks.some(
+      (block) =>
+        block.from > target.from &&
+        block.tokens.some((token) =>
+          token.children?.some(
+            (child) => child.type === 'html_inline' && child.content.includes('data-task-offset'),
+          ),
+        ),
+    )
+  )
+    return null;
+  const nextFrom = transaction.changes.mapPos(target.from, -1),
+    nextTo = transaction.changes.mapPos(target.to, 1);
+  const source = transaction.state.sliceDoc(nextFrom, nextTo);
+  const environment = {};
+  const tokens = parser.parse(source, environment);
+  // Only isolated plain text can bypass the full parse. Structural/link syntax always invalidates it.
+  if (
+    tokens.length !== 3 ||
+    tokens[0].type !== 'paragraph_open' ||
+    tokens[1].children?.some((token) => token.type !== 'text')
+  )
+    return null;
+  const lineOffset = transaction.state.doc.lineAt(nextFrom).number - 1;
+  for (const token of tokens)
+    if (token.map) token.map = [token.map[0] + lineOffset, token.map[1] + lineOffset];
+  return blocks.map((block) =>
+    block === target
+      ? {
+          ...block,
+          from: nextFrom,
+          to: nextTo,
+          source,
+          tokens,
+          environment,
+          semanticKey: semanticKey(tokens),
+        }
+      : {
+          ...block,
+          from: transaction.changes.mapPos(block.from, -1),
+          to: transaction.changes.mapPos(block.to, 1),
+        },
+  );
 }
 
 const expandFrontmatter = StateEffect.define<boolean>();
@@ -527,7 +603,9 @@ export const livePreviewField = StateField.define<{
     const blocks = !live
       ? []
       : transaction.docChanged || enteringLive
-        ? markdownBlocks(transaction.state)
+        ? ((transaction.docChanged && !enteringLive
+            ? updatePlainParagraph(value.blocks, transaction)
+            : null) ?? markdownBlocks(transaction.state))
         : value.blocks;
     let metadataExpanded = value.metadataExpanded;
     for (const effect of transaction.effects)

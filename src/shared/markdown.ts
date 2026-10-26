@@ -65,12 +65,17 @@ export function headingId(text: string): string {
       .replace(/\s+/g, '-') || 'section'
   );
 }
-export function uniqueHeadingId(text: string, used: Set<string>): string {
+export function uniqueHeadingId(
+  text: string,
+  used: Set<string>,
+  suffixes: Map<string, number>,
+): string {
   const base = headingId(text);
-  let id = base,
-    suffix = 0;
+  let suffix = suffixes.get(base) ?? 0;
+  let id = suffix ? `${base}-${suffix}` : base;
   while (used.has(id)) id = `${base}-${++suffix}`;
   used.add(id);
+  suffixes.set(base, suffix + 1);
   return id;
 }
 
@@ -82,6 +87,7 @@ function analyze(content: string) {
   const links: NoteLink[] = [];
   const tags = new Set(front.tags.map(normalizeTag).filter(Boolean));
   const headingIds = new Set(footnoteIds(environment));
+  const headingSuffixes = new Map<string, number>();
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -91,7 +97,7 @@ function analyze(content: string) {
         .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
         .map((child) => child.content)
         .join('');
-      const id = uniqueHeadingId(text, headingIds);
+      const id = uniqueHeadingId(text, headingIds, headingSuffixes);
       headings.push({
         level: Number(token.tag.slice(1)),
         text,
