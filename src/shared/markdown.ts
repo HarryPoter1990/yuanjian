@@ -63,6 +63,13 @@ export function headingId(text: string): string {
       .replace(/\s+/g, '-') || 'section'
   );
 }
+export function uniqueHeadingId(text: string, used: Set<string>): string {
+  const base = headingId(text);
+  let id = base, suffix = 0;
+  while (used.has(id)) id = `${base}-${++suffix}`;
+  used.add(id);
+  return id;
+}
 
 function analyze(content: string) {
   const front = frontmatter(content);
@@ -70,7 +77,7 @@ function analyze(content: string) {
   const headings: Heading[] = [];
   const links: NoteLink[] = [];
   const tags = new Set(front.tags.map(normalizeTag).filter(Boolean));
-  const headingCounts = new Map<string, number>();
+  const headingIds = new Set<string>();
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -80,14 +87,12 @@ function analyze(content: string) {
         .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
         .map((child) => child.content)
         .join('');
-      const id = headingId(text);
-      const count = headingCounts.get(id) ?? 0;
-      headingCounts.set(id, count + 1);
+      const id = uniqueHeadingId(text, headingIds);
       headings.push({
         level: Number(token.tag.slice(1)),
         text,
         line: (token.map?.[0] ?? 0) + front.lines + 1,
-        id: count ? `${id}-${count}` : id,
+        id,
       });
     }
     if (token.type !== 'inline') continue;

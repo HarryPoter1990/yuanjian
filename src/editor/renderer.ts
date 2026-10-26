@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import hljs from 'highlight.js';
 import type { RenderOptions } from './types';
-import { headingId } from '../shared/markdown';
+import { uniqueHeadingId } from '../shared/markdown';
 import { withoutFrontmatter } from './frontmatter';
 import { iconMarkup } from '../ui/icon-markup';
 import { isEscaped } from './completion';
@@ -200,17 +200,14 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     }
   });
   md.core.ruler.after('inline', 'heading_ids', (state) => {
-    const counts = new Map<string, number>();
+    const used = new Set<string>();
     state.tokens.forEach((token, index) => {
       if (token.type !== 'heading_open') return;
       const title = (state.tokens[index + 1]?.children ?? [])
         .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
         .map((child) => child.content)
         .join('');
-      const id = headingId(title);
-      const count = counts.get(id) ?? 0;
-      counts.set(id, count + 1);
-      token.attrSet('id', count ? `${id}-${count}` : id);
+      token.attrSet('id', uniqueHeadingId(title, used));
     });
   });
   md.inline.ruler.before('html_inline', 'table_cell_break', (state, silent) => {
