@@ -90,6 +90,8 @@ export function paletteAppearance(
   return {
     ...appearance,
     palette: id,
+    paletteByMode: undefined,
+    colorThemeId: undefined,
     paletteOverrides: undefined,
     background: palette.light.bg,
     foreground: palette.light.fg,

@@ -2,15 +2,18 @@ import type { Appearance, NoteDocument, SaveOutcome, TabState } from '../shared/
 import { builtinPalettes } from '../shared/palettes';
 import { diff3Merge } from 'node-diff3';
 import { shortcutKey } from '../shared/shortcuts';
+import {accentForeground} from '../shared/appearance';
 
 export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const dark = appearance.mode === 'dark' || (appearance.mode === 'system' && systemDark);
-  const palette = builtinPalettes.find((item) => item.id === appearance.palette);
+  const mode = dark ? 'dark' : 'light';
+  const paired = appearance.paletteByMode?.[mode];
+  const overrides = appearance.paletteOverrides?.[mode];
+  const palette = builtinPalettes.find((item) => item.id === (paired ?? appearance.palette));
   if (palette) {
     const colors = palette[dark ? 'dark' : 'light'];
-    const overrides = appearance.paletteOverrides?.[dark ? 'dark' : 'light'];
     const resolve = (key: 'bg' | 'fg' | 'accent', value: string) =>
-      [palette.light[key], palette.dark[key]].some(
+      paired || [palette.light[key], palette.dark[key]].some(
         (color) => color.toLowerCase() === value.toLowerCase(),
       )
         ? colors[key]
@@ -20,29 +23,30 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
       background: overrides?.background ?? resolve('bg', appearance.background),
       foreground: overrides?.foreground ?? resolve('fg', appearance.foreground),
       accent: overrides?.accent ?? resolve('accent', appearance.accent),
-      sidebar: colors.sidebar,
-      surface: colors.surface,
-      muted: colors.muted,
-      border: colors.border,
-      selected: colors.selected,
-      accentText: colors.accentText,
+      sidebar: overrides?.sidebar ?? colors.sidebar,
+      surface: overrides?.surface ?? colors.surface,
+      muted: overrides?.muted ?? colors.muted,
+      border: overrides?.border ?? colors.border,
+      selected: overrides?.selected ?? colors.selected,
+      accentText: accentForeground(overrides?.accent ?? resolve('accent',appearance.accent)),
     };
   }
   const background =
-    dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background;
+    overrides?.background ?? (dark && appearance.background === '#f6f5f1' ? '#1c2227' : appearance.background);
   const foreground =
-    dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground;
+    overrides?.foreground ?? (dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground);
+  const accent = overrides?.accent ?? (dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent);
   return {
     dark,
     background,
     foreground,
-    accent: dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent,
-    sidebar: background,
-    surface: `color-mix(in srgb, ${foreground} 4%, ${background})`,
-    muted: `color-mix(in srgb, ${foreground} 70%, ${background})`,
-    border: `color-mix(in srgb, ${foreground} 16%, ${background})`,
-    selected: `color-mix(in srgb, ${foreground} 9%, ${background})`,
-    accentText: dark ? '#191919' : '#FFFFFF',
+    accent,
+    sidebar: overrides?.sidebar ?? background,
+    surface: overrides?.surface ?? `color-mix(in srgb, ${foreground} 4%, ${background})`,
+    muted: overrides?.muted ?? `color-mix(in srgb, ${foreground} 70%, ${background})`,
+    border: overrides?.border ?? `color-mix(in srgb, ${foreground} 16%, ${background})`,
+    selected: overrides?.selected ?? `color-mix(in srgb, ${foreground} 9%, ${background})`,
+    accentText: accentForeground(accent),
   };
 }
 
