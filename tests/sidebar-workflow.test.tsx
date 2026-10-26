@@ -100,7 +100,7 @@ it('preserves nested collapse through parent toggles and remount, with keyboard 
   expect(opened).toHaveBeenCalledWith('D:/generated/parent/child/note.md');
 });
 it('retains original shortcut bindings until an explicit replacement, and refuses fixed keys', async () => {
-  let bindings = { save: 'Ctrl+s', new: 'Ctrl+n' };
+  let bindings: Record<string,string> = { save: 'Ctrl+s', new: 'Ctrl+n' };
   function Fixture() {
     const [value, setValue] = useState(bindings);
     return (

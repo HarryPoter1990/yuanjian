@@ -7,7 +7,7 @@ import { footnoteLine } from '../src/shared/footnotes';
 import { extractHeadings, extractLinks } from '../src/shared/markdown';
 import { convertRichText } from '../src/editor/clipboard';
 import { selectedCopy } from '../src/editor/clipboard-output';
-import type { EditorView } from '@codemirror/view';
+import { EditorView } from '@codemirror/view';
 const source = '开头[^注]\n\n再次引用[^注]\n\n[^注]: 注释 **正文** 与 [链接](other.md)\n';
 it('renders and maps footnote definitions and every return link without altering source', () => {
   const root = document.createElement('div');
@@ -32,20 +32,16 @@ it('does not generate duplicate ids when a real heading uses a footnote id', () 
   expect(extractHeadings(text)[0].id).toBe(root.querySelector('h1')?.id);
 });
 it('copies rendered footnotes as Markdown references and definitions, including reference-only selections', () => {
-  const content = document.createElement('div');
-  content.className = 'cm-content';
-  document.body.append(content);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const view = new EditorView({state:EditorState.create({doc:source}),parent:host});
+  const content = view.contentDOM;
   const block = document.createElement('div');
   block.className = 'markdown-preview-block';
   block.dataset.sourceFrom = '0';
   block.dataset.sourceTo = String(source.length);
   block.innerHTML = renderMarkdown(source);
-  content.append(block);
-  const view = {
-    dom: content,
-    contentDOM: content,
-    state: EditorState.create({ doc: source }),
-  } as EditorView;
+  content.replaceChildren(block);
   for (const node of [block, block.querySelector('sup')!]) {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -59,5 +55,6 @@ it('copies rendered footnotes as Markdown references and definitions, including 
     expect(convertRichText(copied.html).markdown).toContain('[^注]:');
   }
   window.getSelection()?.removeAllRanges();
-  content.remove();
+  view.destroy();
+  host.remove();
 });
