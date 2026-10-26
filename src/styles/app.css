@@ -107,7 +107,7 @@ button svg {
 }
 button.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text, #fff);
   border-color: var(--accent);
 }
 button.danger {
@@ -1240,7 +1240,7 @@ button.danger {
   content: '';
   width: 13px;
   height: 13px;
-  background: #fff;
+  background: var(--accent-text, #fff);
   border-radius: 50%;
   left: 2px;
   top: 2px;

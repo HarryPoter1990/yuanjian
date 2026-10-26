@@ -472,7 +472,7 @@ export function SettingsPanel({
                 {settings.themes.map((theme) => (
                   <button
                     key={theme.id}
-                    onClick={() => look({ ...theme.appearance, palette: theme.appearance.palette })}
+                    onClick={() => patch({ appearance: structuredClone(theme.appearance) })}
                   >
                     <span
                       className="theme-dot"
@@ -517,11 +517,11 @@ export function SettingsPanel({
                 </button>
               </div>
               <div className="settings-actions">
-                <button onClick={() => look({ ...original })}>
+                <button onClick={() => patch({ appearance: structuredClone(original) })}>
                   <Undo2 size={14} />
                   撤销本次外观修改
                 </button>
-                <button onClick={() => look(structuredClone(defaultAppearance))}>
+                <button onClick={() => patch({ appearance: structuredClone(defaultAppearance) })}>
                   <RefreshCw size={14} />
                   恢复默认外观
                 </button>
