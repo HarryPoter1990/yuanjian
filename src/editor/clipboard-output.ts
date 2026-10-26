@@ -112,11 +112,29 @@ function cleanHTML(root: HTMLElement): string {
   for (const hidden of root.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
   for (const element of root.querySelectorAll('*'))
     for (const attribute of [...element.attributes]) {
+      if (attribute.name === 'class') {
+        const semantic = attribute.value
+          .split(/\s+/)
+          .filter((value) => /^footnote(?:s|s-list|s-sep|-ref|-item|-backref)$/.test(value))
+          .join(' ');
+        if (semantic) {
+          element.setAttribute('class', semantic);
+          continue;
+        }
+      }
+      if (
+        attribute.name === 'id' &&
+        /^fn(?:ref)?\d+(?::\d+)?$/.test(attribute.value) &&
+        (element.hasAttribute('data-footnote-definition') ||
+          element.parentElement?.hasAttribute('data-footnote-ref'))
+      )
+        continue;
       if (
         attribute.name === 'class' ||
         attribute.name === 'id' ||
         attribute.name === 'contenteditable' ||
-        (attribute.name.startsWith('data-') && attribute.name !== 'data-latex')
+        (attribute.name.startsWith('data-') &&
+          !['data-latex', 'data-footnote-ref', 'data-footnote-definition'].includes(attribute.name))
       )
         element.removeAttribute(attribute.name);
     }
@@ -209,6 +227,27 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       if (ancestor.classList.contains('markdown-preview-block')) break;
     }
     root.append(copied);
+    const references = [...root.querySelectorAll<HTMLElement>('[data-footnote-ref]')];
+    if (references.length) {
+      const definitions = new Set(
+        [...root.querySelectorAll<HTMLElement>('[data-footnote-definition]')].map(
+          (node) => node.dataset.footnoteDefinition,
+        ),
+      );
+      const full = document.createElement('div');
+      full.innerHTML = renderMarkdown(view.state.doc.toString());
+      for (const reference of references) {
+        const label = reference.dataset.footnoteRef;
+        if (definitions.has(label)) continue;
+        const definition = [
+          ...full.querySelectorAll<HTMLElement>('[data-footnote-definition]'),
+        ].find((node) => node.dataset.footnoteDefinition === label);
+        if (definition) {
+          root.append(definition.cloneNode(true));
+          definitions.add(label);
+        }
+      }
+    }
     const originals = [...view.contentDOM.querySelectorAll('.katex,.katex-error')].filter((node) =>
       range.intersectsNode(node),
     );

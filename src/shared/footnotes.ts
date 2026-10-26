@@ -42,10 +42,16 @@ export function installFootnotes(md: MarkdownIt): void {
         token.map = definitions?.[String(token.meta.label)] ?? null;
   });
   const open = md.renderer.rules.footnote_open!;
+  const reference = md.renderer.rules.footnote_ref!;
+  md.renderer.rules.footnote_ref = (tokens, index, options, env, renderer) =>
+    reference(tokens, index, options, env, renderer).replace(
+      '<sup ',
+      `<sup data-footnote-ref="${md.utils.escapeHtml(String(tokens[index].meta.label))}" `,
+    );
   md.renderer.rules.footnote_open = (tokens, index, options, env, renderer) =>
     open(tokens, index, options, env, renderer).replace(
       '<li ',
-      `<li value="${Number(tokens[index].meta.id) + 1}" `,
+      `<li data-footnote-definition="${md.utils.escapeHtml(String(tokens[index].meta.label))}" value="${Number(tokens[index].meta.id) + 1}" `,
     );
 }
 const parser = new MarkdownIt().use(installFootnotes);

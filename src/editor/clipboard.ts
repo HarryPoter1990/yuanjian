@@ -23,6 +23,25 @@ export function convertRichText(
       strongDelimiter: '**',
     });
     turndown.use(gfm);
+    turndown.addRule('footnoteRef', {
+      filter: (element) => element.hasAttribute('data-footnote-ref'),
+      replacement: (_content, node) => `[^${(node as Element).getAttribute('data-footnote-ref')}]`,
+    });
+    turndown.addRule('footnoteDefinition', {
+      filter: (element) => element.hasAttribute('data-footnote-definition'),
+      replacement: (content, node) =>
+        `\n\n[^${(node as Element).getAttribute('data-footnote-definition')}]: ${content.trim().replace(/\n/g, '\n    ')}\n\n`,
+    });
+    turndown.addRule('footnoteContainer', {
+      filter: (element) => element.classList.contains('footnotes-list'),
+      replacement: (content) => content,
+    });
+    turndown.addRule('footnoteDecoration', {
+      filter: (element) =>
+        element.classList.contains('footnote-backref') ||
+        element.classList.contains('footnotes-sep'),
+      replacement: () => '',
+    });
     // The plugin's row/cell rules cannot serialize multiline or headerless cells safely.
     turndown.addRule('clipboardTableParts', {
       filter: ['tr', 'td', 'th'],
