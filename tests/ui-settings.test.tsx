@@ -123,46 +123,37 @@ it('explains the prerequisite for a wallpaper control when no image has been sel
   ).toBe('本地图片');
 });
 
-it('every indexed setting leads to a rendered target with a stable name', async () => {
-  const items = searchSettings('');
-  expect(items).toEqual([]);
-  for (const query of [
-    '外观与主题',
-    '字体管理',
-    '编辑与文件',
-    '界面与快捷键',
-    '历史与恢复',
-    '模板与片段',
-    '日记与周期',
-  ]) {
-    for (const item of searchSettings(query, currentSettings)) {
-      await type('搜索设置', item.label);
-      await act(async () => result(`${item.group} · ${item.label}`)!.click());
-      expect(
-        host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-id'),
-      ).toBe(item.target);
-    }
+const categories = [
+  '外观与主题',
+  '字体管理',
+  '编辑与文件',
+  '界面与快捷键',
+  '历史与恢复',
+  '模板与片段',
+  '日记与周期',
+];
+it.each(categories)('every indexed setting in %s leads to its rendered target', async (query) => {
+  expect(searchSettings('')).toEqual([]);
+  const entries = searchSettings(query, currentSettings);
+  expect(entries.length).toBeGreaterThan(0);
+  for (const item of entries) {
+    await type('搜索设置', item.label);
+    await act(async () => result(`${item.group} · ${item.label}`)!.click());
+    expect(
+      host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-id'),
+    ).toBe(item.target);
   }
 });
-
-it('indexes controls from every rendered category including current shortcut and snippet fields', async () => {
-  for (const group of [
-    '外观与主题',
-    '字体管理',
-    '编辑与文件',
-    '界面与快捷键',
-    '历史与恢复',
-    '模板与片段',
-    '日记与周期',
-  ]) {
-    await type('搜索设置', '');
+it.each(categories)(
+  'indexes every displayed control in %s including shortcut and snippet fields',
+  async (group) => {
     const category = [...host.querySelectorAll<HTMLButtonElement>('.settings-nav > button')].find(
       (button) => button.textContent?.includes(group),
     )!;
     await act(async () => category.click());
-    const fields = [
-      ...host.querySelectorAll<HTMLElement>('.settings-content [data-setting-id]'),
-    ].filter(field=>!field.closest('[hidden]')).map((field) => ({ id: field.dataset.settingId!, label: field.dataset.settingLabel! }));
+    const fields = [...host.querySelectorAll<HTMLElement>('.settings-content [data-setting-id]')]
+      .filter((field) => !field.closest('[hidden]'))
+      .map((field) => ({ id: field.dataset.settingId!, label: field.dataset.settingLabel! }));
     expect(fields.length).toBeGreaterThan(0);
     for (const field of fields) {
       await type('搜索设置', field.label);
@@ -173,8 +164,8 @@ it('indexes controls from every rendered category including current shortcut and
         host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-id'),
       ).toBe(field.id);
     }
-  }
-});
+  },
+);
 
 it('retains unfinished exclusion lines while making directory edits available to the existing save lifecycle', async () => {
   await type('搜索设置', '索引排除目录');
