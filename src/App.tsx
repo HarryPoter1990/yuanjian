@@ -58,6 +58,7 @@ import type {
   HeadingLevel,
 } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
+import { footnoteLine } from './shared/footnotes';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { DocumentTabs } from './components/DocumentTabs';
@@ -844,6 +845,13 @@ export default function App() {
     return result.reference;
   }
   async function followLink(target: string) {
+    if (active && target.startsWith('#')) {
+      const line = footnoteLine(active.content, target.slice(1));
+      if (line) {
+        editor.current?.scrollToLine(line);
+        return;
+      }
+    }
     if (/^https?:\/\//i.test(target)) {
       await run('打开链接', () => window.notes.openExternal(target));
       return;

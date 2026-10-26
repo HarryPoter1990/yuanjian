@@ -3,8 +3,10 @@ import { Document } from 'yaml';
 import type { Heading, NoteLink, NoteMeta } from './types';
 import { inspectFrontmatter } from './frontmatter';
 import { wikiLinks } from './wiki';
+import { installFootnotes, footnoteIds, type FootnoteEnvironment } from './footnotes';
 
 const markdown = new MarkdownIt({ html: false, linkify: false });
+markdown.use(installFootnotes);
 const headingMarkdown = new MarkdownIt({ html: false, linkify: false });
 wikiLinks(headingMarkdown);
 function readableTarget(target: string): string {
@@ -65,7 +67,8 @@ export function headingId(text: string): string {
 }
 export function uniqueHeadingId(text: string, used: Set<string>): string {
   const base = headingId(text);
-  let id = base, suffix = 0;
+  let id = base,
+    suffix = 0;
   while (used.has(id)) id = `${base}-${++suffix}`;
   used.add(id);
   return id;
@@ -73,11 +76,12 @@ export function uniqueHeadingId(text: string, used: Set<string>): string {
 
 function analyze(content: string) {
   const front = frontmatter(content);
-  const tokens = markdown.parse(content.slice(front.end).replace(/^\uFEFF/, ''), {});
+  const environment: FootnoteEnvironment = {};
+  const tokens = markdown.parse(content.slice(front.end).replace(/^\uFEFF/, ''), environment);
   const headings: Heading[] = [];
   const links: NoteLink[] = [];
   const tags = new Set(front.tags.map(normalizeTag).filter(Boolean));
-  const headingIds = new Set<string>();
+  const headingIds = new Set(footnoteIds(environment));
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];

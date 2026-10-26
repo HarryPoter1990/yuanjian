@@ -8,6 +8,7 @@ import { withoutFrontmatter } from './frontmatter';
 import { iconMarkup } from '../ui/icon-markup';
 import { isEscaped } from './completion';
 import { wikiLinks } from '../shared/wiki';
+import { installFootnotes, footnoteIds } from '../shared/footnotes';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -57,6 +58,7 @@ function numberedCode(highlighted: string, numbers: boolean): string {
 export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false, breaks: false });
   wikiLinks(md);
+  md.use(installFootnotes);
   md.inline.ruler.after('escape', 'inline_math', (state, silent) => {
     if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
     let end = state.pos + 1;
@@ -200,7 +202,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     }
   });
   md.core.ruler.after('inline', 'heading_ids', (state) => {
-    const used = new Set<string>();
+    const used = new Set(footnoteIds(state.env));
     state.tokens.forEach((token, index) => {
       if (token.type !== 'heading_open') return;
       const title = (state.tokens[index + 1]?.children ?? [])

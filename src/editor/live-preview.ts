@@ -79,7 +79,12 @@ export function markdownBlocks(state: EditorState): MarkdownBlock[] {
       while (end < parsed.length && !(parsed[end].level === 0 && parsed[end].nesting === -1)) end++;
       end++;
     }
-    const tokens = parsed.slice(index, end);
+    let tokens = parsed.slice(index, end);
+    if (token.type === 'footnote_open') {
+      const open = parsed.find((item) => item.type === 'footnote_block_open');
+      const close = parsed.find((item) => item.type === 'footnote_block_close');
+      if (open && close) tokens = [open, ...tokens, close];
+    }
     blocks.push({
       from,
       to,
