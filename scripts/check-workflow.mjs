@@ -411,6 +411,41 @@ try {
       .toContain('**富文本**');
     await expect(page.locator('.cm-content')).toBeFocused();
   });
+  await check('joplin-focus-search-and-unsaved-draft', async (page) => {
+    await page.getByRole('button', { name: '收起左侧导航', exact: true }).click();
+    await expect(page.locator('.left-sidebar')).toBeHidden();
+    await page.keyboard.press('Control+Shift+f');
+    await expect(page.getByRole('textbox', { name: '跨文件搜索' })).toBeFocused();
+    await expect(page.locator('.left-sidebar')).toBeVisible();
+    await page.keyboard.press('F6');
+    await expect(page.locator('.cm-content')).toBeFocused();
+    await page.keyboard.press('Control+n');
+    await page.locator('.cm-content').click();
+    await page.keyboard.insertText('未保存检索目标');
+    await page.keyboard.press('Control+Shift+f');
+    await page.getByRole('textbox', { name: '跨文件搜索' }).fill('未保存检索目标');
+    await expect(page.locator('.search-note mark').first()).toHaveText('未保存检索目标');
+    await page.locator('.search-note .search-result').first().click();
+    await expect
+      .poll(() => page.evaluate(() => window.workflowFixture.document()))
+      .toContain('未保存检索目标');
+    assert.equal(await page.evaluate(() => window.workflowFixture.saved.length), 0);
+    await page.screenshot({ path: `${out}/joplin-search.png` });
+  });
+  await check('joplin-shortcut-conflict-keeps-original-binding', async (page) => {
+    await page.keyboard.press('Control+,');
+    await page.getByRole('textbox', { name: '搜索设置' }).fill('应用快捷键');
+    await page.getByRole('button', { name: '界面与快捷键 · 应用快捷键', exact: true }).click();
+    const field = page.getByRole('textbox', { name: '保存快捷键', exact: true });
+    await field.focus();
+    await page.keyboard.press('Control+w');
+    await expect(page.getByRole('alert')).toContainText('关闭当前笔记');
+    await page.getByRole('button', { name: '关闭对话框', exact: true }).click();
+    const count = await page.locator('.tabs-bar [role="tab"]').count();
+    await page.keyboard.press('Control+w');
+    await expect(page.locator('.tabs-bar [role="tab"]')).toHaveCount(count - 1);
+    assert.equal(await page.evaluate(() => window.workflowFixture.saved.length), 0);
+  });
   for (const width of [1440, 800, 600])
     await check(
       `header-${width}`,

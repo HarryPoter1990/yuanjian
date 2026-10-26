@@ -25,6 +25,7 @@ export const defaultAppearance: Appearance = {
   sidebarOpacity: 0.96,
 };
 export const defaultSettings: Settings = {
+  treeCollapsed: [],
   roots: [],
   excluded: ['.git', 'node_modules', 'dist', '.obsidian', '.test-data'],
   showAllFiles: false,
@@ -101,6 +102,9 @@ export const defaultSettings: Settings = {
     },
   ],
   shortcuts: {
+    fullSearch: 'Ctrl+Shift+f',
+    focusNext: 'F6',
+    focusPrevious: 'Shift+F6',
     save: 'Ctrl+s',
     new: 'Ctrl+n',
     open: 'Ctrl+o',

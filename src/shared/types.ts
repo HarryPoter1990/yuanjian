@@ -39,6 +39,22 @@ export interface SearchHit {
   snippet: string;
   tags: string[];
 }
+export interface SearchNote {
+  id: string;
+  path: string | null;
+  title: string;
+  dirty?: boolean;
+  tags: string[];
+  matches: { line: number; snippet: string }[];
+  matchCount: number;
+  score: number;
+}
+export interface SearchPage {
+  notes: SearchNote[];
+  issues: { path: string; message: string }[];
+  truncated: boolean;
+  cancelled?: boolean;
+}
 export interface Template {
   id: string;
   name: string;
@@ -95,6 +111,7 @@ export interface GraphPreferences {
   pan: { x: number; y: number };
 }
 export interface Settings {
+  treeCollapsed?: string[];
   roots: string[];
   excluded: string[];
   showAllFiles: boolean;
@@ -272,6 +289,11 @@ export interface DesktopAPI {
   getTree(root: string): Promise<FileEntry[]>;
   getIndex(): Promise<NoteMeta[]>;
   search(query: string, options?: { root?: string; tag?: string }): Promise<SearchHit[]>;
+  searchNotes(
+    query: string,
+    options?: { root?: string; tag?: string; requestId?: string },
+  ): Promise<SearchPage>;
+  cancelSearch(requestId: string): Promise<void>;
   resolveLink(fromPath: string, target: string): Promise<ResolvedLink>;
   moveFile(fromPath: string, toPath?: string): Promise<MoveOutcome | null>;
   undoMove(undoId: string): Promise<MoveOutcome>;

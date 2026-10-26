@@ -59,6 +59,7 @@ import type {
 } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
 import { footnoteLine } from './shared/footnotes';
+import { shortcutConflicts } from './shared/shortcuts';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
 import { DocumentTabs } from './components/DocumentTabs';
@@ -848,7 +849,7 @@ export default function App() {
     if (active && target.startsWith('#')) {
       const line = footnoteLine(active.content, target.slice(1));
       if (line) {
-        editor.current?.scrollToLine(line);
+        activateNote(active.id, positionFor(), line);
         return;
       }
     }
@@ -1069,13 +1070,46 @@ export default function App() {
     const id = workspace.newDraft();
     activateNote(id, leaving);
   }, [workspace.newDraft]);
+  function focusRegion(direction = 1) {
+    const regions = [
+      ...document.querySelectorAll<HTMLElement>('.left-sidebar,.editor-column,.right-sidebar'),
+    ].filter((region) => !region.hidden && !region.closest('[hidden]'));
+    const current = regions.findIndex((region) => region.contains(document.activeElement));
+    const region = regions[(current + direction + regions.length) % regions.length];
+    if (!region) return;
+    const targets = [
+      ...region.querySelectorAll<HTMLElement>(
+        '.cm-content,button[tabindex="0"],input,button,textarea',
+      ),
+    ].filter((target) => !target.closest('[hidden]') && !target.hasAttribute('disabled'));
+    const target = region.classList.contains('editor-column')
+      ? (region.querySelector<HTMLElement>('.cm-content') ?? targets[0] ?? region)
+      : (targets[0] ?? region);
+    if (target === region) region.tabIndex = -1;
+    target.focus();
+  }
+  function focusFullSearch() {
+    void inFullWindow(() => {
+      setForcedPanels((current) => ({ ...current, left: true }));
+      requestAnimationFrame(() => window.dispatchEvent(new Event('yuanjian:focus-search')));
+    });
+  }
   useEffect(() => {
     if (!settings) return;
     const handler = (event: KeyboardEvent) => {
       if (panel || workspace.conflict || event.isComposing) return;
-      const action = Object.entries(settings.shortcuts).find(([, shortcut]) =>
-        matchesShortcut(event, shortcut),
-      )?.[0];
+      const matches = Object.entries(settings.shortcuts).filter(
+        ([key, shortcut]) =>
+          matchesShortcut(event, shortcut) &&
+          !shortcutConflicts(settings.shortcuts, key, shortcut).some((item) => item.fixed),
+      );
+      if (matches.length > 1) {
+        event.preventDefault();
+        event.stopPropagation();
+        notify('快捷键存在冲突，请在设置中重新分配。', true);
+        return;
+      }
+      const action = matches[0]?.[0];
       if (!action) {
         if (!event.ctrlKey || event.altKey || event.metaKey) return;
         if (event.key === 'Tab') {
@@ -1106,6 +1140,15 @@ export default function App() {
       event.preventDefault();
       event.stopPropagation();
       switch (action) {
+        case 'fullSearch':
+          focusFullSearch();
+          break;
+        case 'focusNext':
+          focusRegion(1);
+          break;
+        case 'focusPrevious':
+          focusRegion(-1);
+          break;
         case 'save':
           if (active) void workspace.save(active.id, true);
           break;
@@ -1473,6 +1516,9 @@ export default function App() {
             ['打开 Markdown 文件', () => void open(), settings.shortcuts.open],
             ['导入文件', () => void transferFiles(), ''],
             ['快速打开笔记', () => setPanel('quick-open'), settings.shortcuts.quickOpen],
+            ['跨文件搜索', focusFullSearch, settings.shortcuts.fullSearch],
+            ['聚焦下一区域', () => focusRegion(1), settings.shortcuts.focusNext],
+            ['聚焦上一区域', () => focusRegion(-1), settings.shortcuts.focusPrevious],
             ['重新打开关闭的笔记', () => void reopenLastClosed(), settings.shortcuts.reopen],
             ['新建空白笔记', newNote, settings.shortcuts.new],
             [
@@ -1668,6 +1714,8 @@ export default function App() {
             <>
               <Sidebar
                 hidden={!panels.left}
+                tabs={tabs}
+                onActivate={(id, line) => activateNote(id, positionFor(), line)}
                 settings={settings}
                 trees={workspace.trees}
                 index={workspace.index}

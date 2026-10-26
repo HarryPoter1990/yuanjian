@@ -4,6 +4,7 @@ import { EditorView } from '@codemirror/view';
 import App from '../../src/App';
 import { defaultSettings } from '../../src/shared/defaults';
 import { parseNote } from '../../src/shared/markdown';
+import { searchDocument, sortSearchNotes } from '../../src/shared/search';
 
 // Generated documents only. Session storage belongs to this isolated test origin.
 const directory = 'D:/generated-workflow';
@@ -33,6 +34,7 @@ const documents = Object.fromEntries(
 for (const [title, content] of [
   ['Links', '# Links\n\n前 $x$ 后 **目标** 与 [网站](https://example.org/path)\n\n尾段。'],
   ['Table', '# Table\n\n| A | B |\n| --- | --- |\n| 旧 |\n\n尾段。'],
+  ['Footnotes', '# 脚注样例\n\n正文[^注]\n\n尾段。\n\n[^注]: 注释正文\n'],
 ]) {
   const note = { ...makeNote(title), content, baseContent: content, cursor: content.length };
   documents[note.path] = note;
@@ -76,6 +78,19 @@ Object.defineProperty(navigator, 'clipboard', {
   },
 });
 const api = {
+  pendingHistory: async () => [],
+  retryHistoryWork: async () => {},
+  searchNotes: async (query, options) => ({
+    notes: sortSearchNotes(
+      Object.values(documents)
+        .filter((note) => !options?.root || note.path.startsWith(options.root + '/'))
+        .map((note) => searchDocument(query, { ...note, tags: [] }))
+        .filter(Boolean),
+    ),
+    issues: [],
+    truncated: false,
+  }),
+  cancelSearch: async () => {},
   bootstrap: async () => ({
     settings: structuredClone(settings),
     session: structuredClone(state.session || { tabs: initial, activeId: initial[0].id }),

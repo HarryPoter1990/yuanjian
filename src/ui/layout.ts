@@ -10,8 +10,8 @@ export function visiblePanels(
   width: number,
   forced: { left?: boolean; right?: boolean } = {},
 ) {
-  let left = settings.leftVisible;
-  let right = settings.rightVisible;
+  let left = forced.left ?? settings.leftVisible;
+  let right = forced.right ?? settings.rightVisible;
   const needed = () =>
     460 + (left ? settings.leftWidth + 1 : 0) + (right ? settings.rightWidth + 1 : 0);
   if (width < needed() && !forced.right) right = false;

@@ -103,6 +103,8 @@ function makeAPI(session: SessionState): DesktopAPI {
   return {
     prepareFiles: vi.fn(async () => []),
     pendingHistory: vi.fn(async () => []),
+    searchNotes: vi.fn(async () => ({ notes: [], issues: [], truncated: false })),
+    cancelSearch: vi.fn(async () => {}),
     retryHistoryWork: vi.fn(async () => {}),
     chooseImports: vi.fn(async () => []),
     readImport: vi.fn(async () => {

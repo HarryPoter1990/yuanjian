@@ -1,6 +1,7 @@
 import type { Appearance, NoteDocument, SaveOutcome, TabState } from '../shared/types';
 import { builtinPalettes } from '../shared/palettes';
 import { diff3Merge } from 'node-diff3';
+import { shortcutKey } from '../shared/shortcuts';
 
 export function appearanceColors(appearance: Appearance, systemDark: boolean) {
   const dark = appearance.mode === 'dark' || (appearance.mode === 'system' && systemDark);
@@ -119,14 +120,14 @@ export function matchesShortcut(
   event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
   shortcut: string,
 ): boolean {
-  const keys = shortcut
+  const keys = shortcutKey(shortcut)
     .toLowerCase()
     .split('+')
     .map((s) => s.trim());
   const key = keys.at(-1);
   return Boolean(
     key &&
-    event.key.toLowerCase() === key &&
+    (event.key === '+' ? 'plus' : event.key === ' ' ? 'space' : event.key.toLowerCase()) === key &&
     (event.ctrlKey || event.metaKey) === keys.includes('ctrl') &&
     event.altKey === keys.includes('alt') &&
     event.shiftKey === keys.includes('shift'),

@@ -3,6 +3,11 @@ import { frameValue, panelWidth, visiblePanels } from '../src/ui/layout';
 
 const preferences = { leftVisible: true, rightVisible: true, leftWidth: 254, rightWidth: 228 };
 describe('responsive desktop layout', () => {
+  it('opens a manually hidden panel for an explicit focus request without changing preferences', () => {
+    const hidden = { ...preferences, leftVisible: false };
+    expect(visiblePanels(hidden, 1440, { left: true }).left).toBe(true);
+    expect(hidden.leftVisible).toBe(false);
+  });
   it('budgets only the visible 1px divider, not its overlapping grab area', () => {
     expect(visiblePanels(preferences, 944)).toEqual({ left: true, right: true });
     expect(visiblePanels(preferences, 943)).toEqual({ left: true, right: false });

@@ -51,6 +51,8 @@ import { HistoryStore } from './history';
 import { AttachmentStore } from './attachments';
 import { MoveStore } from './move';
 import { replaceImageTargets } from './markdown-ranges';
+import { searchDocument, sortSearchNotes } from '../../src/shared/search';
+import type { SearchPage } from '../../src/shared/types';
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
 interface SavedFormat {
@@ -88,7 +90,9 @@ export class NoteStore {
   private readonly formats = new Map<string, SavedFormat>();
   private readonly baseline = new Set<string>();
   private initialized = false;
-  private pendingHistorySaves: { id: string; path: string; content: string; createdAt?: number }[] = [];
+  private activeSearch: string | null = null;
+  private pendingHistorySaves: { id: string; path: string; content: string; createdAt?: number }[] =
+    [];
 
   constructor(
     readonly dataDirectory: string,
@@ -447,17 +451,31 @@ export class NoteStore {
       await atomicWrite(file, encoded);
       let historyWarning: string | undefined;
       let historyRetryId: string | undefined;
-      const historyCreatedAt = Math.max(this.now(), ...this.history.list(file).map((item) => item.createdAt + 1), ...this.pendingHistorySaves.filter((item) => item.path === file).map((item) => (item.createdAt ?? 0) + 1));
+      const historyCreatedAt = Math.max(
+        this.now(),
+        ...this.history.list(file).map((item) => item.createdAt + 1),
+        ...this.pendingHistorySaves
+          .filter((item) => item.path === file)
+          .map((item) => (item.createdAt ?? 0) + 1),
+      );
       try {
         await this.history.snapshot(file, encoded, '编辑后', true, historyCreatedAt);
         await this.history.prune();
       } catch (error) {
-        const job = { id: crypto.randomUUID(), path: file, content: encoded, createdAt: historyCreatedAt };
+        const job = {
+          id: crypto.randomUUID(),
+          path: file,
+          content: encoded,
+          createdAt: historyCreatedAt,
+        };
         const pending = [...this.pendingHistorySaves, job];
         this.pendingHistorySaves = pending;
         historyRetryId = `save:${job.id}`;
         historyWarning = `正文已保存，历史备份未完成：${error instanceof Error ? error.message : String(error)}`;
-        if (!this.history.hasPrepared(file, encoded) && !this.history.hasSnapshotContent(file, encoded))
+        if (
+          !this.history.hasPrepared(file, encoded) &&
+          !this.history.hasSnapshotContent(file, encoded)
+        )
           historyWarning += '；图片备份或补记索引未完整落盘，退出后补记只能使用重试时可读取的附件';
         try {
           await writeJson(path.join(this.dataDirectory, 'pending-history-saves.json'), pending);
@@ -558,38 +576,74 @@ export class NoteStore {
     return result;
   }
   async search(query: string, options: { root?: string; tag?: string } = {}): Promise<SearchHit[]> {
-    if (!query.trim() && !options.tag) return [];
-    const root = options.root ? await this.access.assertDirectory(options.root) : undefined;
-    const queryLower = query.toLocaleLowerCase();
-    const hits: SearchHit[] = [];
-    for (const meta of await this.getIndex()) {
-      if ((root && !within(root, meta.path)) || (options.tag && !meta.tags.includes(options.tag)))
-        continue;
-      const note = await this.readNote(meta.path);
-      const lines = note.content.split(/\r?\n/);
-      let found = false;
-      lines.forEach((line, number) => {
-        if (line.toLocaleLowerCase().includes(queryLower)) {
-          hits.push({
-            path: meta.path,
-            title: meta.title,
-            line: number + 1,
-            snippet: line.slice(0, 400),
-            tags: meta.tags,
-          });
-          found = true;
-        }
-      });
-      if (!found && path.basename(meta.path).toLocaleLowerCase().includes(queryLower))
-        hits.push({
-          path: meta.path,
+    const page = await this.searchNotes(query, options);
+    return page.notes.flatMap((note) =>
+      note.matches.map((match) => ({
+        path: note.path!,
+        title: note.title,
+        tags: note.tags,
+        ...match,
+      })),
+    );
+  }
+  async cancelSearch(requestId: string): Promise<void> {
+    if (this.activeSearch === requestId) this.activeSearch = null;
+  }
+  async searchNotes(
+    query: string,
+    options: { root?: string; tag?: string; requestId?: string } = {},
+  ): Promise<SearchPage> {
+    const page: SearchPage = { notes: [], issues: [], truncated: false };
+    if (!query.trim()) return page;
+    if (options.requestId) this.activeSearch = options.requestId;
+    const cancelled = () => Boolean(options.requestId && this.activeSearch !== options.requestId);
+    const roots = options.root
+      ? [await this.access.assertDirectory(options.root)]
+      : this.settings.roots;
+    const files = new Set<string>();
+    const collect = (entries: FileEntry[]) => {
+      for (const entry of entries) {
+        if (entry.kind === 'note') files.add(entry.path);
+        if (entry.children) collect(entry.children);
+      }
+    };
+    for (const root of roots) {
+      if (cancelled()) return { ...page, cancelled: true };
+      try {
+        collect(await this.getTree(root));
+      } catch (error) {
+        page.issues.push({
+          path: root,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    for (const file of files) {
+      if (cancelled()) return { ...page, cancelled: true };
+      try {
+        const note = await this.readNote(file);
+        if (cancelled()) return { ...page, cancelled: true };
+        const meta = parseNote(note.content, file, note.modifiedAt);
+        if (options.tag && !meta.tags.includes(options.tag)) continue;
+        const match = searchDocument(query, {
+          ...note,
+          path: file,
           title: meta.title,
-          line: 1,
-          snippet: lines[0] ?? '',
           tags: meta.tags,
         });
+        if (match) {
+          if (page.notes.length < 5000) page.notes.push(match);
+          else page.truncated = true;
+        }
+      } catch (error) {
+        page.issues.push({
+          path: file,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-    return hits.slice(0, 3000);
+    page.notes = sortSearchNotes(page.notes);
+    return page;
   }
   async resolveLink(fromPath: string, target: string): Promise<ResolvedLink> {
     fromPath = await this.authorize(fromPath);
@@ -600,7 +654,11 @@ export class NoteStore {
       .split('|')[0]
       .split('#');
     let heading = fragment;
-    try { if (fragment) heading = decodeURIComponent(fragment); } catch { /* Keep malformed fragments literal. */ }
+    try {
+      if (fragment) heading = decodeURIComponent(fragment);
+    } catch {
+      /* Keep malformed fragments literal. */
+    }
     let decoded: string;
     try {
       decoded = decodeURIComponent(raw);

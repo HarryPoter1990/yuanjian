@@ -23,6 +23,7 @@ import { defaultAppearance, defaultSettings } from '../shared/defaults';
 import { builtinPalettes, paletteAppearance } from '../shared/palettes';
 import { appearanceColors, bytesLabel, errorText } from '../ui/model';
 import { Field, IconButton, Modal, Toggle } from './Controls';
+import { ShortcutControl } from './ShortcutControl';
 import { FontBrowser } from './FontBrowser';
 import { FontPicker } from './FontPicker';
 import { searchSettings, settingsGroups as groups } from '../ui/settingsSearch';
@@ -61,14 +62,6 @@ function SettingHeading({ id }: { id: SettingId }) {
     </h4>
   );
 }
-const shortcutKey = (value: string) =>
-  value
-    .toLowerCase()
-    .split('+')
-    .map((key) => key.trim())
-    .filter(Boolean)
-    .sort()
-    .join('+');
 const excludedLines = (value: string) => value.split(/\r?\n/).filter(Boolean);
 const toolbarLabels: Record<string, string> = {
   heading: '标题',
@@ -120,7 +113,6 @@ export function SettingsPanel({
   const [message, setMessage] = useState('');
   const [stats, setStats] = useState<HistoryStats | null>(null);
   const [templateId, setTemplateId] = useState(settings.templates[0]?.id || '');
-  const [recordingShortcut, setRecordingShortcut] = useState('');
   const searching = Boolean(query.trim());
   const results = searchSettings(query, settings);
   const visible = searching ? 'search' : section;
@@ -761,76 +753,13 @@ export function SettingsPanel({
                   key={key}
                   settingId={shortcutSetting(key).id}
                   label={shortcutSetting(key).label}
-                  description={
-                    recordingShortcut === key
-                      ? '正在录制：请按下组合键，Tab 移到下一项。'
-                      : undefined
-                  }
                 >
-                  <div className="shortcut-control">
-                    <input
-                      aria-label={shortcutSetting(key).label}
-                      value={value}
-                      onFocus={() => setRecordingShortcut(key)}
-                      onBlur={() => setRecordingShortcut('')}
-                      onChange={(e) =>
-                        patch({ shortcuts: { ...settings.shortcuts, [key]: e.target.value } })
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === 'Tab') return;
-                        if (e.ctrlKey || e.metaKey || e.altKey) {
-                          e.preventDefault();
-                          if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
-                          patch({
-                            shortcuts: {
-                              ...settings.shortcuts,
-                              [key]: [
-                                e.ctrlKey || e.metaKey ? 'Ctrl' : '',
-                                e.altKey ? 'Alt' : '',
-                                e.shiftKey ? 'Shift' : '',
-                                e.key.toLowerCase(),
-                              ]
-                                .filter(Boolean)
-                                .join('+'),
-                            },
-                          });
-                        }
-                      }}
-                    />
-                    <button
-                      aria-label={`恢复${shortcutLabels[key] || key}默认快捷键`}
-                      disabled={
-                        !defaultSettings.shortcuts[key] || value === defaultSettings.shortcuts[key]
-                      }
-                      onClick={() =>
-                        patch({
-                          shortcuts: {
-                            ...settings.shortcuts,
-                            [key]: defaultSettings.shortcuts[key],
-                          },
-                        })
-                      }
-                    >
-                      恢复默认
-                    </button>
-                    {value.trim() &&
-                      Object.entries(settings.shortcuts).some(
-                        ([other, binding]) =>
-                          other !== key && shortcutKey(binding) === shortcutKey(value),
-                      ) && (
-                        <p className="inline-error" role="alert">
-                          与
-                          {Object.entries(settings.shortcuts)
-                            .filter(
-                              ([other, binding]) =>
-                                other !== key && shortcutKey(binding) === shortcutKey(value),
-                            )
-                            .map(([other]) => `“${shortcutLabels[other] || other}”`)
-                            .join('、')}
-                          使用相同组合键，请重新录制或恢复默认。
-                        </p>
-                      )}
-                  </div>
+                  <ShortcutControl
+                    action={key}
+                    bindings={settings.shortcuts}
+                    defaultValue={defaultSettings.shortcuts[key]}
+                    onChange={(shortcuts) => patch({ shortcuts })}
+                  />
                 </Field>
               ))}
             </>

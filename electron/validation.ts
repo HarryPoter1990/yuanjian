@@ -84,6 +84,7 @@ export const settingsSchema = z.object({
     .array(z.object({ trigger: short, body: z.string().max(100000), enabled: z.boolean() }))
     .max(5000),
   shortcuts: z.record(z.string().max(100), z.string().max(100)),
+  treeCollapsed: z.array(file).max(100000).optional(),
   graph: z.object({
     local: z.boolean(),
     depth: number.int().min(1).max(10),
@@ -167,6 +168,13 @@ export const argumentSchemas = {
     z.string().max(10000),
     z.object({ root: file.optional(), tag: short.optional() }).optional(),
   ]),
+  searchNotes: z.tuple([
+    z.string().max(10000),
+    z
+      .object({ root: file.optional(), tag: short.optional(), requestId: short.optional() })
+      .optional(),
+  ]),
+  cancelSearch: z.tuple([short]),
   resolveLink: z.tuple([file, z.string().max(32768)]),
   moveFile: z.tuple([file, file.optional()]),
   undoMove: z.tuple([short]),

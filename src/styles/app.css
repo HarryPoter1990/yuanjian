@@ -454,6 +454,11 @@ button.danger {
   width: calc(100% - 8px);
   margin: 0 4px 10px;
 }
+.note-search > input, .note-search > select { width: 100%; min-width: 0; }
+.note-search > select { margin-top: 8px; }
+.search-note { border-bottom: 1px solid var(--border); padding: 6px 0; }
+.search-note summary { font-size: 12px; cursor: pointer; padding: 4px 8px; }
+.search-note mark { background: color-mix(in srgb, var(--accent) 25%, transparent); color: inherit; }
 .search-result {
   display: block;
   width: 100%;

@@ -89,6 +89,9 @@ export const settingDefinitions = {
 };
 export type SettingId = keyof typeof settingDefinitions;
 export const shortcutLabels: Record<string, string> = {
+  fullSearch: '跨文件搜索',
+  focusNext: '聚焦下一区域',
+  focusPrevious: '聚焦上一区域',
   save: '保存',
   new: '新建',
   open: '打开',
