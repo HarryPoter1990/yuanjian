@@ -41,7 +41,7 @@ describe('approved visual palettes', () => {
   });
   it('keeps mode pairs after a color edit and stores edits for the active mode', () => {
     const appearance = {
-      ...defaultAppearance,
+      ...paletteAppearance(defaultAppearance, 'moss'),
       paletteOverrides: { light: { accent: '#bb3366', background: '#191919' } },
     };
     expect(appearanceColors(appearance, false)).toMatchObject({

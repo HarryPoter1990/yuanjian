@@ -52,10 +52,37 @@ app
     const wait=async(test)=>{const deadline=Date.now()+12000;while(!test()){if(Date.now()>deadline)throw Error('Built renderer condition timed out');await new Promise(resolve=>setTimeout(resolve,40));}};
     await wait(()=>document.querySelector('.cm-content'));
     await document.fonts.ready;
-    document.querySelector('button[aria-label="关系图谱"]').click();
+    document.querySelector('button[aria-label="应用菜单"]').click();
+    await wait(()=>document.querySelector('[role="menu"]'));
+    [...document.querySelectorAll('[role="menuitem"]')].find(item=>item.textContent.startsWith('关系图谱')).click();
     await wait(()=>document.querySelector('.graph-canvas canvas')&&document.querySelector('.graph-legend')?.textContent.includes('2 个节点'));
     document.querySelector('.tabs-bar [role="tab"]').click();
     await wait(()=>document.querySelector('.cm-content')?.textContent.includes('生成内容'));
+    if(getComputedStyle(document.querySelector('.app')).backgroundColor!=='rgb(250, 250, 250)')throw Error('Neutral built workspace stylesheet missing');
+    const originalEditor=document.querySelector('.cm-editor');
+    const chooseMode=async label=>{
+      document.querySelector('button[aria-label="切换编辑模式"]').click();
+      await wait(()=>[...document.querySelectorAll('[role="menuitem"]')].some(item=>item.textContent===label));
+      [...document.querySelectorAll('[role="menuitem"]')].find(item=>item.textContent===label).click();
+    };
+    await chooseMode('阅读');
+    await wait(()=>document.querySelector('.document-preview')?.textContent.includes('生成内容'));
+    if(!document.querySelector('.writing-editor-host').hidden)throw Error('Reading editor remained visible');
+    if(!document.querySelector('.document-preview h1[data-source-line="1"]'))throw Error('Reading navigation metadata missing');
+    await chooseMode('源码对照');
+    await wait(()=>document.querySelector('.app').dataset.documentView==='split');
+    for(const selector of ['.writing-editor-host','.writing-preview-pane'])if(document.querySelector(selector).getBoundingClientRect().width<100)throw Error('Split production stylesheet missing');
+    await chooseMode('即时排版');
+    await wait(()=>!document.querySelector('.document-preview'));
+    document.querySelector('button[aria-label="打开格式菜单"]').click();
+    await wait(()=>document.querySelector('.format-panel')?.matches(':popover-open'));
+    document.querySelector('button[aria-label="打开格式菜单"]').click();
+    document.querySelector('button[aria-label="进入专注写作"]').click();
+    await wait(()=>document.querySelector('.app').dataset.writingFocus==='true');
+    if(!document.querySelector('button[aria-label="保存当前笔记"]'))throw Error('Focus save entry missing');
+    [...document.querySelectorAll('.focus-header button')].find(button=>button.textContent==='退出专注').click();
+    await wait(()=>document.querySelector('.app').dataset.writingFocus==='false');
+    if(originalEditor!==document.querySelector('.cm-editor'))throw Error('View mode replaced the editor instance');
     document.querySelector('button[aria-label="打开设置"]').click();
     await wait(()=>document.querySelector('.settings-nav'));
     [...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('字体管理')).click();
@@ -83,7 +110,7 @@ app
     document.querySelector('button[aria-label="关闭对话框"]').click();
     await wait(()=>!document.querySelector('.settings-layout'));
     if(document.querySelector('.app').dataset.theme!=='dark')throw Error('Applied appearance reverted on close');
-    return {protocol:location.protocol,bodyPreserved:true,fontsReady:document.fonts.status==='loaded',fontPickerVerified:true,appearanceCancelVerified:true,appearanceApplyVerified:true};
+    return {protocol:location.protocol,bodyPreserved:true,writingUiVerified:true,fontsReady:document.fonts.status==='loaded',fontPickerVerified:true,appearanceCancelVerified:true,appearanceApplyVerified:true};
   })()`);
     details.initialGraphRequests = initialGraphRequests;
     details.graphResources = requests.filter((url) => url.includes('yuanjian-graph'));
@@ -92,6 +119,7 @@ app
     assert.ok(details.graphResources.some((url) => url.includes('yuanjian-graph-engine')));
     assert.equal(details.fontsReady, true);
     assert.equal(details.fontPickerVerified, true);
+    assert.equal(details.writingUiVerified, true);
     assert.equal(target.isVisible(), false);
     fs.writeFileSync(
       report,

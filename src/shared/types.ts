@@ -68,11 +68,14 @@ export interface Snippet {
 }
 export interface Appearance {
   density?: 'standard' | 'compact';
-  codeTheme?: 'classic' | 'calm' | 'contrast';
-  paletteByMode?: { light?: 'ink' | 'moss' | 'paper'; dark?: 'ink' | 'moss' | 'paper' };
+  codeTheme?: 'neutral' | 'classic' | 'calm' | 'contrast';
+  paletteByMode?: {
+    light?: 'neutral' | 'ink' | 'moss' | 'paper';
+    dark?: 'neutral' | 'ink' | 'moss' | 'paper';
+  };
   colorThemeId?: string;
   schemeId?: string;
-  palette?: 'ink' | 'moss' | 'paper';
+  palette?: 'neutral' | 'ink' | 'moss' | 'paper';
   paletteOverrides?: {
     light?: Partial<Record<AppearanceColor, string>>;
     dark?: Partial<Record<AppearanceColor, string>>;

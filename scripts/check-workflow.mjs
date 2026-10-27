@@ -22,6 +22,7 @@ const css = (
   await Promise.all(
     [
       'src/styles/app.css',
+      'src/styles/writing.css',
       'src/styles/icons.css',
       'src/editor/editor.css',
       'src/components/quick-open.css',
@@ -155,7 +156,8 @@ try {
     await page.mouse.move(400, 180);
     await page.mouse.up();
     assert.deepEqual(await titles(page), ['Alpha', 'Beta']);
-    await page.getByRole('button', { name: '关系图谱', exact: true }).click();
+    await page.getByRole('button', { name: '应用菜单', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^关系图谱/ }).click();
     await expect(page.locator('.graph-canvas canvas').first()).toBeVisible();
     await tab(page, 'Alpha').click();
     await dragBefore(page, '关系图谱', 'Alpha');
@@ -266,7 +268,8 @@ try {
     await expect
       .poll(() => page.locator('.cm-scroller').evaluate((element) => element.scrollTop))
       .toBeCloseTo(snapshot.scroll, 0);
-    await page.getByRole('button', { name: '关系图谱', exact: true }).click();
+    await page.getByRole('button', { name: '应用菜单', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^关系图谱/ }).click();
     await expect(page.locator('.graph-canvas canvas').first()).toBeVisible();
     await tab(page, 'Alpha').click();
     await settle(page);
@@ -330,6 +333,7 @@ try {
   await check('heading-menu-convert-and-undo', async (page) => {
     await page.locator('.cm-content').focus();
     await page.keyboard.press('Control+Home');
+    await page.getByRole('button', { name: '打开格式菜单', exact: true }).click();
     await page.getByRole('button', { name: '标题', exact: true }).click();
     await expect(page.getByRole('menu', { name: '标题级别' }).getByRole('menuitem')).toHaveCount(7);
     await page.screenshot({ path: `${out}/heading-menu-open.png` });

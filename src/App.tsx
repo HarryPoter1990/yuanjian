@@ -75,6 +75,13 @@ import {
   type NavigationPosition,
 } from './ui/navigationHistory';
 import { TabContextMenu } from './components/TabContextMenu';
+import { FormatPanel } from './components/FormatPanel';
+import {
+  DocumentPreview,
+  type DocumentPreviewHandle,
+  type ReadingPosition,
+} from './components/DocumentPreview';
+import './styles/writing.css';
 import { HeadingMenu } from './components/HeadingMenu';
 import { presentMoveOutcome } from './ui/moveFeedback';
 import { StickyHeader } from './components/StickyHeader';
@@ -150,6 +157,26 @@ export default function App() {
   const [appMenu, setAppMenu] = useState(false);
   const [tabsMenu, setTabsMenu] = useState(false);
   const [formatMenu, setFormatMenu] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
+  const [formatAnchor, setFormatAnchor] = useState<HTMLElement | null>(null);
+  const [modeMenu, setModeMenu] = useState(false);
+  const [documentView, setDocumentView] = useState<'edit' | 'reading' | 'split'>('edit');
+  const documentViewRef = useRef(documentView);
+  documentViewRef.current = documentView;
+  const readingPreview = useRef<DocumentPreviewHandle>(null);
+  const readingPositions = useRef(new Map<string, ReadingPosition>());
+  const [writingFocus, setWritingFocus] = useState(false);
+  const [splitSide, setSplitSide] = useState<'edit' | 'reading'>('edit');
+  useEffect(() => {
+    setFormatOpen(false);
+    setModeMenu(false);
+  }, [activeId, graphActive]);
+  useEffect(() => {
+    if (graphActive) setWritingFocus(false);
+  }, [graphActive]);
+  useEffect(() => {
+    editor.current?.getView()?.requestMeasure();
+  }, [documentView, writingFocus, splitSide]);
   const [toastAtTop, setToastAtTop] = useState(false);
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [fonts, setFonts] = useState<FontEntry[]>([]);
@@ -285,6 +312,9 @@ export default function App() {
   };
   useEffect(() => {
     if (!sticky) return;
+    setWritingFocus(false);
+    setDocumentView('edit');
+    setFormatOpen(false);
     setGraphActive(false);
     setMenu(false);
     setAppMenu(false);
@@ -460,6 +490,18 @@ export default function App() {
   }, [active?.path, workspace.index, error]);
   useEffect(() => {
     if (pendingLine && activeId === pendingLine.id && !graphActive) {
+      if (documentView === 'reading' && !pendingLine.command) {
+        if (!readingPreview.current) return;
+        if (pendingLine.line) readingPreview.current.scrollToLine(pendingLine.line);
+        else if (pendingLine.cursor !== undefined || pendingLine.scrollTop !== undefined)
+          readingPreview.current.restorePosition(
+            pendingLine.cursor ?? 0,
+            pendingLine.scrollTop ?? 0,
+            pendingLine.scrollAnchor,
+          );
+        setPendingLine(null);
+        return;
+      }
       if (!editor.current?.getView()) return;
       if (pendingLine.command) editor.current.command(pendingLine.command);
       else if (pendingLine.line) editor.current.scrollToLine(pendingLine.line);
@@ -478,7 +520,7 @@ export default function App() {
     } else if (pendingLine && activeId !== pendingLine.id) {
       setPendingLine(null);
     }
-  }, [pendingLine, activeId, graphActive]);
+  }, [pendingLine, activeId, graphActive, documentView]);
   function cancelNavigation() {
     navigationVersion.current++;
     navigating.current = false;
@@ -487,6 +529,13 @@ export default function App() {
     if (!id) return null;
     const tab = workspace.getTab(id);
     if (!tab) return null;
+    if (documentViewRef.current === 'reading') {
+      const position =
+        activeRef.current?.id === id
+          ? readingPreview.current?.getPosition()
+          : readingPositions.current.get(id);
+      if (position) return { noteId: id, path: tab.path, ...position };
+    }
     const live = activeRef.current?.id === id ? editor.current : null;
     const session = editorSessions.current.get(id);
     const storedAnchor =
@@ -823,6 +872,8 @@ export default function App() {
     else if (command === 'link') beginLink();
     else editor.current?.command(command);
     setFormatMenu(false);
+    setFormatOpen(false);
+    if (documentView === 'reading') setDocumentView('edit');
   }
   function insertLink(label: string, target: string) {
     const view = editor.current?.getView();
@@ -1099,11 +1150,18 @@ export default function App() {
     if (!region) return;
     const targets = [
       ...region.querySelectorAll<HTMLElement>(
-        '.cm-content,button[tabindex="0"],input,button,textarea',
+        '.cm-content,.document-preview,button[tabindex="0"],input,button,textarea',
       ),
     ].filter((target) => !target.closest('[hidden]') && !target.hasAttribute('disabled'));
+    const readingVisible =
+      documentView === 'reading' ||
+      (documentView === 'split' && windowWidth <= 1000 && splitSide === 'reading');
     const target = region.classList.contains('editor-column')
-      ? (targets.find((target) => target.classList.contains('cm-content')) ?? targets[0] ?? region)
+      ? (targets.find((target) =>
+          target.classList.contains(readingVisible ? 'document-preview' : 'cm-content'),
+        ) ??
+        targets[0] ??
+        region)
       : (targets[0] ?? region);
     if (target === region) region.tabIndex = -1;
     target.focus();
@@ -1114,10 +1172,31 @@ export default function App() {
       requestAnimationFrame(() => window.dispatchEvent(new Event('yuanjian:focus-search')));
     });
   }
+  function findInNote(command: 'find' | 'replace') {
+    cancelNavigation();
+    if (!active) {
+      notify('请先打开一篇笔记再查找。');
+      return;
+    }
+    setDocumentView('edit');
+    setGraphActive(false);
+    setPendingLine({ id: active.id, command });
+  }
   useEffect(() => {
     if (!settings) return;
     const handler = (event: KeyboardEvent) => {
       if (panel || workspace.conflict || event.isComposing) return;
+      if (
+        event.key === 'Escape' &&
+        writingFocus &&
+        !formatOpen &&
+        !modeMenu &&
+        !document.querySelector('.dropdown-menu,.cm-search,:popover-open')
+      ) {
+        event.preventDefault();
+        setWritingFocus(false);
+        return;
+      }
       const matches = Object.entries(settings.shortcuts).filter(
         ([key, shortcut]) =>
           matchesShortcut(event, shortcut) &&
@@ -1192,18 +1271,13 @@ export default function App() {
           break;
         case 'find':
         case 'replace':
-          cancelNavigation();
-          if (!active) {
-            notify('请先打开一篇笔记再查找。');
-            break;
-          }
-          setGraphActive(false);
-          setPendingLine({ id: active.id, command: action === 'replace' ? 'replace' : 'find' });
+          findInNote(action);
           break;
         case 'settings':
           setPanel('settings');
           break;
         case 'mode':
+          setDocumentView('edit');
           if (active) updateTab(active.id, { mode: active.mode === 'live' ? 'source' : 'live' });
           break;
       }
@@ -1213,6 +1287,9 @@ export default function App() {
   }, [
     settings,
     active,
+    writingFocus,
+    formatOpen,
+    modeMenu,
     newNote,
     open,
     panel,
@@ -1442,7 +1519,12 @@ export default function App() {
     );
   const appearance = displayedAppearance!;
   const preferredPanels = visiblePanels(settings, windowWidth, forcedPanels);
-  const panels = sticky ? { left: false, right: false } : preferredPanels;
+  const panels =
+    sticky || writingFocus
+      ? { left: false, right: false }
+      : documentView === 'split'
+        ? { left: windowWidth >= 1360 && preferredPanels.left, right: false }
+        : preferredPanels;
   const togglePanel = (side: 'left' | 'right') => {
     const visible = panels[side];
     setForcedPanels((current) => ({ ...current, [side]: !visible }));
@@ -1562,6 +1644,11 @@ export default function App() {
             [panels.right ? '收起右侧大纲' : '显示右侧大纲', () => togglePanel('right'), ''],
             ['打开设置', () => setPanel('settings'), settings.shortcuts.settings],
             ['进入便笺模式', () => void changeWindowMode('sticky'), ''],
+            [
+              writingFocus ? '退出专注' : '进入专注写作',
+              () => setWritingFocus((value) => !value),
+              '',
+            ],
           ].map(([label, action, shortcut]) => (
             <button
               role="menuitem"
@@ -1585,6 +1672,9 @@ export default function App() {
     >
       <div
         ref={appElement}
+        data-writing-focus={writingFocus}
+        data-document-view={documentView}
+        data-split-side={splitSide}
         data-density={appearance.density ?? 'standard'}
         data-code-theme={appearance.codeTheme ?? 'classic'}
         className="app"
@@ -1606,7 +1696,7 @@ export default function App() {
             }}
           />
         )}
-        <header className="app-header" hidden={sticky}>
+        <header className="app-header" hidden={sticky || writingFocus}>
           <div className="app-brand">
             <img className="iris-logo" src="./yuanjian.png" alt="" />
             <strong>鸢笺</strong>
@@ -1666,6 +1756,31 @@ export default function App() {
           </div>
           <div className="window-controls-space" aria-hidden="true" />
         </header>
+        {writingFocus && !sticky && (
+          <header className="focus-header">
+            <span className="focus-document-title">{active?.title || '鸢笺'}</span>
+            <span className="focus-drag-region" aria-label="拖动窗口区域" />
+            <button
+              className="focus-save-state"
+              aria-label="保存当前笔记"
+              disabled={!active || workspace.saving.includes(active.id)}
+              onClick={() => active && void workspace.save(active.id, true)}
+            >
+              <Save size={14} />
+              <span>
+                {active && workspace.saving.includes(active.id)
+                  ? '保存中'
+                  : !active?.path
+                    ? '草稿'
+                    : active.dirty
+                      ? '尚未保存'
+                      : '已保存'}
+              </span>
+            </button>
+            <button onClick={() => setWritingFocus(false)}>退出专注</button>
+            <div className="window-controls-space" aria-hidden="true" />
+          </header>
+        )}
         <div hidden={!sticky} className="sticky-header-host">
           <StickyHeader
             active={active}
@@ -1694,7 +1809,7 @@ export default function App() {
               { label: '导入文件', run: () => void transferFiles() },
               { label: '撤销', run: () => editor.current?.command('undo') },
               { label: '重做', run: () => editor.current?.command('redo') },
-              { label: '查找与替换', run: () => editor.current?.command('replace') },
+              { label: '查找与替换', run: () => findInNote('replace') },
               ...buttons
                 .filter((button) => settings.toolbarButtons.includes(button.id))
                 .map((button) => ({ label: button.title, run: () => format(button.id) })),
@@ -1836,15 +1951,196 @@ export default function App() {
                                 : '另存为'}
                         </span>
                       </button>
-                      <button
-                        className="mode-button"
-                        title={`${active.mode === 'source' ? '切换到即时排版' : '切换到完整源码'} · ${settings.shortcuts.mode}`}
-                        onClick={() =>
-                          updateTab(active.id, { mode: active.mode === 'live' ? 'source' : 'live' })
-                        }
+                      {settings.toolbarVisible && (
+                        <>
+                          <button
+                            className="format-trigger"
+                            disabled={
+                              documentView === 'reading' ||
+                              (documentView === 'split' &&
+                                windowWidth <= 1000 &&
+                                splitSide === 'reading')
+                            }
+                            aria-label="打开格式菜单"
+                            aria-haspopup="dialog"
+                            aria-expanded={formatOpen}
+                            onClick={(event) => {
+                              setFormatAnchor(event.currentTarget);
+                              setFormatOpen((value) => !value);
+                            }}
+                          >
+                            Aa <ChevronDown size={12} />
+                          </button>
+                          {formatOpen && (
+                            <FormatPanel anchor={formatAnchor} onClose={() => setFormatOpen(false)}>
+                              {settings.toolbarVisible && (
+                                <div
+                                  className="editor-toolbar"
+                                  role="toolbar"
+                                  aria-label="编辑格式"
+                                >
+                                  <div className="toolbar-formatting">
+                                    <span className="toolbar-label">格式</span>
+                                    <IconButton
+                                      label="撤销"
+                                      onClick={() => editor.current?.command('undo')}
+                                    >
+                                      <Undo2 size={16} />
+                                    </IconButton>
+                                    <IconButton
+                                      label="重做"
+                                      onClick={() => editor.current?.command('redo')}
+                                    >
+                                      <Redo2 size={16} />
+                                    </IconButton>
+                                    <span className="toolbar-separator" />
+                                    {buttons
+                                      .filter(
+                                        (button) =>
+                                          settings.toolbarButtons.includes(button.id) &&
+                                          [
+                                            'heading',
+                                            'bold',
+                                            'list',
+                                            'code',
+                                            'math',
+                                            'link',
+                                          ].includes(button.id),
+                                      )
+                                      .map((button) =>
+                                        button.id === 'heading' ? (
+                                          <HeadingMenu
+                                            key={active.id}
+                                            level={headingLevel}
+                                            onChoose={(level) => {
+                                              editor.current?.setHeading(level);
+                                              setHeadingLevel(level);
+                                              editor.current?.focus();
+                                            }}
+                                          />
+                                        ) : (
+                                          <IconButton
+                                            label={button.title}
+                                            key={button.id}
+                                            onClick={() => format(button.id)}
+                                          >
+                                            <button.icon size={16} />
+                                          </IconButton>
+                                        ),
+                                      )}
+                                    <div className="menu-anchor">
+                                      <IconButton
+                                        label="更多编辑操作"
+                                        aria-expanded={formatMenu}
+                                        onClick={() => setFormatMenu(!formatMenu)}
+                                      >
+                                        <Ellipsis size={18} />
+                                      </IconButton>
+                                      {formatMenu && (
+                                        <DropdownMenu
+                                          label="更多编辑操作"
+                                          onClose={() => setFormatMenu(false)}
+                                        >
+                                          {buttons
+                                            .filter(
+                                              (button) =>
+                                                settings.toolbarButtons.includes(button.id) &&
+                                                ![
+                                                  'heading',
+                                                  'bold',
+                                                  'list',
+                                                  'code',
+                                                  'math',
+                                                  'link',
+                                                ].includes(button.id),
+                                            )
+                                            .map((button) => (
+                                              <button
+                                                key={button.id}
+                                                role="menuitem"
+                                                onClick={() => format(button.id)}
+                                              >
+                                                <button.icon size={16} />
+                                                {button.title}
+                                              </button>
+                                            ))}
+                                          <button role="menuitem" onClick={() => format('find')}>
+                                            <Search size={16} />
+                                            查找
+                                          </button>
+                                          <button role="menuitem" onClick={() => format('replace')}>
+                                            <ArrowLeftRight size={16} />
+                                            查找与替换
+                                          </button>
+                                          <button
+                                            role="menuitem"
+                                            onClick={() => format('pastePlain')}
+                                          >
+                                            粘贴为纯文本
+                                          </button>
+                                        </DropdownMenu>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </FormatPanel>
+                          )}
+                        </>
+                      )}
+                      <div className="menu-anchor">
+                        <button
+                          className="mode-button"
+                          aria-label="切换编辑模式"
+                          aria-haspopup="menu"
+                          aria-expanded={modeMenu}
+                          onClick={() => setModeMenu(!modeMenu)}
+                        >
+                          <span>
+                            {documentView === 'reading'
+                              ? '阅读'
+                              : documentView === 'split'
+                                ? '源码对照'
+                                : active.mode === 'source'
+                                  ? '源码'
+                                  : '即时排版'}
+                          </span>
+                          <ChevronDown size={12} />
+                        </button>
+                        {modeMenu && (
+                          <DropdownMenu label="编辑模式" onClose={() => setModeMenu(false)}>
+                            {(['即时排版', '源码', '阅读', '源码对照'] as const).map(
+                              (label, index) => (
+                                <button
+                                  role="menuitem"
+                                  key={label}
+                                  onClick={() => {
+                                    setModeMenu(false);
+                                    setSplitSide('edit');
+                                    setDocumentView(
+                                      index === 2 ? 'reading' : index === 3 ? 'split' : 'edit',
+                                    );
+                                    if (index < 2)
+                                      updateTab(active.id, {
+                                        mode: index === 0 ? 'live' : 'source',
+                                      });
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              ),
+                            )}
+                          </DropdownMenu>
+                        )}
+                      </div>
+                      <IconButton
+                        label={writingFocus ? '退出专注' : '进入专注写作'}
+                        onClick={() => setWritingFocus((value) => !value)}
                       >
-                        {active.mode === 'source' ? <Code2 size={14} /> : <AlignLeft size={14} />}
-                        <span>{active.mode === 'source' ? '源码' : '即时排版'}</span>
+                        <Columns2 size={15} />
+                      </IconButton>
+                      <button className="export-trigger" onClick={() => setPanel('preview')}>
+                        导出
                       </button>
                       <div className="menu-anchor">
                         <IconButton
@@ -1868,8 +2164,15 @@ export default function App() {
                                   setPanel('new');
                                 },
                               ],
-                              ['查找与替换', () => editor.current?.command('replace')],
-                              ['阅读预览', () => setPanel('preview')],
+                              ['查找与替换', () => findInNote('replace')],
+                              ['阅读预览', () => setDocumentView('reading')],
+                              [
+                                '源码对照',
+                                () => {
+                                  setDocumentView('split');
+                                  setSplitSide('edit');
+                                },
+                              ],
                               ...(active.path
                                 ? ([
                                     ['版本历史', () => setPanel('history')],
@@ -1927,125 +2230,88 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  {settings.toolbarVisible && (
-                    <div className="editor-toolbar" role="toolbar" aria-label="编辑格式">
-                      <div className="toolbar-formatting">
-                        <span className="toolbar-label">格式</span>
-                        <IconButton label="撤销" onClick={() => editor.current?.command('undo')}>
-                          <Undo2 size={16} />
-                        </IconButton>
-                        <IconButton label="重做" onClick={() => editor.current?.command('redo')}>
-                          <Redo2 size={16} />
-                        </IconButton>
-                        <span className="toolbar-separator" />
-                        {buttons
-                          .filter(
-                            (button) =>
-                              settings.toolbarButtons.includes(button.id) &&
-                              ['heading', 'bold', 'list', 'code', 'math', 'link'].includes(
-                                button.id,
-                              ),
-                          )
-                          .map((button) =>
-                            button.id === 'heading' ? (
-                              <HeadingMenu
-                                key={active.id}
-                                level={headingLevel}
-                                onChoose={(level) => {
-                                  editor.current?.setHeading(level);
-                                  setHeadingLevel(level);
-                                  editor.current?.focus();
-                                }}
-                              />
-                            ) : (
-                              <IconButton
-                                label={button.title}
-                                key={button.id}
-                                onClick={() => format(button.id)}
-                              >
-                                <button.icon size={16} />
-                              </IconButton>
-                            ),
-                          )}
-                        <div className="menu-anchor">
-                          <IconButton
-                            label="更多编辑操作"
-                            aria-expanded={formatMenu}
-                            onClick={() => setFormatMenu(!formatMenu)}
-                          >
-                            <Ellipsis size={18} />
-                          </IconButton>
-                          {formatMenu && (
-                            <DropdownMenu label="更多编辑操作" onClose={() => setFormatMenu(false)}>
-                              {buttons
-                                .filter(
-                                  (button) =>
-                                    settings.toolbarButtons.includes(button.id) &&
-                                    !['heading', 'bold', 'list', 'code', 'math', 'link'].includes(
-                                      button.id,
-                                    ),
-                                )
-                                .map((button) => (
-                                  <button
-                                    key={button.id}
-                                    role="menuitem"
-                                    onClick={() => format(button.id)}
-                                  >
-                                    <button.icon size={16} />
-                                    {button.title}
-                                  </button>
-                                ))}
-                              <button role="menuitem" onClick={() => format('find')}>
-                                <Search size={16} />
-                                查找
-                              </button>
-                              <button role="menuitem" onClick={() => format('replace')}>
-                                <ArrowLeftRight size={16} />
-                                查找与替换
-                              </button>
-                              <button role="menuitem" onClick={() => format('pastePlain')}>
-                                粘贴为纯文本
-                              </button>
-                            </DropdownMenu>
-                          )}
-                        </div>
-                      </div>
+                  {documentView === 'split' && (
+                    <div className="split-controls" role="group" aria-label="源码对照区域">
+                      <button
+                        aria-pressed={splitSide === 'edit'}
+                        onClick={() => setSplitSide('edit')}
+                      >
+                        Markdown 源码
+                      </button>
+                      <button
+                        aria-pressed={splitSide === 'reading'}
+                        onClick={() => setSplitSide('reading')}
+                      >
+                        阅读预览
+                      </button>
+                      <span>独立滚动</span>
+                      <button
+                        onClick={() => {
+                          updateTab(active.id, { mode: 'live' });
+                          setDocumentView('edit');
+                        }}
+                      >
+                        返回即时排版
+                      </button>
                     </div>
                   )}
                   <div className="editor-surface">
-                    <MarkdownEditor
-                      key={active.id}
-                      ref={editor}
-                      value={active.content}
-                      mode={active.mode}
-                      settings={displaySettings!}
-                      notePath={active.path}
-                      resolveAssetAsync={
-                        active.importSourceId
-                          ? (reference) =>
-                              window.notes.importAssetUrl(active.importSourceId!, reference)
-                          : undefined
-                      }
-                      initialCursor={active.cursor}
-                      initialScroll={active.scrollTop}
-                      initialSession={editorSessions.current.get(active.id)}
-                      onSessionSave={(session) => {
-                        if (workspace.getTab(active.id))
-                          editorSessions.current.set(active.id, session);
-                      }}
-                      onChange={(content) =>
-                        updateTab(active.id, (latest) => ({
-                          ...latest,
-                          content,
-                          dirty: content !== latest.baseContent,
-                        }))
-                      }
-                      onCursor={(cursor) => updateTab(active.id, { cursor })}
-                      onScroll={(scrollTop) => updateTab(active.id, { scrollTop })}
-                      onLink={(target) => void followLink(target)}
-                      onImage={image}
-                      onError={error}
-                    />
+                    <div className="writing-editor-host" hidden={documentView === 'reading'}>
+                      <MarkdownEditor
+                        key={active.id}
+                        ref={editor}
+                        value={active.content}
+                        mode={documentView === 'split' ? 'source' : active.mode}
+                        settings={displaySettings!}
+                        notePath={active.path}
+                        resolveAssetAsync={
+                          active.importSourceId
+                            ? (reference) =>
+                                window.notes.importAssetUrl(active.importSourceId!, reference)
+                            : undefined
+                        }
+                        initialCursor={active.cursor}
+                        initialScroll={active.scrollTop}
+                        initialSession={editorSessions.current.get(active.id)}
+                        onSessionSave={(session) => {
+                          if (workspace.getTab(active.id))
+                            editorSessions.current.set(active.id, session);
+                        }}
+                        onChange={(content) =>
+                          updateTab(active.id, (latest) => ({
+                            ...latest,
+                            content,
+                            dirty: content !== latest.baseContent,
+                          }))
+                        }
+                        onCursor={(cursor) => updateTab(active.id, { cursor })}
+                        onScroll={(scrollTop) => updateTab(active.id, { scrollTop })}
+                        onLink={(target) => void followLink(target)}
+                        onImage={image}
+                        onError={error}
+                      />
+                    </div>
+                    {documentView !== 'edit' && (
+                      <div className="writing-preview-pane">
+                        <DocumentPreview
+                          key={active.id}
+                          ref={readingPreview}
+                          note={active}
+                          settings={displaySettings!}
+                          initialPosition={
+                            readingPositions.current.get(active.id) ?? {
+                              cursor: active.cursor,
+                              scrollTop: 0,
+                            }
+                          }
+                          onPosition={(position) =>
+                            readingPositions.current.set(active.id, position)
+                          }
+                          onLink={(target) => void followLink(target)}
+                          onError={error}
+                        />
+                      </div>
+                    )}
                   </div>
                 </>
               )

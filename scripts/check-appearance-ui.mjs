@@ -33,6 +33,7 @@ const css = (
   await Promise.all(
     [
       'src/styles/app.css',
+      'src/styles/writing.css',
       'src/styles/icons.css',
       'src/editor/editor.css',
       'src/components/quick-open.css',
@@ -82,6 +83,7 @@ try {
   await dialog.getByLabel('明暗模式', { exact: true }).selectOption('system');
   await dialog.getByRole('button', { name: '预览浅色', exact: true }).click();
   await dialog.getByLabel('强调色 HEX', { exact: true }).fill('#987654');
+  await dialog.getByRole('button', { name: '壁纸', exact: true }).click();
   await dialog.getByRole('button', { name: '选择图片', exact: true }).click();
   await expect(root.locator('.wallpaper')).toHaveCount(1);
   await dialog.getByRole('button', { name: '编辑与文件', exact: true }).click();

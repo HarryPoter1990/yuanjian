@@ -91,6 +91,7 @@ it('keeps theme, typography, and wallpaper preview out of committed settings, ev
   await mount();
   const original = structuredClone(current.appearance);
   await type('强调色 HEX', '#987654');
+  await click('壁纸');
   await click('选择图片');
   expect(preview!.wallpaper).toBe('generated-wallpaper.png');
   expect(current.appearance).toEqual(original);

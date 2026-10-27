@@ -38,7 +38,11 @@ const bundle = await build({
   jsx: 'automatic',
   loader: { '.css': 'empty' },
 });
-const css = await readFile('src/styles/app.css', 'utf8');
+const css = (
+  await Promise.all(
+    ['src/styles/app.css', 'src/styles/writing.css'].map((file) => readFile(file, 'utf8')),
+  )
+).join('\n');
 const server = createServer((request, response) => {
   const script = request.url === '/fixture.js';
   const style = request.url === '/app.css';

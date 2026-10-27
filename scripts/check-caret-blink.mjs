@@ -42,6 +42,7 @@ const css = (
   await Promise.all([
     readFile('src/editor/editor.css', 'utf8'),
     readFile('src/styles/app.css', 'utf8'),
+    readFile('src/styles/writing.css', 'utf8'),
   ])
 ).join('\n');
 const server = createServer((request, response) => {

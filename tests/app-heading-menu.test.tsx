@@ -91,6 +91,9 @@ async function graph() {
 }
 it('offers absolute body and H1–H6 choices using the real editor with undo', async () => {
   await mount();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="打开格式菜单"]')!.click(),
+  );
   const button = host.querySelector<HTMLButtonElement>('[aria-label="标题"]')!;
   expect(button.textContent).toContain('H1');
   await act(async () => button.click());

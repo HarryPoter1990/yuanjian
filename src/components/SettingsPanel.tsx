@@ -458,6 +458,39 @@ export function SettingsPanel({
                 <SettingField id="contentWidth">
                   {number('contentWidth', 480, 1200, 20, ' px')}
                 </SettingField>
+                <AppearanceSchemes
+                  settings={schemeSettings}
+                  appearance={appearance}
+                  onChange={changeSchemes}
+                  onDelete={deleteScheme}
+                  onPreview={replaceAppearance}
+                  onPending={setSchemePending}
+                />
+                <div className="settings-actions">
+                  <button
+                    onClick={() => {
+                      setRemovals({ colors: [], schemes: [] });
+                      replaceAppearance(original);
+                      setPreviewDark(null);
+                    }}
+                  >
+                    <Undo2 size={14} />
+                    撤销本次外观修改
+                  </button>
+                  <button onClick={() => replaceAppearance(defaultAppearance)}>
+                    <RefreshCw size={14} />
+                    恢复默认外观
+                  </button>
+                </div>
+              </div>
+              <section hidden={visible !== 'wallpaper'}>
+                <h3>
+                  <Palette size={19} />
+                  壁纸
+                </h3>
+                <p className="section-description">
+                  本地壁纸与透明度独立设置，预览后点击“应用外观”保存。
+                </p>
                 <h4>静态壁纸</h4>
                 <SettingField id="wallpaper" description={appearance.wallpaper || '未选择壁纸'}>
                   <button
@@ -522,31 +555,7 @@ export function SettingsPanel({
                 <SettingField id="sidebarOpacity">
                   {number('sidebarOpacity', 0, 1, 0.05)}
                 </SettingField>
-                <AppearanceSchemes
-                  settings={schemeSettings}
-                  appearance={appearance}
-                  onChange={changeSchemes}
-                  onDelete={deleteScheme}
-                  onPreview={replaceAppearance}
-                  onPending={setSchemePending}
-                />
-                <div className="settings-actions">
-                  <button
-                    onClick={() => {
-                      setRemovals({ colors: [], schemes: [] });
-                      replaceAppearance(original);
-                      setPreviewDark(null);
-                    }}
-                  >
-                    <Undo2 size={14} />
-                    撤销本次外观修改
-                  </button>
-                  <button onClick={() => replaceAppearance(defaultAppearance)}>
-                    <RefreshCw size={14} />
-                    恢复默认外观
-                  </button>
-                </div>
-              </div>
+              </section>
               {visible === 'fonts' && (
                 <>
                   <h3>
@@ -1070,7 +1079,7 @@ export function SettingsPanel({
             </div>
           </div>
           <AppearancePreview
-            hidden={!['appearance', 'fonts', 'editor'].includes(visible)}
+            hidden={!['appearance', 'fonts', 'wallpaper', 'editor'].includes(visible)}
             appearance={appearance}
             dark={colors.dark}
           />

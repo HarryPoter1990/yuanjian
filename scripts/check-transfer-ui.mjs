@@ -22,6 +22,7 @@ const css = (
   await Promise.all(
     [
       'src/styles/app.css',
+      'src/styles/writing.css',
       'src/styles/icons.css',
       'src/editor/editor.css',
       'src/components/import-panel.css',

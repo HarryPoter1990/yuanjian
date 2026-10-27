@@ -984,8 +984,7 @@ button.danger {
   font-size: 13px;
 }
 .modal::backdrop {
-  background: #15291f40;
-  backdrop-filter: blur(3px);
+  background: #00000040;
 }
 .modal-wide {
   width: 1030px;
@@ -1694,7 +1693,6 @@ button.danger {
   align-items: center;
   justify-content: center;
   background: color-mix(in srgb, var(--background) 88%, transparent);
-  backdrop-filter: blur(5px);
   color: var(--accent);
 }
 .closing-overlay p {
@@ -2203,6 +2201,7 @@ button.danger {
   gap: 1px;
 }
 .window-controls-space {
+  flex-shrink: 0;
   width: 138px;
   height: 44px;
   -webkit-app-region: no-drag;

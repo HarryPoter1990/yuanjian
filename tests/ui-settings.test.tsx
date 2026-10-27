@@ -98,14 +98,19 @@ it('finds every actually displayed appearance field by its visible label and loc
       appearance: { ...currentSettings.appearance, wallpaper: 'generated-fixture.png' },
     }),
   );
-  const labels = [...host.querySelectorAll<HTMLElement>('[data-setting-label]')].map(
-    (field) => field.dataset.settingLabel!,
+  await act(async () =>
+    [...host.querySelectorAll<HTMLButtonElement>('.settings-nav > button')]
+      .find((button) => button.textContent?.includes('壁纸'))!
+      .click(),
   );
+  const labels = [...host.querySelectorAll<HTMLElement>('[data-setting-label]')]
+    .filter((field) => !field.closest('[hidden]'))
+    .map((field) => field.dataset.settingLabel!);
   expect(labels).toContain('壁纸透明度');
   expect(labels).toContain('模糊');
   for (const label of labels) {
     await type('搜索设置', label);
-    const target = result(`外观与主题 · ${label}`);
+    const target = result(`壁纸 · ${label}`);
     expect(target, `visible setting ${label} must be searchable`).not.toBeNull();
     await act(async () => target!.click());
     expect(
@@ -117,7 +122,7 @@ it('finds every actually displayed appearance field by its visible label and loc
 it('explains the prerequisite for a wallpaper control when no image has been selected', async () => {
   await type('搜索设置', '壁纸位置');
   expect(host.textContent).toContain('先选择壁纸');
-  await act(async () => result('外观与主题 · 壁纸位置')!.click());
+  await act(async () => result('壁纸 · 壁纸位置')!.click());
   expect(
     host.querySelector('[data-setting-highlighted="true"]')?.getAttribute('data-setting-label'),
   ).toBe('本地图片');
@@ -126,6 +131,7 @@ it('explains the prerequisite for a wallpaper control when no image has been sel
 const categories = [
   '外观与主题',
   '字体管理',
+  '壁纸',
   '编辑与文件',
   '界面与快捷键',
   '历史与恢复',

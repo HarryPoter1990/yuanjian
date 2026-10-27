@@ -34,6 +34,7 @@ describe('visual settings upgrade', () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-upgrade-'));
     const legacy = structuredClone(defaultSettings);
     delete legacy.appearance.palette;
+    delete legacy.appearance.codeTheme;
     legacy.appearance.background = '#f6f5f1';
     legacy.appearance.foreground = '#292d32';
     legacy.appearance.accent = '#3b756b';
@@ -49,6 +50,7 @@ describe('visual settings upgrade', () => {
       await store.initialize();
       const actual = store.getSettings();
       expect(actual.appearance.palette).toBeUndefined();
+      expect(actual.appearance.codeTheme).toBe('classic');
       expect(actual.appearance).toMatchObject(legacy.appearance);
       expect(actual).toMatchObject({
         leftWidth: 318,
@@ -61,6 +63,20 @@ describe('visual settings upgrade', () => {
       expect(
         JSON.parse(await readFile(path.join(directory, 'settings.json'), 'utf8')).appearance,
       ).not.toHaveProperty('palette');
+    } finally {
+      await store.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('uses neutral code and workspace defaults only for a fresh profile', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'yuanjian-new-visual-'));
+    const store = new NoteStore(directory);
+    try {
+      await store.initialize();
+      expect(store.getSettings().appearance).toMatchObject({
+        palette: 'neutral',
+        codeTheme: 'neutral',
+      });
     } finally {
       await store.dispose();
       await rm(directory, { recursive: true, force: true });

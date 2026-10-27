@@ -250,6 +250,32 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): s
   return sanitizeMarkdownHtml(html);
 }
 
+/** Reading navigation metadata is generated from parser maps, never from user HTML. */
+export function renderReadingMarkdown(markdown: string, options: RenderOptions = {}): string {
+  const body = withoutFrontmatter(markdown);
+  const lineOffset = (markdown.slice(0, markdown.length - body.length).match(/\n/g) ?? []).length;
+  const parser = createMarkdownParser(options);
+  const environment = {};
+  const tokens = parser.parse(body, environment);
+  for (const type of new Set(
+    tokens
+      .filter((token) => token.block && token.map && !token.hidden && token.nesting !== -1)
+      .map((token) => token.type),
+  )) {
+    const rule = parser.renderer.rules[type];
+    parser.renderer.rules[type] = (items, index, opts, env, renderer) => {
+      const html = rule
+        ? rule(items, index, opts, env, renderer)
+        : renderer.renderToken(items, index, opts);
+      const map = items[index].map;
+      return map
+        ? html.replace(/^(\s*<[a-z][\w-]*)/i, `$1 data-source-line="${map[0] + lineOffset + 1}"`)
+        : html;
+    };
+  }
+  return sanitizeMarkdownHtml(parser.renderer.render(tokens, parser.options, environment));
+}
+
 export function renderParsedMarkdown(
   tokens: ReturnType<MarkdownIt['parse']>,
   options: RenderOptions = {},

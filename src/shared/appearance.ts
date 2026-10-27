@@ -102,6 +102,7 @@ export function accentForeground(accent: string): string {
     : '#191919';
 }
 export const codeThemes = [
+  { id: 'neutral', name: '中性' },
   { id: 'classic', name: '经典' },
   { id: 'calm', name: '柔和自然' },
   { id: 'contrast', name: '清晰对比' },
@@ -111,6 +112,10 @@ export function syntaxColors(
   dark: boolean,
 ): Record<string, string> {
   const palettes = {
+    neutral: {
+      light: ['#465C83', '#82523F', '#7A553D', '#686868', '#6B566D', '#405D73'],
+      dark: ['#A5B6D6', '#D3AD95', '#D4B494', '#ADADAD', '#C4AEC7', '#ADC5D4'],
+    },
     classic: {
       light: ['#85439b', '#39714e', '#9a5a27', '#717a82', '#956326', '#346aa2'],
       dark: ['#d4a0e8', '#9bc9a0', '#e4b282', '#949da6', '#dfc18d', '#9dbfec'],

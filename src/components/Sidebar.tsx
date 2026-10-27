@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   ChevronDown,
@@ -14,10 +14,10 @@ import {
 } from '../ui/icons';
 import type { FileEntry, NoteMeta, TabState, Settings } from '../shared/types';
 import { dateKey, errorText, fileName } from '../ui/model';
-import { Empty, IconButton, tabListKeys } from './Controls';
+import { DropdownMenu, Empty, IconButton, tabListKeys } from './Controls';
 
 import { NoteSearch } from './NoteSearch';
-type View = 'files' | 'search' | 'tags' | 'calendar';
+type View = 'files' | 'recent' | 'search' | 'tags' | 'calendar';
 interface Props {
   hidden?: boolean;
   tabs?: TabState[];
@@ -52,6 +52,37 @@ export function Sidebar({
   onError,
 }: Props) {
   const [view, setView] = useState<View>('files');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const selectedTab = tabs.find((tab) => tab.path === activePath);
+  const excerpt = useMemo(
+    () =>
+      selectedTab?.content
+        .slice(0, 1600)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !/^(?:#|---|```|>|\|)/.test(line))
+        ?.slice(0, 80) ?? '',
+    [selectedTab?.content],
+  );
+  const recentIndex = useMemo(
+    () => [...index].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 30),
+    [index],
+  );
+  const tabMetadataKey = tabs
+    .map((tab) => [tab.path, tab.title, tab.modifiedAt].join('\0'))
+    .join('\n');
+  const recentNotes = useMemo(() => {
+    const notes = new Map(
+      recentIndex.map((note) => [
+        note.path,
+        { path: note.path, title: note.title, modifiedAt: note.modifiedAt },
+      ]),
+    );
+    for (const tab of tabs)
+      if (tab.path)
+        notes.set(tab.path, { path: tab.path, title: tab.title, modifiedAt: tab.modifiedAt });
+    return [...notes.values()].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 30);
+  }, [recentIndex, tabMetadataKey]);
   const [focusVersion, setFocusVersion] = useState(0);
   const [tag, setTag] = useState('');
   const [month, setMonth] = useState(new Date());
@@ -116,36 +147,89 @@ export function Sidebar({
   const selectedNotes = index.filter((note) => fileName(note.path).includes(selected));
   return (
     <aside className="sidebar left-sidebar" aria-label="笔记导航" hidden={hidden}>
+      <button
+        className="sidebar-search-trigger"
+        onClick={() => {
+          setView('search');
+          setFocusVersion((value) => value + 1);
+        }}
+      >
+        <Search size={15} />
+        <span>搜索笔记</span>
+      </button>
       <div className="sidebar-switch" role="tablist" aria-label="导航类型" onKeyDown={tabListKeys}>
         {(
           [
             ['files', Folder, '文件'],
+            ['recent', FileText, '最近'],
             ['search', Search, '搜索'],
             ['tags', Hash, '标签'],
             ['calendar', CalendarDays, '日历'],
           ] as const
-        ).map(([key, Icon, label]) => (
-          <button
-            key={key}
-            role="tab"
-            id={`sidebar-tab-${key}`}
-            aria-controls="sidebar-panel"
-            aria-selected={view === key}
-            tabIndex={view === key ? 0 : -1}
-            title={label}
-            onClick={(event) => {
-              setView(key);
-              setFocusVersion(key === 'search' && event.detail > 0 ? focusVersion + 1 : 0);
-            }}
+        )
+          .filter(([key]) => key === 'files' || key === 'recent' || key === view)
+          .map(([key, Icon, label]) => (
+            <button
+              key={key}
+              role="tab"
+              id={`sidebar-tab-${key}`}
+              aria-controls="sidebar-panel"
+              aria-selected={view === key}
+              tabIndex={view === key ? 0 : -1}
+              title={label}
+              onClick={(event) => {
+                setView(key);
+                setFocusVersion(key === 'search' && event.detail > 0 ? focusVersion + 1 : 0);
+              }}
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+          ))}
+        <div className="menu-anchor navigation-more">
+          <IconButton
+            label="更多导航"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen(!moreOpen)}
           >
-            <Icon size={17} />
-            <span>{label}</span>
-          </button>
-        ))}
+            <ChevronDown size={14} />
+          </IconButton>
+          {moreOpen && (
+            <DropdownMenu label="更多导航" onClose={() => setMoreOpen(false)}>
+              {(
+                [
+                  ['search', '搜索'],
+                  ['tags', '标签'],
+                  ['calendar', '日历'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  role="menuitem"
+                  key={key}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    setView(key);
+                    if (key === 'search') setFocusVersion((value) => value + 1);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </DropdownMenu>
+          )}
+        </div>
       </div>
       <div className="sidebar-heading">
         <span>
-          {{ files: '文件目录', search: '搜索笔记', tags: '全部标签', calendar: '周期笔记' }[view]}
+          {
+            {
+              files: '文件目录',
+              recent: '最近修改',
+              search: '搜索笔记',
+              tags: '全部标签',
+              calendar: '周期笔记',
+            }[view]
+          }
         </span>
         <div>
           {view === 'files' && (
@@ -205,6 +289,7 @@ export function Sidebar({
                     collapsed={collapsed}
                     onToggle={toggleDirectory}
                     activePath={activePath}
+                    excerpt={excerpt}
                     onOpen={onOpen}
                     onError={onError}
                   />
@@ -215,6 +300,25 @@ export function Sidebar({
             ))}
           </div>
         }
+        {view === 'recent' && (
+          <div className="recent-note-list">
+            <p className="subtle">按修改时间排列，包含目录外已打开的文件。</p>
+            {recentNotes.map((note) => (
+              <button
+                className={`note-row ${note.path === activePath ? 'active' : ''}`}
+                key={note.path}
+                onClick={() => onOpen(note.path)}
+              >
+                <FileText size={15} />
+                <span>
+                  <strong>{note.title}</strong>
+                  <small title={note.path}>{note.path.split(/[\\/]/).slice(-2).join(' / ')}</small>
+                </span>
+              </button>
+            ))}
+            {!recentNotes.length && <Empty>打开或添加笔记后，可在这里查看最近修改的文件。</Empty>}
+          </div>
+        )}
         {view === 'search' && (
           <NoteSearch
             roots={settings.roots}
@@ -325,6 +429,10 @@ export function Sidebar({
           </>
         )}
       </div>
+      <button className="sidebar-open-folder" onClick={() => void addDirectory()}>
+        <FolderPlus size={14} />
+        打开文件夹
+      </button>
       <footer className="sidebar-footer">
         <span>{index.length} 篇笔记</span>
         <span>本地文件</span>
@@ -334,6 +442,7 @@ export function Sidebar({
 }
 function FileTree({
   entries,
+  excerpt,
   activePath,
   onOpen,
   onError,
@@ -341,6 +450,7 @@ function FileTree({
   onToggle,
 }: {
   entries: FileEntry[];
+  excerpt: string;
   activePath: string | null;
   onOpen(path: string): void;
   onError(message: string): void;
@@ -382,6 +492,7 @@ function FileTree({
           key={entry.path}
           role="treeitem"
           data-tree-path={entry.path}
+          aria-label={entry.name}
           aria-level={depth + 1}
           aria-selected={entry.path === activePath}
           aria-expanded={entry.kind === 'directory' ? !collapsed.has(entry.path) : undefined}
@@ -427,7 +538,12 @@ function FileTree({
           ) : (
             <FileText size={14} />
           )}
-          <span>{entry.name}</span>
+          <span className="tree-label">
+            {entry.name}
+            {entry.path === activePath && excerpt && (
+              <small className="tree-excerpt">{excerpt}</small>
+            )}
+          </span>
         </button>
       ))}
     </div>

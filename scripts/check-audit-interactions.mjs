@@ -20,9 +20,12 @@ const bundle = await build({
 });
 const css = (
   await Promise.all(
-    ['src/styles/app.css', 'src/styles/icons.css', 'src/editor/editor.css'].map((file) =>
-      readFile(file, 'utf8'),
-    ),
+    [
+      'src/styles/app.css',
+      'src/styles/writing.css',
+      'src/styles/icons.css',
+      'src/editor/editor.css',
+    ].map((file) => readFile(file, 'utf8')),
   )
 ).join('\n');
 const html =

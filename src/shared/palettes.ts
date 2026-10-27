@@ -3,6 +3,32 @@ import type { Appearance } from './types';
 // Approved visual review: prototype/visual-review, be02075.
 export const builtinPalettes = [
   {
+    id: 'neutral',
+    name: '中性灰',
+    light: {
+      bg: '#FAFAFA',
+      sidebar: '#F1F1F1',
+      surface: '#E8E8E8',
+      fg: '#292929',
+      muted: '#686868',
+      border: '#D8D8D8',
+      accent: '#4D4D4D',
+      accentText: '#FAFAFA',
+      selected: '#DEDEDE',
+    },
+    dark: {
+      bg: '#232323',
+      sidebar: '#2B2B2B',
+      surface: '#353535',
+      fg: '#E5E5E5',
+      muted: '#ADADAD',
+      border: '#484848',
+      accent: '#D0D0D0',
+      accentText: '#232323',
+      selected: '#414141',
+    },
+  },
+  {
     id: 'ink',
     name: '中性墨灰',
     light: {

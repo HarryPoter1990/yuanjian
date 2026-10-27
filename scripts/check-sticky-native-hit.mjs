@@ -45,7 +45,9 @@ await writeFile(
   path.join(fixture, 'fixture.css'),
   (
     await Promise.all(
-      ['src/styles/app.css', 'src/styles/icons.css'].map((file) => readFile(file, 'utf8')),
+      ['src/styles/app.css', 'src/styles/writing.css', 'src/styles/icons.css'].map((file) =>
+        readFile(file, 'utf8'),
+      ),
     )
   ).join('\n'),
 );

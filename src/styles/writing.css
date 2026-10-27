@@ -1,0 +1,500 @@
+/* Hallmark · v2.0.0 · scope: app · redesign: full · theme: user-approved neutral workspace · modes: light+dark */
+/* Critique: preserve document measure, keyboard paths and drag space; source comparison is explicitly optional. */
+:root {
+  --writing-radius: 4px;
+  --writing-control-height: 30px;
+  --writing-menu-shadow: 0 4px 16px rgb(0 0 0 / 9%);
+  --writing-ui-fallback: 'Noto Sans SC Variable', sans-serif;
+}
+html,
+body {
+  overflow-x: clip;
+}
+.app {
+  --control-radius: var(--writing-radius);
+}
+.app[data-theme='dark'] {
+  --writing-menu-shadow: none;
+}
+.app-header {
+  border-bottom: 1px solid var(--border);
+}
+.app-brand {
+  gap: 4px;
+}
+.iris-logo {
+  width: 32px;
+  height: 32px;
+}
+.app-brand strong {
+  letter-spacing: 0;
+}
+.document-tab,
+.document-tab.active {
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.document-tab.active {
+  background: var(--background);
+  border-bottom: 2px solid var(--accent);
+}
+.document-tab > button:first-child {
+  font-weight: 500;
+}
+.header-actions > .icon-button:nth-child(2),
+.header-actions > .icon-button:nth-child(3),
+.header-actions > .icon-button:nth-child(4) {
+  display: none;
+}
+.document-heading {
+  min-height: 44px;
+  height: 44px;
+  padding: 0 20px;
+  background: transparent;
+  border-bottom: 0;
+}
+.document-breadcrumb {
+  min-width: 0;
+  font-size: 12px;
+}
+.document-actions {
+  gap: 8px;
+  flex: none;
+}
+.document-actions button {
+  min-height: var(--writing-control-height);
+}
+.save-button,
+.mode-button,
+.format-trigger,
+.export-trigger {
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.save-button {
+  color: var(--muted);
+}
+.format-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--writing-menu-shadow);
+  max-height: calc(100dvh - 80px);
+  overflow: visible;
+  z-index: 100;
+}
+.format-panel .editor-toolbar {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.format-panel .toolbar-formatting {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.format-panel .toolbar-label {
+  display: none;
+}
+.format-panel .icon-button {
+  min-width: 36px;
+  width: auto;
+  height: 32px;
+  padding: 8px;
+}
+.format-panel .toolbar-separator {
+  margin: 0 2px;
+}
+.format-panel .dropdown-menu {
+  max-height: min(360px, calc(100dvh - 180px));
+  overflow: auto;
+}
+.sidebar-search-trigger {
+  display: flex;
+  width: calc(100% - 24px);
+  margin: 16px 12px 8px;
+  padding: 8px 12px;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--muted);
+  background: var(--background);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.sidebar-switch {
+  height: 38px;
+  min-height: 38px;
+  padding: 0 12px 8px;
+  gap: 4px;
+}
+.sidebar-switch > button {
+  flex-direction: row;
+  font-size: 12px;
+  min-width: 0;
+  min-height: 30px;
+  border-radius: 0;
+}
+.sidebar-switch > button[aria-selected='true'] {
+  background: transparent;
+  border-bottom: 2px solid var(--accent);
+  color: var(--foreground);
+}
+.sidebar-switch .navigation-more {
+  margin-left: auto;
+  align-self: center;
+}
+.sidebar-heading {
+  min-height: 38px;
+  height: 38px;
+  font-size: 12px;
+  padding-left: 16px;
+}
+.tree-row {
+  min-height: 32px;
+  font-size: 13px;
+}
+.tree-row.active:has(.tree-excerpt) {
+  height: auto;
+  min-height: 48px;
+  align-items: flex-start;
+  padding-block: 8px;
+}
+.tree-row .tree-label {
+  min-width: 0;
+  overflow: hidden;
+  display: block;
+}
+.tree-row .tree-excerpt {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+.recent-note-list .note-row {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  padding: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  min-width: 0;
+}
+.recent-note-list .note-row.active {
+  background: var(--selected);
+}
+.recent-note-list .note-row > span {
+  min-width: 0;
+  display: block;
+}
+.recent-note-list strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+}
+.recent-note-list small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-note-list .subtle {
+  padding: 0 12px;
+}
+.sidebar-open-folder {
+  margin: 12px;
+  text-align: left;
+  justify-content: flex-start;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--muted);
+}
+.right-sidebar {
+  padding-top: 0;
+}
+.right-section {
+  border-bottom: 1px solid var(--border);
+}
+.right-section h2 {
+  font-size: 12px;
+}
+.right-section h2 > button {
+  min-height: 40px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.editor-surface {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.writing-editor-host,
+.writing-preview-pane {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.writing-preview-pane {
+  overflow: auto;
+}
+.document-preview {
+  font: var(--editor-font-size)/var(--editor-line-height) var(--body-font);
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 32px 28px 120px;
+  min-height: 100%;
+}
+.app[data-document-view='split'] .writing-preview-pane {
+  border-left: 1px solid var(--border);
+}
+.app[data-document-view='split'] .writing-editor-host {
+  overflow: hidden;
+}
+.split-controls {
+  display: flex;
+  align-items: center;
+  padding: 4px 16px;
+  border-block: 1px solid var(--border);
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.split-controls button {
+  font-size: 11px;
+  border: 0;
+  background: transparent;
+  min-height: 28px;
+}
+.split-controls span {
+  margin-left: auto;
+  color: var(--muted);
+}
+.focus-header {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  height: 44px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  padding-left: 20px;
+  gap: 12px;
+  -webkit-app-region: drag;
+}
+.focus-document-title {
+  font-size: 12px;
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.focus-drag-region {
+  flex: 1;
+  min-width: 64px;
+  align-self: stretch;
+}
+.focus-save-state {
+  font-size: 11px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.focus-header button {
+  -webkit-app-region: no-drag;
+  flex: none;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.app[data-writing-focus='true'] .document-heading {
+  display: none;
+}
+.app[data-writing-focus='true'] .status-bar {
+  border: 0;
+}
+.app[data-writing-focus='true'] .markdown-editor .cm-content,
+.app[data-writing-focus='true'] .document-preview {
+  padding-top: 48px;
+}
+.app .markdown-rendered h1,
+.app .markdown-editor.is-live .cm-heading-source-1 {
+  font-size: 1.75em;
+  letter-spacing: 0;
+  font-weight: 650;
+}
+.app .markdown-rendered h2,
+.app .markdown-editor.is-live .cm-heading-source-2 {
+  font-size: 1.35em;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.app .markdown-rendered h3,
+.app .markdown-editor.is-live .cm-heading-source-3 {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.app .markdown-rendered h5,
+.app .markdown-editor.is-live .cm-heading-source-5 {
+  font-size: 1em;
+  font-weight: 550;
+}
+.app .markdown-rendered h6,
+.app .markdown-editor.is-live .cm-heading-source-6 {
+  font-size: 1em;
+  font-weight: 500;
+}
+.app .markdown-rendered blockquote {
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 0.3em 0.9em;
+}
+.app .markdown-editor .cm-cursor {
+  border-left-color: var(--foreground);
+}
+.app .markdown-editor .cm-selectionBackground {
+  background: var(--selected) !important;
+}
+.app .code-block,
+.app .markdown-table-widget {
+  border-radius: var(--writing-radius);
+}
+.app .table-toolbar {
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: var(--writing-menu-shadow);
+}
+.app .table-toolbar button {
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.sticky-header {
+  background: var(--sidebar);
+}
+.sticky-drag-handle {
+  width: 32px;
+  min-width: 32px;
+}
+.app[data-window-mode='sticky'] .document-heading {
+  display: none;
+}
+.app[data-window-mode='sticky'] .markdown-editor .cm-content {
+  padding-inline: 24px;
+}
+.settings-nav {
+  background: var(--sidebar);
+}
+.modal:has(.settings-layout) {
+  background: var(--background);
+}
+.settings-content h3 {
+  color: var(--foreground);
+}
+.settings-content h3 svg {
+  color: var(--muted);
+}
+.theme-cards > button {
+  border-radius: var(--writing-radius);
+}
+.contrast-warning {
+  background: var(--selected);
+}
+@media (max-width: 1000px) {
+  .app[data-document-view='split'][data-split-side='edit'] .writing-preview-pane {
+    display: none;
+  }
+  .app[data-document-view='split'][data-split-side='reading'] .writing-editor-host {
+    display: none;
+  }
+  .app[data-document-view='split'] .writing-preview-pane {
+    border: 0;
+  }
+  .document-heading {
+    padding-inline: 12px;
+  }
+  .document-actions {
+    gap: 2px;
+  }
+  .document-breadcrumb > svg {
+    display: none;
+  }
+}
+@media (max-width: 650px) {
+  .document-breadcrumb {
+    display: none;
+  }
+  .document-heading {
+    justify-content: flex-end;
+  }
+  .export-trigger {
+    display: none;
+  }
+  .focus-save-state span {
+    display: none;
+  }
+  .focus-header {
+    padding-left: 12px;
+    gap: 8px;
+  }
+  .focus-document-title {
+    max-width: 140px;
+  }
+  .document-preview {
+    padding-inline: 20px;
+  }
+  .app[data-writing-focus='true'] .markdown-editor .cm-content {
+    padding-top: 28px;
+  }
+}
+
+.theme-cards {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.app .markdown-rendered li:has(> input[type='checkbox']) {
+  list-style: none;
+}
+.app .markdown-rendered ul:has(> li > input[type='checkbox']) {
+  padding-left: 0.35em;
+}
+.app .markdown-rendered li > input[type='checkbox'] {
+  margin-inline: 0 0.4em;
+}
+
+/* Hallmark · answered F3: editable document headings retain normal wrapping to keep cursor positions stable. */
+.app .format-trigger:focus-visible,
+.app .mode-button:focus-visible,
+.app .sidebar-search-trigger:focus-visible,
+.app .format-panel button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.app .format-trigger:active,
+.app .mode-button:active,
+.app .format-panel button:active {
+  background: var(--selected);
+}

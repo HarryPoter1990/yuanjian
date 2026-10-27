@@ -52,6 +52,7 @@ const css = (
   await Promise.all([
     readFile('src/editor/editor.css', 'utf8'),
     readFile('src/styles/app.css', 'utf8'),
+    readFile('src/styles/writing.css', 'utf8'),
     readFile('node_modules/@fontsource-variable/noto-sans-sc/index.css', 'utf8').then((css) =>
       css.replaceAll('./files/', '/node_modules/@fontsource-variable/noto-sans-sc/files/'),
     ),

@@ -125,6 +125,9 @@ export class NoteStore {
     // Earlier versions stored individual colors; never replace them with a new built-in palette.
     if (saved.appearance && !Object.hasOwn(saved.appearance, 'palette'))
       this.settings.appearance.palette = undefined;
+    // Optional in 0.8 and earlier: absence meant classic, not a request for the new default.
+    if (saved.appearance && !Object.hasOwn(saved.appearance, 'codeTheme'))
+      this.settings.appearance.codeTheme = 'classic';
     this.access.excluded = this.settings.excluded;
     const validRoots: string[] = [];
     for (const root of this.settings.roots) {

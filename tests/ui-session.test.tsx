@@ -679,6 +679,9 @@ describe('desktop session and save lifecycle', () => {
       ),
     );
     await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="更多导航"]')!.click(),
+    );
+    await act(async () =>
       [...host.querySelectorAll('button')].find((button) => button.textContent === '日历')?.click(),
     );
     await act(async () =>
@@ -718,6 +721,9 @@ describe('desktop session and save lifecycle', () => {
       title: '另写的日记',
     }));
     await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="更多导航"]')!.click(),
+    );
     await act(async () =>
       [...host.querySelectorAll('button')].find((button) => button.textContent === '日历')?.click(),
     );
@@ -843,6 +849,9 @@ describe('desktop session and save lifecycle', () => {
     editorCalls.to = 7;
     await act(async () => root.render(<App />));
     await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="打开格式菜单"]')!.click(),
+    );
+    await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.click(),
     );
     expect(host.querySelector<HTMLInputElement>('[aria-label="链接显示文字"]')?.value).toBe(
@@ -853,6 +862,9 @@ describe('desktop session and save lifecycle', () => {
     );
     expect(editorCalls.insert).not.toHaveBeenCalled();
     expect(editorCalls.dispatch).not.toHaveBeenCalled();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="打开格式菜单"]')!.click(),
+    );
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.click(),
     );
@@ -890,6 +902,9 @@ describe('desktop session and save lifecycle', () => {
       editorCalls.from = 3;
       editorCalls.to = 6;
       await act(async () => root.render(<App />));
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="打开格式菜单"]')!.click(),
+      );
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="链接"]')?.click());
       const target = host.querySelector<HTMLInputElement>('[aria-label="链接目标"]');
       if (!target) throw new Error('missing link target');
@@ -938,6 +953,9 @@ describe('desktop session and save lifecycle', () => {
       editorCalls.to = 6;
       await act(async () => root.render(<App />));
       await act(async () => host.querySelector<HTMLButtonElement>('.save-button')?.click());
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="打开格式菜单"]')!.click(),
+      );
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="链接"]')?.click());
       await act(async () =>
         finish({ status: 'saved', note: { ...source, content: savedContent, hash: 'saved' } }),
@@ -999,6 +1017,11 @@ describe('desktop session and save lifecycle', () => {
     const mode = host.querySelector<HTMLButtonElement>('.document-actions .mode-button')!;
     expect(mode.textContent).toBe('即时排版');
     await act(async () => mode.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent === '源码')!
+        .click(),
+    );
     expect(mode.textContent).toBe('源码');
   });
   it('focuses the note menu, moves to its last action and restores the trigger with Escape', async () => {
@@ -1089,7 +1112,7 @@ describe('desktop session and save lifecycle', () => {
       first.focus();
       first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     });
-    expect(document.activeElement?.textContent).toBe('搜索');
+    expect(document.activeElement?.textContent).toBe('最近');
     expect(host.querySelectorAll('.sidebar-switch [role="tab"][tabindex="0"]')).toHaveLength(1);
   });
   it('protects unsubmitted modal input and restores focus after an explicit discard', async () => {
@@ -1153,6 +1176,14 @@ describe('desktop session and save lifecycle', () => {
     await mount();
     await act(async () => root.render(<App />));
     await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="更多导航"]')!.click(),
+    );
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent === '日历')!
+        .click(),
+    );
+    await act(async () =>
       [...host.querySelectorAll('[role="tab"]')]
         .find((tab) => tab.textContent === '日历')
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
@@ -1200,6 +1231,14 @@ describe('desktop session and save lifecycle', () => {
   it('keeps the mounted editor and sidebar context when entering and leaving sticky mode without changing layout preferences', async () => {
     await mount();
     await act(async () => root.render(<App />));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="更多导航"]')!.click(),
+    );
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent === '日历')!
+        .click(),
+    );
     await act(async () =>
       [...host.querySelectorAll('[role="tab"]')]
         .find((tab) => tab.textContent === '日历')
