@@ -15,6 +15,12 @@ const labels: Record<AppearanceColor, string> = {
   border: '分割线',
   selected: '选区底色',
 };
+const paletteDescriptions = {
+  neutral: '均衡灰阶，柔和层次',
+  ink: '高对比灰阶，深色侧栏',
+  moss: '灰阶底色，苔绿强调',
+  paper: '暖纸底色，铜棕强调',
+};
 function ColorControl({
   label,
   value,
@@ -245,12 +251,48 @@ export function ThemeControls({
             }
             onClick={() => onChange(paletteAppearance(appearance, p.id))}
           >
-            <span className="palette-pair">
-              <i style={{ background: p.light.bg, color: p.light.fg }}>Aa</i>
-              <i style={{ background: p.dark.bg, color: p.dark.fg }}>Aa</i>
+            <span className="palette-pair" aria-hidden="true">
+              {(['light', 'dark'] as const).map((mode) => {
+                const colors = p[mode];
+                return (
+                  <span
+                    key={mode}
+                    className="palette-sample"
+                    data-palette-mode={mode}
+                    style={{ background: colors.bg, color: colors.fg }}
+                  >
+                    <span className="palette-sample-sidebar" style={{ background: colors.sidebar }}>
+                      <span
+                        className="palette-sample-selected"
+                        style={{ background: colors.selected }}
+                      >
+                        <span
+                          className="palette-sample-mark"
+                          style={{ background: colors.accent }}
+                        />
+                      </span>
+                      <span
+                        className="palette-sample-navline"
+                        style={{ background: colors.muted }}
+                      />
+                    </span>
+                    <span className="palette-sample-page">
+                      <span className="palette-sample-heading">Aa</span>
+                      <span className="palette-sample-line" style={{ background: colors.muted }} />
+                      <span
+                        className="palette-sample-accent"
+                        style={{ background: colors.accent }}
+                      />
+                      <span className="palette-sample-mode" style={{ color: colors.muted }}>
+                        {mode === 'light' ? '浅色' : '深色'}
+                      </span>
+                    </span>
+                  </span>
+                );
+              })}
             </span>
             <strong>{p.name}</strong>
-            <small>浅色 / 深色</small>
+            <small>{paletteDescriptions[p.id]}</small>
           </button>
         ))}
       </div>

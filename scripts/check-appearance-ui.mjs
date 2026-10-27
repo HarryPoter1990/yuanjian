@@ -5,13 +5,15 @@ import { createServer } from 'node:http';
 import { build } from 'esbuild';
 import { chromium, expect } from '@playwright/test';
 import { fixtureGraphPlugin } from './fixture-graph-plugin.mjs';
-const out = 'artifacts/theme-ui-2026-10-26/production';
+const out = 'artifacts/palette-preview-2026-10-27';
 await mkdir(out, { recursive: true });
 const bundle = await build({
   plugins: [fixtureGraphPlugin()],
   stdin: {
     contents: `
 import './scripts/fixtures/workflow-app.jsx';
+import {builtinPalettes} from './src/shared/palettes';
+window.workflowFixture.paletteDefinitions=builtinPalettes;
 const state=window.workflowFixture;state.settingsWrites=[];state.failAppearance=false;
 const save=window.notes.saveSettings;
 window.notes.saveSettings=async value=>{state.settingsWrites.push(structuredClone(value));if(state.failAppearance){state.failAppearance=false;throw Error('generated appearance write failure');}return save(value);};
@@ -80,6 +82,43 @@ try {
   };
   await openSettings();
   const dialog = page.getByRole('dialog', { name: '设置', exact: true });
+  const definitions = await page.evaluate(() => window.workflowFixture.paletteDefinitions);
+  const rgb = (hex) =>
+    `rgb(${[1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16)).join(', ')})`;
+  for (const palette of definitions) {
+    const card = dialog
+      .locator('.theme-cards > button')
+      .filter({ has: page.locator('strong', { hasText: palette.name }) });
+    for (const mode of ['light', 'dark']) {
+      const sample = card.locator(`[data-palette-mode="${mode}"]`);
+      await expect(sample).toHaveCount(1);
+      for (const [selector, token] of [
+        ['.palette-sample-sidebar', 'sidebar'],
+        ['.palette-sample-selected', 'selected'],
+        ['.palette-sample-accent', 'accent'],
+      ])
+        await expect(sample.locator(selector)).toHaveCSS(
+          'background-color',
+          rgb(palette[mode][token]),
+        );
+      await expect(sample).toHaveCSS('background-color', rgb(palette[mode].bg));
+      await card.click();
+      await dialog.getByLabel('明暗模式', { exact: true }).selectOption(mode);
+      await expect(root).toHaveAttribute('data-theme', mode);
+      await expect(root).toHaveCSS('--accent', palette[mode].accent);
+    }
+  }
+  await page.screenshot({ path: `${out}/palette-cards-dark.png` });
+  await dialog.locator('.theme-cards').screenshot({ path: `${out}/palette-cards-detail.png` });
+  await dialog.getByLabel('明暗模式', { exact: true }).selectOption('light');
+  await page.screenshot({ path: `${out}/palette-cards-light.png` });
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  assert.equal(await current(), null, 'previewing palette cards must not persist settings');
+  await openSettings();
+  checks.push(
+    'all paired palette cards expose actual sidebar, selection and accent colors; preview matches and cancel restores',
+  );
   await dialog.getByLabel('明暗模式', { exact: true }).selectOption('system');
   await dialog.getByRole('button', { name: '预览浅色', exact: true }).click();
   await dialog.getByLabel('强调色 HEX', { exact: true }).fill('#987654');

@@ -85,6 +85,9 @@ app
     if(originalEditor!==document.querySelector('.cm-editor'))throw Error('View mode replaced the editor instance');
     document.querySelector('button[aria-label="打开设置"]').click();
     await wait(()=>document.querySelector('.settings-nav'));
+    if(document.querySelectorAll('.theme-cards [data-palette-mode]').length!==8)throw Error('Paired palette miniatures missing');
+    const moss=[...document.querySelectorAll('.theme-cards > button')].find(button=>button.querySelector('strong')?.textContent==='苔绿');
+    for(const [mode,expected] of [['light','rgb(82, 107, 87)'],['dark','rgb(159, 181, 158)']])if(getComputedStyle(moss.querySelector('[data-palette-mode="'+mode+'"] .palette-sample-accent')).backgroundColor!==expected)throw Error('Palette accent preview does not match its theme');
     [...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('字体管理')).click();
     await wait(()=>document.querySelector('button[aria-label="正文字体"]'));
     document.querySelector('button[aria-label="正文字体"]').click();
