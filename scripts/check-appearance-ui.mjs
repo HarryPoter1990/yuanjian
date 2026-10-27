@@ -144,6 +144,17 @@ try {
   await expect(dialog).not.toBeVisible();
   assert.equal(await current(), null, 'previewing palette cards must not persist settings');
   await openSettings();
+  await expect(root).toHaveAttribute('data-refined-palette', 'false');
+  await expect(dialog.getByLabel('明暗模式', { exact: true })).toHaveCSS(
+    'border-top-color',
+    'rgb(216, 216, 216)',
+  );
+  await expect(page.locator('.markdown-rendered blockquote').first()).toHaveCSS(
+    'background-color',
+    'rgb(232, 232, 232)',
+  );
+  assert.equal(await root.evaluate((node) => node.style.getPropertyValue('--control-border')), '');
+  assert.equal(await root.evaluate((node) => node.style.getPropertyValue('--pin-accent')), '');
   checks.push(
     'all paired palette cards expose actual sidebar, selection and accent colors; preview matches and cancel restores',
   );

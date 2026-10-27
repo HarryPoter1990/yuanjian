@@ -472,7 +472,7 @@ body {
 }
 
 .theme-cards {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(144px, 1fr));
 }
 
 .app .markdown-rendered li:has(> input[type='checkbox']) {

@@ -104,6 +104,7 @@ app
     document.querySelector('button[aria-label="打开设置"]').click();
     await wait(()=>document.querySelector('select[aria-label="明暗模式"]'));
     [...document.querySelectorAll('.theme-cards > button')].find(button=>button.querySelector('strong')?.textContent==='鸢紫').click();
+    await wait(()=>document.querySelector('.app').dataset.refinedPalette==='true');
     const mode=document.querySelector('select[aria-label="明暗模式"]');
     mode.value='dark';mode.dispatchEvent(new Event('change',{bubbles:true}));
     await wait(()=>document.querySelector('.app').dataset.theme==='dark');
@@ -116,6 +117,7 @@ app
     await wait(()=>!document.querySelector('.settings-layout'));
     if(document.querySelector('.app').dataset.theme!=='dark')throw Error('Applied appearance reverted on close');
     if(document.querySelector('.app').dataset.refinedPalette!=='true')throw Error('Reviewed palette roles missing');
+    await wait(()=>getComputedStyle(document.querySelector('.app')).backgroundColor==='rgb(37, 33, 47)');
     if(getComputedStyle(document.querySelector('.app')).backgroundColor!=='rgb(37, 33, 47)')throw Error('鸢紫 production palette mismatch');
     return {protocol:location.protocol,bodyPreserved:true,writingUiVerified:true,fontsReady:document.fonts.status==='loaded',fontPickerVerified:true,appearanceCancelVerified:true,appearanceApplyVerified:true};
   })()`);
