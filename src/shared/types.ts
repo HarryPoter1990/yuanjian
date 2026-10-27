@@ -66,16 +66,17 @@ export interface Snippet {
   body: string;
   enabled: boolean;
 }
+export type PaletteId = 'neutral' | 'ink' | 'moss' | 'paper' | 'slate' | 'amber' | 'rose' | 'iris';
 export interface Appearance {
   density?: 'standard' | 'compact';
   codeTheme?: 'neutral' | 'classic' | 'calm' | 'contrast';
   paletteByMode?: {
-    light?: 'neutral' | 'ink' | 'moss' | 'paper';
-    dark?: 'neutral' | 'ink' | 'moss' | 'paper';
+    light?: PaletteId;
+    dark?: PaletteId;
   };
   colorThemeId?: string;
   schemeId?: string;
-  palette?: 'neutral' | 'ink' | 'moss' | 'paper';
+  palette?: PaletteId;
   paletteOverrides?: {
     light?: Partial<Record<AppearanceColor, string>>;
     dark?: Partial<Record<AppearanceColor, string>>;

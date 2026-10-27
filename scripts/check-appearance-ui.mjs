@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { build } from 'esbuild';
 import { chromium, expect } from '@playwright/test';
 import { fixtureGraphPlugin } from './fixture-graph-plugin.mjs';
-const out = 'artifacts/palette-preview-2026-10-27';
+const out = 'artifacts/eight-palettes-2026-10-27/ui';
 await mkdir(out, { recursive: true });
 const bundle = await build({
   plugins: [fixtureGraphPlugin()],
@@ -13,7 +13,9 @@ const bundle = await build({
     contents: `
 import './scripts/fixtures/workflow-app.jsx';
 import {builtinPalettes} from './src/shared/palettes';
+import {EditorView} from '@codemirror/view';
 window.workflowFixture.paletteDefinitions=builtinPalettes;
+window.workflowFixture.replace=content=>{const view=EditorView.findFromDOM(document.querySelector('.cm-content'));view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},selection:{anchor:0}});};
 const state=window.workflowFixture;state.settingsWrites=[];state.failAppearance=false;
 const save=window.notes.saveSettings;
 window.notes.saveSettings=async value=>{state.settingsWrites.push(structuredClone(value));if(state.failAppearance){state.failAppearance=false;throw Error('generated appearance write failure');}return save(value);};
@@ -73,6 +75,11 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.locator('.cm-content').waitFor();
+  await page.evaluate(() =>
+    window.workflowFixture.replace(
+      '# 配色检查\n\n生成笔记用于检查配色。\n\n> 引用保持清楚，阅读面保持安静。\n\n| 知识点 | 下一步 |\n| --- | --- |\n| 条件概率 | 补充自己的例子 |\n\n$E=mc^2$',
+    ),
+  );
   const root = page.locator('.app');
   const current = () =>
     page.evaluate(() => JSON.parse(sessionStorage.getItem('workflow-settings') || 'null'));
@@ -106,6 +113,27 @@ try {
       await dialog.getByLabel('明暗模式', { exact: true }).selectOption(mode);
       await expect(root).toHaveAttribute('data-theme', mode);
       await expect(root).toHaveCSS('--accent', palette[mode].accent);
+      const refined = Boolean(palette[mode].control);
+      await expect(root).toHaveAttribute('data-refined-palette', String(refined));
+      await expect(page.locator('.tree-row.active').first()).toHaveCSS(
+        'color',
+        rgb(refined ? palette[mode].fg : palette[mode].accent),
+      );
+      if (refined) {
+        await expect(dialog.getByLabel('明暗模式', { exact: true })).toHaveCSS(
+          'border-top-color',
+          rgb(palette[mode].control),
+        );
+        await expect(page.locator('.markdown-rendered blockquote').first()).toHaveCSS(
+          'background-color',
+          'rgba(0, 0, 0, 0)',
+        );
+        await expect(dialog.locator('.appearance-live-preview blockquote')).toHaveCSS(
+          'background-color',
+          'rgba(0, 0, 0, 0)',
+        );
+        await expect(root).toHaveCSS('--accent-text', palette[mode].accentText);
+      }
     }
   }
   await page.screenshot({ path: `${out}/palette-cards-dark.png` });
@@ -118,6 +146,9 @@ try {
   await openSettings();
   checks.push(
     'all paired palette cards expose actual sidebar, selection and accent colors; preview matches and cancel restores',
+  );
+  checks.push(
+    'all eight mode pairs preserve selected-file ink, field edges and quote styling; released palettes recover their original behavior',
   );
   await dialog.getByLabel('明暗模式', { exact: true }).selectOption('system');
   await dialog.getByRole('button', { name: '预览浅色', exact: true }).click();
@@ -209,6 +240,38 @@ try {
       (await page.locator('.sticky-header').count()),
   );
   checks.push('sticky shares applied appearance; full titlebar height and drag width preserved');
+  await page.getByRole('button', { name: '返回完整窗口', exact: true }).click();
+  await openSettings();
+  await dialog
+    .locator('.theme-cards > button')
+    .filter({ has: page.locator('strong', { hasText: '鸢紫' }) })
+    .click();
+  await dialog.getByLabel('明暗模式', { exact: true }).selectOption('dark');
+  await dialog.getByRole('button', { name: '应用外观', exact: true }).click();
+  await expect(dialog.locator('.settings-feedback')).toContainText('外观已应用');
+  assert.equal((await current()).appearance.palette, 'iris');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await page.locator('.cm-content').waitFor();
+  await expect(root).toHaveAttribute('data-refined-palette', 'true');
+  await expect(root).toHaveCSS('--background', '#25212F');
+  await page.screenshot({ path: `${out}/iris-dark-window.png` });
+  await page.getByRole('button', { name: '进入便笺模式', exact: true }).click();
+  await page.setViewportSize({ width: 420, height: 640 });
+  await expect(page.getByRole('button', { name: '便笺始终置顶', exact: true })).toHaveCSS(
+    'color',
+    'rgb(198, 177, 126)',
+  );
+  await page.getByRole('button', { name: '便笺始终置顶', exact: true }).click();
+  await expect(page.getByRole('button', { name: '便笺始终置顶', exact: true })).not.toHaveCSS(
+    'color',
+    'rgb(198, 177, 126)',
+  );
+  await page.getByRole('button', { name: '便笺始终置顶', exact: true }).click();
+  await page.screenshot({ path: `${out}/iris-dark-sticky.png` });
+  checks.push(
+    '鸢紫 applies and survives restart; its small gold pin is exclusive to the pinned state',
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     `${out}/report.json`,

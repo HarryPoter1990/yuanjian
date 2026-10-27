@@ -85,7 +85,7 @@ app
     if(originalEditor!==document.querySelector('.cm-editor'))throw Error('View mode replaced the editor instance');
     document.querySelector('button[aria-label="打开设置"]').click();
     await wait(()=>document.querySelector('.settings-nav'));
-    if(document.querySelectorAll('.theme-cards [data-palette-mode]').length!==8)throw Error('Paired palette miniatures missing');
+    if(document.querySelectorAll('.theme-cards [data-palette-mode]').length!==16)throw Error('Paired palette miniatures missing');
     const moss=[...document.querySelectorAll('.theme-cards > button')].find(button=>button.querySelector('strong')?.textContent==='苔绿');
     for(const [mode,expected] of [['light','rgb(82, 107, 87)'],['dark','rgb(159, 181, 158)']])if(getComputedStyle(moss.querySelector('[data-palette-mode="'+mode+'"] .palette-sample-accent')).backgroundColor!==expected)throw Error('Palette accent preview does not match its theme');
     [...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('字体管理')).click();
@@ -103,6 +103,7 @@ app
     await wait(()=>!document.querySelector('.app').style.getPropertyValue('--body-font').includes('Generated System Font'));
     document.querySelector('button[aria-label="打开设置"]').click();
     await wait(()=>document.querySelector('select[aria-label="明暗模式"]'));
+    [...document.querySelectorAll('.theme-cards > button')].find(button=>button.querySelector('strong')?.textContent==='鸢紫').click();
     const mode=document.querySelector('select[aria-label="明暗模式"]');
     mode.value='dark';mode.dispatchEvent(new Event('change',{bubbles:true}));
     await wait(()=>document.querySelector('.app').dataset.theme==='dark');
@@ -110,9 +111,12 @@ app
     await wait(()=>document.querySelector('.settings-feedback')?.textContent.includes('外观已应用'));
     const stored=await window.notes.bootstrap();
     if(stored.settings.appearance.mode!=='dark')throw Error('Appearance apply not committed');
+    if(stored.settings.appearance.palette!=='iris')throw Error('New palette ID not committed');
     document.querySelector('button[aria-label="关闭对话框"]').click();
     await wait(()=>!document.querySelector('.settings-layout'));
     if(document.querySelector('.app').dataset.theme!=='dark')throw Error('Applied appearance reverted on close');
+    if(document.querySelector('.app').dataset.refinedPalette!=='true')throw Error('Reviewed palette roles missing');
+    if(getComputedStyle(document.querySelector('.app')).backgroundColor!=='rgb(37, 33, 47)')throw Error('鸢紫 production palette mismatch');
     return {protocol:location.protocol,bodyPreserved:true,writingUiVerified:true,fontsReady:document.fonts.status==='loaded',fontPickerVerified:true,appearanceCancelVerified:true,appearanceApplyVerified:true};
   })()`);
     details.initialGraphRequests = initialGraphRequests;

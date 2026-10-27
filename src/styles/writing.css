@@ -370,7 +370,7 @@ body {
 .app .markdown-rendered blockquote {
   border-left: 2px solid var(--border);
   border-radius: 0;
-  background: var(--surface);
+  background: var(--quote-background, var(--surface));
   padding: 0.3em 0.9em;
 }
 .app .markdown-editor .cm-cursor {
@@ -492,6 +492,27 @@ body {
 .app .format-panel button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Reviewed palettes distinguish interactive edges from quiet document rules. */
+.app[data-refined-palette='true'] input:not([type='checkbox']):not([type='range']),
+.app[data-refined-palette='true'] textarea,
+.app[data-refined-palette='true'] select,
+.app[data-refined-palette='true'] .input-with-icon {
+  border-color: var(--control-border, var(--border));
+}
+.app[data-refined-palette='true'] .tree-row.active,
+.app[data-refined-palette='true'] .tree-row.active svg,
+.app[data-refined-palette='true'] .recent-note-list .note-row.active {
+  color: var(--foreground);
+}
+.app[data-refined-palette='true'] .tree-row.active {
+  box-shadow: inset 2px 0 var(--accent);
+}
+.app[data-refined-palette='true']
+  .sticky-header
+  button[aria-label='便笺始终置顶'][aria-pressed='true'] {
+  color: var(--pin-accent, var(--accent));
 }
 .app .format-trigger:active,
 .app .mode-button:active,

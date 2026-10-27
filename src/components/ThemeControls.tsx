@@ -20,6 +20,10 @@ const paletteDescriptions = {
   ink: '高对比灰阶，深色侧栏',
   moss: '灰阶底色，苔绿强调',
   paper: '暖纸底色，铜棕强调',
+  slate: '冷白与石板灰，雾蓝强调',
+  amber: '柔和麦纸，琥珀强调',
+  rose: '纸白与梅灰，玫瑰强调',
+  iris: '墨紫与银白，少量古金',
 };
 function ColorControl({
   label,
@@ -92,7 +96,7 @@ function ColorControl({
   );
 }
 const sample =
-  '# 把想法写下来\n\n中文笔记与 English words，自然相处。**清晰的文字**，留一点呼吸的空间。\n\n- [x] 留住今天的灵感\n- [ ] 明天继续\n\n```javascript\n// 一点小小的开始\nconst idea = "从这里开始";\nreturn idea.length + 1;\n```\n\n| 计划 | 状态 |\n| --- | --- |\n| 阅读与记录 | 进行中 |\n\n$E = mc^2$';
+  '# 把想法写下来\n\n中文笔记与 English words，自然相处。**清晰的文字**，留一点呼吸的空间。\n\n> 用自己的话，记下真正理解的内容。\n\n- [x] 留住今天的灵感\n- [ ] 明天继续\n\n```javascript\n// 一点小小的开始\nconst idea = "从这里开始";\nreturn idea.length + 1;\n```\n\n| 计划 | 状态 |\n| --- | --- |\n| 阅读与记录 | 进行中 |\n\n$E = mc^2$';
 
 export const AppearancePreview = memo(function AppearancePreview({
   appearance,
@@ -128,6 +132,8 @@ export const AppearancePreview = memo(function AppearancePreview({
           '--muted': c.muted,
           '--border': c.border,
           '--selected': c.selected,
+          '--control-border': c.controlBorder,
+          '--quote-background': c.quoteBackground,
           '--body-font': `"${appearance.bodyFont}",sans-serif`,
           '--heading-font': `"${appearance.headingFont}",sans-serif`,
           '--code-font': `"${appearance.codeFont}",monospace`,

@@ -4,7 +4,7 @@ const text = z.string().max(64 * 1024 * 1024);
 const file = z.string().min(1).max(32768);
 const short = z.string().max(1024);
 const number = z.number().finite();
-const paletteId = z.enum(['neutral', 'ink', 'moss', 'paper']);
+const paletteId = z.enum(['neutral', 'ink', 'moss', 'paper', 'slate', 'amber', 'rose', 'iris']);
 const colorOverrides = z.object(
   Object.fromEntries(
     ['background', 'foreground', 'accent', 'sidebar', 'surface', 'muted', 'border', 'selected'].map(
@@ -25,7 +25,7 @@ const appearance = z.object({
   schemeId: short.optional(),
   paletteByMode: z.object({ light: paletteId.optional(), dark: paletteId.optional() }).optional(),
   mode: z.enum(['light', 'dark', 'system']),
-  palette: z.enum(['neutral', 'ink', 'moss', 'paper']).optional(),
+  palette: paletteId.optional(),
   paletteOverrides: z
     .object({
       light: colorOverrides.optional(),

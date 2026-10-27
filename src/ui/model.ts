@@ -19,17 +19,27 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
       )
         ? colors[key]
         : value;
+    const accent = overrides?.accent ?? resolve('accent', appearance.accent);
+    const surface = overrides?.surface ?? colors.surface;
+    const refined = 'control' in colors;
     return {
       dark,
+      refined,
+      controlBorder: overrides?.border ?? ('control' in colors ? colors.control : undefined),
+      pinAccent: 'gold' in colors ? colors.gold : undefined,
+      quoteBackground: refined ? 'transparent' : surface,
       background: overrides?.background ?? resolve('bg', appearance.background),
       foreground: overrides?.foreground ?? resolve('fg', appearance.foreground),
-      accent: overrides?.accent ?? resolve('accent', appearance.accent),
+      accent,
       sidebar: overrides?.sidebar ?? colors.sidebar,
-      surface: overrides?.surface ?? colors.surface,
+      surface,
       muted: overrides?.muted ?? colors.muted,
       border: overrides?.border ?? colors.border,
       selected: overrides?.selected ?? colors.selected,
-      accentText: accentForeground(overrides?.accent ?? resolve('accent', appearance.accent)),
+      accentText:
+        refined && accent.toLowerCase() === colors.accent.toLowerCase()
+          ? colors.accentText
+          : accentForeground(accent),
     };
   }
   const background =
@@ -40,13 +50,18 @@ export function appearanceColors(appearance: Appearance, systemDark: boolean) {
     (dark && appearance.foreground === '#292d32' ? '#e1e6e9' : appearance.foreground);
   const accent =
     overrides?.accent ?? (dark && appearance.accent === '#3b756b' ? '#87b9a5' : appearance.accent);
+  const surface = overrides?.surface ?? `color-mix(in srgb, ${foreground} 4%, ${background})`;
   return {
     dark,
+    refined: false,
+    controlBorder: undefined,
+    pinAccent: undefined,
+    quoteBackground: surface,
     background,
     foreground,
     accent,
     sidebar: overrides?.sidebar ?? background,
-    surface: overrides?.surface ?? `color-mix(in srgb, ${foreground} 4%, ${background})`,
+    surface,
     muted: overrides?.muted ?? `color-mix(in srgb, ${foreground} 70%, ${background})`,
     border: overrides?.border ?? `color-mix(in srgb, ${foreground} 16%, ${background})`,
     selected: overrides?.selected ?? `color-mix(in srgb, ${foreground} 9%, ${background})`,

@@ -1541,6 +1541,10 @@ export default function App() {
     border,
     selected,
     accentText,
+    refined,
+    controlBorder,
+    quoteBackground,
+    pinAccent,
   } = appearanceColors(appearance, systemDark);
   const rightGroups = { outline: true, tags: true, backlinks: false, ...settings.rightGroups };
   const toggleGroup = (key: 'outline' | 'tags' | 'backlinks') =>
@@ -1556,6 +1560,9 @@ export default function App() {
     '--border': border,
     '--selected': selected,
     '--accent-text': accentText,
+    '--control-border': controlBorder,
+    '--quote-background': quoteBackground,
+    '--pin-accent': pinAccent,
     '--ui-font': `"${appearance.uiFont}",sans-serif`,
     '--body-font': `"${appearance.bodyFont}",sans-serif`,
     '--code-font': `"${appearance.codeFont}",monospace`,
@@ -1679,6 +1686,7 @@ export default function App() {
         data-code-theme={appearance.codeTheme ?? 'classic'}
         className="app"
         data-theme={dark ? 'dark' : 'light'}
+        data-refined-palette={refined ? 'true' : 'false'}
         data-window-mode={windowMode.mode}
         style={style}
       >
