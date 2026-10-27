@@ -28,3 +28,16 @@ coverage/
 Thumbs.db
 Desktop.ini
 .DS_Store
+/internal/
+/tasks/
+/SPEC.md
+/docs/audit-*.md
+/docs/verification*.md
+/docs/*-verification-*.md
+/docs/*-interview*.md
+/docs/*-reference*.md
+/docs/github-publication-*.md
+/docs/eight-palettes-*.md
+/docs/writing-ui-*.md
+/docs/sticky-note-mode.md
+/docs/decisions-desktop-stack.md
