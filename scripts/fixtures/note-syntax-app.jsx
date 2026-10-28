@@ -33,11 +33,18 @@ const note = (path, title, content) => ({
   scrollTop: 0,
   mode: 'live',
 });
-const root = note(rootPath, '主笔记', source);
+const root = note(
+  rootPath,
+  '主笔记',
+  source.replace('普通正文与 **加粗文字**', '普通正文与 `users` 和 **加粗文字**') +
+    (parameters.has('code-block')
+      ? '\n\n```js\n// 待办示例\nconst title = "学习";\nlet done = false;\n```'
+      : ''),
+);
 const child = note(
   childPath,
   '子笔记',
-  '# 定义\n\n磁盘旧定义。 ^definition\n\n![子图](images/child.png)',
+  '# 定义\n\n磁盘旧定义。 ^definition\n\n![子图](images/child.png)\n\n[后续参考](other.md)',
 );
 const other = note(otherPath, '外部引用', '# 参考\n\n磁盘参考内容。');
 const documents = new Map([root, child, other].map((item) => [item.path, structuredClone(item)]));
@@ -70,6 +77,7 @@ const fixture = {
   reads: [],
   assets: [],
   saved: [],
+  navigations: [],
   copies: [],
   unknown: [],
   session: null,
@@ -167,7 +175,10 @@ const api = {
     const result = resolve(from, target);
     return result.path ? structuredClone(documents.get(result.path)) : null;
   },
-  resolveLink: async (from, target) => resolve(from, target),
+  resolveLink: async (from, target) => {
+    fixture.navigations.push({ from, target });
+    return resolve(from, target);
+  },
   readEmbeddedNote: async (from, target) => {
     fixture.reads.push({ from, target });
     const result = resolve(from, target);

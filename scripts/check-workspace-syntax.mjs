@@ -11,7 +11,12 @@ await writeFile(
   '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><title>生成笔记的工作区检查</title></head><body><div id="root"></div><script type="module" src="/scripts/fixtures/note-syntax-app.jsx"></script></body></html>',
 );
 const server = await createServer({
-  server: { host: '127.0.0.1', port: 0, strictPort: true },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    strictPort: true,
+    watch: { ignored: ['**/artifacts/**', '**/.test-data/**'] },
+  },
   optimizeDeps: { entries: [path.resolve(entry)] },
 });
 await server.listen();
@@ -176,6 +181,51 @@ try {
     );
     assert.ok((await state(page)).source.includes('未保存的新定义'));
   });
+  for (const view of ['即时排版', '阅读', '源码对照'])
+    await check(`embedded relative links resolve from the child note: ${view}`, async (page) => {
+      if (view !== '即时排版') await mode(page, view);
+      await page
+        .locator(
+          view === '即时排版'
+            ? '.cm-content .note-embed-body a'
+            : '.document-preview .note-embed-body a',
+        )
+        .filter({ hasText: '后续参考' })
+        .click({ modifiers: view === '阅读' ? [] : ['Control'] });
+      await expect(page.getByRole('tab', { name: /外部引用/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      assert.ok((await state(page)).source.includes('磁盘参考内容'));
+      assert.ok(
+        await page.evaluate(() =>
+          window.noteIntegration.navigations.some(
+            (item) => item.from.endsWith('/sub/child.md') && item.target === 'other.md',
+          ),
+        ),
+      );
+    });
+  for (const [selector, expected] of [
+    ['.prototype-strong', '**加粗文字**'],
+    ['.prototype-inline-code', '`users`'],
+    ['.prototype-highlight', '==保留重点=='],
+    ['[data-link-target="https://example.com"]', '[示例网站](https://example.com)'],
+  ])
+    await check(`copy expanded source markers once: ${expected}`, async (page) => {
+      const before = await state(page);
+      await page.locator(selector).click();
+      await page.locator(selector).evaluate((root) => {
+        const range = document.createRange();
+        range.selectNodeContents(root);
+        const selected = document.getSelection();
+        selected.removeAllRanges();
+        selected.addRange(range);
+        root.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true }));
+      });
+      await expect.poll(() => page.evaluate(() => window.noteIntegration.copies.length)).toBe(1);
+      assert.equal(await page.evaluate(() => window.noteIntegration.copies[0].plain), expected);
+      assert.equal((await state(page)).source, before.source);
+    });
   await check(
     'inline link at the editing cursor opens with Control+Enter without changing text',
     async (page) => {
