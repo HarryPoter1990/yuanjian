@@ -4,6 +4,8 @@ import { createMarkdownParser, renderMarkdown } from './renderer';
 import { convertRichText } from './clipboard';
 import { previewSourcePosition } from './preview-source-position';
 import { inlineClipboardImages } from './clipboard-images';
+import { previewConfig } from './live-preview';
+import type { RenderOptions } from './types';
 
 export interface CopyContent {
   markdown: string;
@@ -74,10 +76,11 @@ function covers(range: Range, node: Node): boolean {
 
 function cleanHTML(root: HTMLElement): string {
   for (const image of root.querySelectorAll<HTMLImageElement>('img[data-asset-src]')) {
-    image.setAttribute('src', image.dataset.assetSrc ?? '');
+    if (!/^data:image\/(?:png|jpeg|gif|webp|avif);/i.test(image.getAttribute('src') ?? ''))
+      image.setAttribute('src', image.dataset.assetSrc ?? '');
   }
   for (const control of root.querySelectorAll(
-    '.code-caption,.code-language-toolbar,.code-line-number,.table-toolbar,button,select,summary',
+    '.code-caption,.code-language-toolbar,.code-line-number,.table-toolbar,.note-embed-open,button,select',
   ))
     control.remove();
   for (const input of root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
@@ -145,9 +148,9 @@ function cleanHTML(root: HTMLElement): string {
   });
 }
 
-export function markdownCopy(markdown: string): CopyContent {
+export function markdownCopy(markdown: string, options: RenderOptions = {}): CopyContent {
   const root = document.createElement('div');
-  root.innerHTML = renderMarkdown(markdown, { codeLineNumbers: false });
+  root.innerHTML = renderMarkdown(markdown, { ...options, codeLineNumbers: false });
   const maths = formulas(markdown);
   [...root.querySelectorAll('.katex,.katex-error')].forEach((formula, index) => {
     if (maths[index]) annotateFormula(formula, maths[index].latex, maths[index].display);
@@ -177,6 +180,7 @@ function sourceOffset(view: EditorView, node: Node, offset: number): number | nu
 }
 
 export function selectedCopy(view: EditorView): CopyContent | null {
+  const copy = (source: string) => markdownCopy(source, view.state.facet(previewConfig));
   const selection = view.dom.ownerDocument.getSelection();
   if (
     selection &&
@@ -194,7 +198,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       const original = originalFormula(view, formula);
       const latex = original?.latex;
       if (latex && covers(range, visible))
-        return markdownCopy(original?.display ? `$$\n${latex}\n$$` : `$${latex}$`);
+        return copy(original?.display ? `$$\n${latex}\n$$` : `$${latex}$`);
       const text = range.toString();
       return text ? { markdown: text, html: `<span>${escapeText(text)}</span>` } : null;
     }
@@ -208,7 +212,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       !elementOf(range.endContainer)?.closest('.markdown-preview-block')
     )
       return {
-        ...markdownCopy(view.state.sliceDoc(Math.min(from, to), Math.max(from, to))),
+        ...copy(view.state.sliceDoc(Math.min(from, to), Math.max(from, to))),
         range: { from: Math.min(from, to), to: Math.max(from, to) },
       };
     const root = document.createElement('div');
@@ -281,7 +285,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
   return selected.empty
     ? null
     : {
-        ...markdownCopy(view.state.sliceDoc(selected.from, selected.to)),
+        ...copy(view.state.sliceDoc(selected.from, selected.to)),
         range: { from: selected.from, to: selected.to },
       };
 }

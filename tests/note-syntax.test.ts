@@ -116,3 +116,22 @@ it('leaves the current-version renderer unchanged unless prototype syntax is req
   root.innerHTML = renderMarkdown('==内容==\n\n> [!info]\n> 内容');
   expect(root.querySelector('mark,[data-callout]')).toBeNull();
 });
+it('includes headings inside details in the same unique TOC', () => {
+  const root = html(
+    '[TOC]\n\n# 同名\n\n<details>\n<summary>详情</summary>\n\n## 同名\n\n</details>',
+  );
+  expect(root.querySelectorAll('.note-toc a')).toHaveLength(2);
+  const ids = [...root.querySelectorAll('h1,h2')].map((h) => h.id);
+  expect(new Set(ids).size).toBe(2);
+});
+it('allows an acyclic same-note section embed', () => {
+  const source = '# 定义\n\n一份契约。\n\n# 引用\n\n![[#定义]]';
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown(source, {
+    ...options,
+    notePath: '当前.md',
+    resolveNote: () => ({ path: '当前.md', source }),
+  });
+  expect(root.querySelector('.note-embed-body')?.textContent).toContain('一份契约');
+  expect(root.querySelector('.note-reference-error')).toBeNull();
+});

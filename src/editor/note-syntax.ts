@@ -127,6 +127,22 @@ export function installNoteSyntax(
           if (child.type === 'text') child.content = child.content.replace(/\u2063/g, '');
       }
   });
+  md.core.ruler.before('inline', 'note_inline_positions', (state) => {
+    const lines = state.src.split('\n'),
+      starts = [0];
+    for (const line of lines) starts.push(starts.at(-1)! + line.length + 1);
+    for (const token of state.tokens)
+      if (token.type === 'inline' && token.map) {
+        const positions: number[] = [];
+        token.content.split('\n').forEach((part, index) => {
+          const line = token.map![0] + index,
+            offset = (lines[line] ?? '').indexOf(part);
+          for (let n = 0; n <= part.length; n++)
+            positions.push(offset < 0 ? -1 : starts[line] + offset + n);
+        });
+        token.meta = { ...token.meta, notePositions: positions };
+      }
+  });
   md.inline.ruler.before('emphasis', 'note_spans', (state, silent) => {
     const from = state.pos;
     const marker = state.src.startsWith('==', from)
@@ -162,7 +178,15 @@ export function installNoteSyntax(
           contentTo: end,
         },
       };
-      md.inline.parse(content.replace(/\\ /g, ' '), md, state.env, state.tokens);
+      const children: Token[] = [];
+      md.inline.parse(content.replace(/\\ /g, ' '), md, state.env, children);
+      for (const child of children)
+        if (child.meta?.sourceRange) {
+          for (const key of ['from', 'to', 'contentFrom', 'contentTo'])
+            if (typeof child.meta.sourceRange[key] === 'number')
+              child.meta.sourceRange[key] += from + marker.length;
+        }
+      state.tokens.push(...children);
       state.push(`note_${tag}_close`, tag, -1);
     }
     state.pos = end + marker.length;
@@ -197,24 +221,32 @@ export function installNoteSyntax(
       }
       if (close >= end) return false;
       if (silent) return true;
-      let body = state.getLines(start + 1, close, state.blkIndent, false);
-      const summary = /^\s*<summary>([^\n]*?)<\/summary>\s*\n?/i.exec(body);
-      if (summary) body = body.slice(summary[0].length);
-      const token = state.push('note_details', '', 0);
+      let bodyStart = start + 1;
+      while (
+        bodyStart < close &&
+        !state.src.slice(state.bMarks[bodyStart], state.eMarks[bodyStart]).trim()
+      )
+        bodyStart++;
+      const summary = /^\s*<summary>([^\n]*?)<\/summary>\s*$/i.exec(
+        state.src.slice(state.bMarks[bodyStart], state.eMarks[bodyStart]),
+      );
+      const token = state.push('note_details_open', 'details', 1);
       token.map = [start, close + 1];
       token.block = true;
-      token.content = body;
       token.meta = { title: summary?.[1] ?? '详细内容', open: /\sopen/i.test(line) };
+      state.md.block.tokenize(state, bodyStart + (summary ? 1 : 0), close);
+      state.push('note_details_close', 'details', -1);
       state.line = close + 1;
       return true;
     },
     { alt: ['paragraph', 'blockquote', 'list'] },
   );
-  md.renderer.rules.note_details = (tokens, index) => {
+  md.renderer.rules.note_details_open = (tokens, index) => {
     const token = tokens[index];
-    return `<details class="note-details"${token.meta.open || options.exportMode === 'pdf' ? ' open' : ''}><summary>${md.renderInline(token.meta.title)}</summary>${md.render(token.content)}</details>\n`;
+    return `<details class="note-details"${token.meta.open || options.exportMode === 'pdf' ? ' open' : ''}><summary>${md.renderInline(token.meta.title)}</summary>`;
   };
-  const embed = (target: string, environment: object): string => {
+  md.renderer.rules.note_details_close = () => '</details>\n';
+  const embed = (target: string): string => {
     const [reference, fragment = ''] = target.split('#', 2);
     const result = reference
       ? options.resolveNote?.(reference, options.notePath)
@@ -224,14 +256,15 @@ export function installNoteSyntax(
     if (!result) return error(`无法解析嵌入笔记：${target}`);
     if ('error' in result) return error(result.error);
     const stack = options.embedStack ?? (options.notePath ? [options.notePath] : []);
-    if (stack.includes(result.path) || stack.length >= 12)
+    const identity = result.path + (fragment ? `#${fragment}` : '');
+    if (stack.includes(identity) || stack.length >= 12)
       return error(`循环引用或嵌入层级过深：${target}`);
     const selected = selectNoteFragment(md, result.source, fragment);
     if ('error' in selected) return error(selected.error);
     const body = render(selected.source, {
       ...options,
       notePath: result.path,
-      embedStack: [...stack, result.path],
+      embedStack: [...stack, identity],
     });
     return `<section class="note-embed" data-note-target="${escape(target)}"><a class="note-embed-open" href="${escape(target)}">打开原笔记 · ${escape(target)}</a><div class="note-embed-body">${body}</div></section>`;
   };
@@ -260,7 +293,7 @@ export function installNoteSyntax(
     state.pos = end + 2;
     return true;
   });
-  md.renderer.rules.note_embed = (tokens, index, _opts, env) => embed(tokens[index].content, env);
+  md.renderer.rules.note_embed = (tokens, index) => embed(tokens[index].content);
   md.block.ruler.before(
     'paragraph',
     'note_embed_block',
@@ -307,6 +340,8 @@ export function installNoteSyntax(
         };
         stack.push(token);
         inline.content = inline.content.slice(match[0].length);
+        if (inline.meta?.notePositions)
+          inline.meta.notePositions = inline.meta.notePositions.slice(match[0].length);
         inline.children = [];
         md.inline.parse(inline.content, md, state.env, inline.children);
         if (!inline.content) {

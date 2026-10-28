@@ -37,6 +37,7 @@ export interface EditorSession {
 export interface MarkdownEditorProps {
   prototypeEditing?: boolean;
   resolveNote?: RenderOptions['resolveNote'];
+  resolveAsset?: RenderOptions['resolveAsset'];
   value: string;
   onChange(value: string): void;
   mode: 'live' | 'source';

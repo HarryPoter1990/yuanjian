@@ -224,6 +224,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const current = propsRef.current;
       return previewConfig.of({
         prototypeEditing: current.prototypeEditing,
+        prototypeSyntax: current.prototypeEditing,
+        resolveNote: current.resolveNote,
+        resolveAsset: current.resolveAsset,
+        notePath: current.notePath ?? undefined,
         mode: current.mode,
         codeLineNumbers: current.settings.codeLineNumbers,
         codeWrap: current.settings.codeWrap,
@@ -833,7 +837,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           report('表格已变化，请重新复制。');
           return;
         }
-        void copyContent(markdownCopy(source))
+        void copyContent(markdownCopy(source, view.state.facet(previewConfig)))
           .then((notices) => {
             if (viewRef.current === view && notices.length) report(notices.join('\n'));
           })
@@ -902,6 +906,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       props.settings.codeWrap,
       props.settings.codeFold,
       props.notePath,
+      props.prototypeEditing,
+      props.resolveNote,
       props.settings.appearance.codeFontSize,
       props.settings.appearance.codeLineHeight,
     ]);

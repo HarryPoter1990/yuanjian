@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MarkdownEditor } from '../src/editor/MarkdownEditor';
 import type { MarkdownEditorHandle } from '../src/editor/types';
 import { defaultSettings } from '../src/shared/defaults';
+import { selectedCopy } from '../src/editor/clipboard-output';
 
 let host: HTMLDivElement, root: Root;
 const ref = createRef<MarkdownEditorHandle>();
@@ -87,4 +88,52 @@ it('displays escaped markers and entities without changing source', async () => 
   await mount('\\*星号\\* 与 A &amp; B');
   expect(host.querySelector('.cm-content')?.textContent).toContain('*星号* 与 A & B');
   expect(host.querySelector('.cm-content')?.textContent).not.toContain('\\');
+});
+it('locally reveals highlight and super/subscript markers', async () => {
+  const view = await mount('==重点==，H~2~O，x^2^');
+  expect(host.querySelector('.prototype-highlight')?.textContent).toBe('重点');
+  expect(host.querySelector('.prototype-sub')?.textContent).toBe('2');
+  expect(host.querySelector('.prototype-sup')?.textContent).toBe('2');
+  await act(async () => view.dispatch({ selection: { anchor: 3 } }));
+  expect(host.querySelector('.prototype-highlight')?.textContent).toBe('==重点==');
+  expect(host.querySelector('.prototype-sub')?.textContent).toBe('2');
+});
+it('hides multiline comments until the caret enters them', async () => {
+  const view = await mount('正文 %%内部\n\n注释%% 继续');
+  expect(host.querySelector('.cm-content')?.textContent).not.toContain('内部');
+  await act(async () => view.dispatch({ selection: { anchor: 7 } }));
+  expect(host.querySelector('.prototype-comment')?.textContent).toContain('内部');
+});
+it('folds nested callouts without changing source and expands on caret entry', async () => {
+  const source = '> [!info]- 提示\n> 隐藏正文\n>\n> > [!tip]+ 子提示\n> > 子正文';
+  const view = await mount(source);
+  expect(host.querySelector('.cm-content')?.textContent).not.toContain('隐藏正文');
+  const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="展开提示块"]');
+  expect(toggle).not.toBeNull();
+  await act(async () => toggle!.click());
+  expect(host.querySelector('.cm-content')?.textContent).toContain('隐藏正文');
+  expect(view.state.doc.toString()).toBe(source + '\n\n末尾');
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('button[aria-label="折叠提示块"]')!.click(),
+  );
+  await act(async () => view.dispatch({ selection: { anchor: source.indexOf('隐藏正文') + 1 } }));
+  expect(host.querySelector('.cm-content')?.textContent).toContain('隐藏正文');
+});
+it('renders a live TOC and updates it after a heading change', async () => {
+  const view = await mount('[TOC]\n\n# 学习');
+  expect(host.querySelector('.note-toc a')?.textContent).toBe('学习');
+  await act(async () => view.dispatch({ changes: { from: 9, to: 11, insert: '复习' } }));
+  expect(host.querySelector('.note-toc a')?.textContent).toBe('复习');
+});
+it('copies prototype syntax as original Markdown and rendered HTML without hidden comments', async () => {
+  const body = '> [!info]- 标题\n> ==正文==\n\n%%内部注释%%';
+  const view = await mount(body);
+  await act(async () => view.dispatch({ selection: { anchor: 0, head: body.length } }));
+  const copy = selectedCopy(view)!;
+  expect(copy.markdown).toBe(body);
+  const rendered = document.createElement('div');
+  rendered.innerHTML = copy.html;
+  expect(rendered.querySelector('summary')?.textContent).toContain('标题');
+  expect(rendered.querySelector('mark')?.textContent).toBe('正文');
+  expect(rendered.textContent).not.toContain('内部注释');
 });

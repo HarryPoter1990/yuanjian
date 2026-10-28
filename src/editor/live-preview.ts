@@ -34,6 +34,7 @@ export interface PreviewConfig extends RenderOptions {
 export const previewConfig = Facet.define<PreviewConfig, PreviewConfig>({
   combine: (values) => values[0] ?? { mode: 'source' },
 });
+export const toggleNoteFold = StateEffect.define<{ from: number; collapsed: boolean }>();
 export interface MarkdownBlock {
   from: number;
   to: number;
@@ -51,15 +52,18 @@ const semanticKey = (tokens: MarkdownBlock['tokens']) =>
     tokens.map((item) => [
       item.type,
       item.attrs,
+      item.type.startsWith('note_') ? item.meta : undefined,
       item.children?.map((child) => [child.type, child.attrs]),
     ]),
   );
 
 export function markdownBlocks(state: EditorState): MarkdownBlock[] {
+  const config = state.facet(previewConfig);
+  const documentParser = config.prototypeEditing ? createMarkdownParser(config) : parser;
   const source = state.doc.toString();
   const properties = inspectFrontmatter(source);
   const environment = {};
-  const parsed = parser.parse(
+  const parsed = documentParser.parse(
     properties
       ? source.slice(0, properties.end).replace(/[^\n]/g, ' ') + source.slice(properties.end)
       : source,
@@ -426,12 +430,17 @@ class PreviewWidget extends WidgetType {
   }
 }
 
-function buildDecorations(state: EditorState, blocks: MarkdownBlock[], metadataExpanded: boolean) {
+function buildDecorations(
+  state: EditorState,
+  blocks: MarkdownBlock[],
+  metadataExpanded: boolean,
+  folds: Map<number, boolean>,
+) {
   const config = state.facet(previewConfig);
   const ranges: Range<Decoration>[] = [];
   const wrappers: Range<BlockWrapper>[] = [];
   if (config.prototypeEditing && config.mode === 'live')
-    ranges.push(...prototypeTextDecorations(state, blocks));
+    ranges.push(...prototypeTextDecorations(state, blocks, folds));
   if (config.mode === 'live')
     for (const block of blocks) {
       if (block.from >= block.to) continue;
@@ -590,17 +599,26 @@ export const livePreviewField = StateField.define<{
   decorations: DecorationSet;
   wrappers: RangeSet<BlockWrapper>;
   metadataExpanded: boolean;
+  folds: Map<number, boolean>;
 }>({
   create(state) {
     const blocks = state.facet(previewConfig).mode === 'live' ? markdownBlocks(state) : [];
-    return { blocks, metadataExpanded: false, ...buildDecorations(state, blocks, false) };
+    const folds = new Map<number, boolean>();
+    return {
+      blocks,
+      folds,
+      metadataExpanded: false,
+      ...buildDecorations(state, blocks, false, folds),
+    };
   },
   update(value, transaction) {
     if (
       !transaction.docChanged &&
       !transaction.selection &&
       !transaction.reconfigured &&
-      !transaction.effects.some((effect) => effect.is(expandFrontmatter))
+      !transaction.effects.some(
+        (effect) => effect.is(expandFrontmatter) || effect.is(toggleNoteFold),
+      )
     )
       return value;
     const live = transaction.state.facet(previewConfig).mode === 'live';
@@ -608,11 +626,18 @@ export const livePreviewField = StateField.define<{
     const blocks = !live
       ? []
       : transaction.docChanged || enteringLive
-        ? ((transaction.docChanged && !enteringLive
+        ? ((transaction.docChanged &&
+          !enteringLive &&
+          !transaction.state.facet(previewConfig).prototypeEditing
             ? updatePlainParagraph(value.blocks, transaction)
             : null) ?? markdownBlocks(transaction.state))
         : value.blocks;
     let metadataExpanded = value.metadataExpanded;
+    const folds = new Map(
+      [...value.folds].map(([from, collapsed]) => [transaction.changes.mapPos(from), collapsed]),
+    );
+    for (const effect of transaction.effects)
+      if (effect.is(toggleNoteFold)) folds.set(effect.value.from, effect.value.collapsed);
     for (const effect of transaction.effects)
       if (effect.is(expandFrontmatter)) metadataExpanded = effect.value;
     const properties = blocks.find((block) => block.type === 'frontmatter');
@@ -626,8 +651,9 @@ export const livePreviewField = StateField.define<{
       metadataExpanded = false;
     return {
       blocks,
+      folds,
       metadataExpanded,
-      ...buildDecorations(transaction.state, blocks, metadataExpanded),
+      ...buildDecorations(transaction.state, blocks, metadataExpanded, folds),
     };
   },
   provide: (field) => [

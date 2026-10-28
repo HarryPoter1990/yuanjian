@@ -3,15 +3,18 @@ import { markdownLanguage } from '@codemirror/lang-markdown';
 import type { EditorState, Range } from '@codemirror/state';
 import { createMarkdownParser, hydrateMarkdown, mathHtml, renderParsedMarkdown } from './renderer';
 import { inCode, isEscaped } from './completion';
-import { previewConfig, type MarkdownBlock } from './live-preview';
+import { previewConfig, toggleNoteFold, type MarkdownBlock } from './live-preview';
+import { calloutPresentation, noteCommentRanges, type NoteEnvironment } from './note-syntax';
 
 export const textBlock = (block: MarkdownBlock) =>
+  !/^\s*\[toc\]\s*$/i.test(block.source) &&
   [
     'paragraph_open',
     'heading_open',
     'bullet_list_open',
     'ordered_list_open',
     'blockquote_open',
+    'note_callout_open',
   ].includes(block.type);
 
 class Prefix extends WidgetType {
@@ -119,6 +122,37 @@ class InlinePreview extends WidgetType {
     return root;
   }
 }
+class CalloutToggle extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly collapsed: boolean,
+  ) {
+    super();
+  }
+  eq(other: CalloutToggle) {
+    return this.from === other.from && this.collapsed === other.collapsed;
+  }
+  toDOM(view: EditorView) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'prototype-callout-toggle';
+    button.textContent = this.collapsed ? '▸' : '▾';
+    button.setAttribute('aria-label', this.collapsed ? '展开提示块' : '折叠提示块');
+    button.setAttribute('aria-expanded', String(!this.collapsed));
+    button.addEventListener('mousedown', (event) => event.preventDefault());
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      view.dispatch({
+        effects: toggleNoteFold.of({ from: this.from, collapsed: !this.collapsed }),
+      });
+    });
+    return button;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
 
 export function prototypeMathRanges(state: EditorState) {
   const source = state.doc.toString(),
@@ -136,6 +170,7 @@ export function prototypeMathRanges(state: EditorState) {
 export function prototypeTextDecorations(
   state: EditorState,
   blocks: MarkdownBlock[],
+  folds = new Map<number, boolean>(),
 ): Range<Decoration>[] {
   const source = state.doc.toString();
   const config = state.facet(previewConfig);
@@ -156,6 +191,118 @@ export function prototypeTextDecorations(
     hidden.push({ from, to });
     ranges.push(Decoration.replace(widget ? { widget } : {}).range(from, to));
   };
+  for (const range of noteCommentRanges(source)) {
+    if (active(range.from, range.to))
+      ranges.push(Decoration.mark({ class: 'prototype-comment' }).range(range.from, range.to));
+    else hide(range.from, range.to);
+  }
+  for (const block of blocks)
+    for (const token of block.tokens) {
+      if (token.type !== 'note_callout_open' || !token.map) continue;
+      const first = state.doc.line(token.map[0] + 1),
+        last = state.doc.line(Math.min(state.doc.lines, token.map[1]));
+      const bodyFrom = Math.min(source.length, first.to + 1);
+      const collapsed =
+        Boolean(token.meta.fold) &&
+        (folds.get(first.from) ?? token.meta.fold === '-') &&
+        !active(bodyFrom, last.to);
+      for (let n = first.number; n <= last.number; n++)
+        ranges.push(
+          Decoration.line({
+            class: `prototype-callout-line note-callout-${token.meta.tone}${n === first.number ? ' prototype-callout-heading' : ''}`,
+          }).range(state.doc.line(n).from),
+        );
+      const marker = /\[![\w-]+\][+-]?(?:[ \t]+)?/.exec(first.text);
+      if (marker) {
+        const from = first.from + marker.index;
+        if (token.meta.fold)
+          ranges.push(
+            Decoration.widget({ side: -1, widget: new CalloutToggle(first.from, collapsed) }).range(
+              from,
+            ),
+          );
+        if (!active(first.from, first.to))
+          hide(
+            from,
+            first.to,
+            new InlinePreview(
+              `<span class="note-callout-title">${parser.utils.escapeHtml(calloutPresentation(token.meta.type).icon)} ${parser.renderInline(token.meta.title)}</span>`,
+              from,
+              first.to,
+            ),
+          );
+      }
+      if (collapsed && first.to < last.to) hide(first.to, last.to);
+    }
+  for (const block of blocks)
+    for (const token of block.tokens) {
+      if (!textBlock(block)) continue;
+      const positions: number[] | undefined = token.meta?.notePositions;
+      const htmlStack: { tag: string; from: number; contentFrom: number }[] = [];
+      for (const child of token.children ?? []) {
+        const relative = child.meta?.sourceRange;
+        if (!relative || !positions) continue;
+        const from = positions[relative.from],
+          to = positions[relative.to - 1] + 1;
+        if (from === undefined || from < 0 || !Number.isFinite(to) || to <= from) continue;
+        const css = (
+          {
+            note_mark_open: 'prototype-highlight',
+            note_sub_open: 'prototype-sub',
+            note_sup_open: 'prototype-sup',
+          } as Record<string, string>
+        )[child.type];
+        if (css) {
+          ranges.push(Decoration.mark({ class: css }).range(from, to));
+          if (!active(from, to)) {
+            hide(from, positions[relative.contentFrom]);
+            hide(positions[relative.contentTo], to);
+          }
+        } else if (
+          child.type === 'html_inline' &&
+          /^<\/?(?:u|sub|sup|mark|br)>$/.test(child.content)
+        ) {
+          if (child.content === '<br>') {
+            if (!active(from, to)) hide(from, to, new InlinePreview('<br>', from, to));
+          } else if (!child.content.startsWith('</'))
+            htmlStack.push({ tag: child.content.slice(1, -1), from, contentFrom: to });
+          else {
+            const open = htmlStack.pop();
+            if (open && open.tag === child.content.slice(2, -1)) {
+              ranges.push(
+                Decoration.mark({
+                  class: `prototype-${({ mark: 'highlight', u: 'underline' } as Record<string, string>)[open.tag] ?? open.tag}`,
+                }).range(open.from, to),
+              );
+              if (!active(open.from, to)) {
+                hide(open.from, open.contentFrom);
+                hide(from, to);
+              }
+            }
+          }
+        } else if (
+          child.type === 'image' &&
+          source.slice(from, from + 3) === '![[' &&
+          !active(from, to)
+        )
+          hide(
+            from,
+            to,
+            new InlinePreview(renderParsedMarkdown([child], config, block.environment), from, to),
+          );
+        else if (child.type === 'note_embed' && !active(from, to))
+          hide(
+            from,
+            to,
+            new InlinePreview(renderParsedMarkdown([child], config, block.environment), from, to),
+          );
+      }
+    }
+  for (const block of (blocks[0]?.environment as NoteEnvironment | undefined)?.noteBlocks ?? []) {
+    const line = state.doc.line(Math.min(state.doc.lines, block.to));
+    const marker = /[ \t]*\^[A-Za-z0-9-]+[ \t]*$/.exec(line.text);
+    if (marker && !active(line.from, line.to)) hide(line.from + marker.index, line.to);
+  }
   const tree = markdownLanguage.parser.parse(state.doc.toString());
   const linkRanges: { from: number; to: number }[] = [];
   tree.iterate({
