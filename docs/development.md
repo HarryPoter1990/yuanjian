@@ -23,7 +23,9 @@ npm run test:headless
 npm run build
 ```
 
-`npm run verify` 按顺序运行以上三项检查。`npm run package` 通过检查后，在 `release/` 中生成 Windows x64 安装包。
+`npm run verify` 按顺序运行以上三项检查。`npm run package` 还会运行 `verify:editor-themes`，通过后在 `release/` 中生成 Windows x64 安装包。
+
+`npm run verify:editor-themes` 需要 Edge，使用生成的中文列表与行内代码，检查八套配色的明暗版、有无壁纸共 32 个组合，覆盖即时排版、进入编辑、阅读、源码对照及注释，要求文字对比度至少 4.5:1，点选、输入和撤销后原文一致。结果保存在 `artifacts/inline-code-2026-10-28/matrix`。它是实际浏览器样式检查，不能用单元测试通过替代。
 
 `npm test` 和 `npm run test:e2e` 包含 Electron 窗口测试。专项界面检查命令见 `package.json`；部分脚本需要 Edge，或需要先执行 `npm run build`。
 

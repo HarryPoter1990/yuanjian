@@ -335,7 +335,8 @@
   font-family: var(--code-font, 'JetBrains Mono', monospace);
   font-size: 0.87em;
   padding: 0.1em 0.35em;
-  background: #8882;
+  background: var(--surface, #efefec);
+  color: var(--foreground, inherit);
   border-radius: 4px;
 }
 .code-container {
@@ -698,7 +699,8 @@ details:not([open]) > summary.code-caption .code-fold-icon {
 }
 .prototype-inline-code {
   font-family: var(--code-font, monospace);
-  background: var(--panel, #efefec);
+  background: var(--surface, #efefec);
+  color: var(--foreground, inherit);
   border-radius: 3px;
 }
 .prototype-link {
@@ -709,12 +711,12 @@ details:not([open]) > summary.code-caption .code-fold-icon {
 .markdown-editor .prototype-quote-line {
   border-left: 2px solid var(--border, #d0cec9);
   padding-left: 12px;
-  color: var(--text-muted, inherit);
+  color: inherit;
 }
 .prototype-list-prefix {
   display: inline-block;
   min-width: 1.4em;
-  color: var(--text-muted, #777);
+  color: var(--muted, #777);
 }
 .prototype-list-prefix input {
   width: 14px;
@@ -742,8 +744,8 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   text-decoration: underline;
 }
 .prototype-comment {
-  color: var(--text-muted, #777);
-  background: var(--panel, #eee);
+  color: var(--foreground, inherit);
+  background: var(--surface, #eee);
 }
 .prototype-inline-preview img {
   max-width: 100%;

@@ -5,6 +5,7 @@ import App from '../../src/App';
 import { defaultSettings } from '../../src/shared/defaults';
 import { parseNote } from '../../src/shared/markdown';
 import { resolveFixtureAsset } from '../../src/editor/prototype-fixtures';
+import { inlineCodeSample } from './inline-code-sample';
 import '../../src/styles/app.css';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/noto-sans-sc';
@@ -14,8 +15,11 @@ const directory = 'D:/generated-note-integration';
 const rootPath = `${directory}/root.md`,
   childPath = `${directory}/sub/child.md`,
   otherPath = `${directory}/sub/other.md`;
-const source =
-  '# 工作区笔记\n\n[TOC]\n\n普通正文与 **加粗文字**，还有 [示例网站](https://example.com)。\n\n> [!info] 学习提示\n> ==保留重点==，H~2~O 与 x^2^。\n\n> [!warning]- 可折叠提示\n> 这里是折叠内容。\n\n## 定义\n\n接口定义这一段。 ^home\n\n[[#^home|回到定义]]，也可查看 [[sub/child.md#^definition|子笔记]]。\n\n![[sub/child.md#定义]]\n\n![[sub/other.md]]\n\n公式 $x+1$，解释见脚注[^注]。\n\n[^注]: 补充解释。\n\n%%隐藏备注，不应导出%%\n\n<details>\n<summary>课后补充</summary>\n\n补充内容。\n\n</details>\n\n| 名称 | 说明 |\n| --- | --- |\n| 第一项 | 可编辑 |\n\n```js\nconst value = 1;\n```\n\n继续写作。';
+const parameters = new URLSearchParams(location.search);
+const inlineRegression = parameters.get('visual') === 'inline-code';
+const source = inlineRegression
+  ? inlineCodeSample
+  : '# 工作区笔记\n\n[TOC]\n\n普通正文与 **加粗文字**，还有 [示例网站](https://example.com)。\n\n> [!info] 学习提示\n> ==保留重点==，H~2~O 与 x^2^。\n\n> [!warning]- 可折叠提示\n> 这里是折叠内容。\n\n## 定义\n\n接口定义这一段。 ^home\n\n[[#^home|回到定义]]，也可查看 [[sub/child.md#^definition|子笔记]]。\n\n![[sub/child.md#定义]]\n\n![[sub/other.md]]\n\n公式 $x+1$，解释见脚注[^注]。\n\n[^注]: 补充解释。\n\n%%隐藏备注，不应导出%%\n\n<details>\n<summary>课后补充</summary>\n\n补充内容。\n\n</details>\n\n| 名称 | 说明 |\n| --- | --- |\n| 第一项 | 可编辑 |\n\n```js\nconst value = 1;\n```\n\n继续写作。';
 const note = (path, title, content) => ({
   id: path,
   path,
@@ -43,6 +47,21 @@ const openChild = {
   dirty: true,
 };
 const settings = { ...structuredClone(defaultSettings), autoSave: false, roots: [directory] };
+if (inlineRegression) {
+  settings.appearance.mode = parameters.get('mode') || 'dark';
+  settings.appearance.palette = parameters.get('palette') || 'neutral';
+  settings.appearance.paletteByMode = {
+    light: settings.appearance.palette,
+    dark: settings.appearance.palette,
+  };
+  if (parameters.get('wallpaper') === 'true') {
+    settings.appearance.wallpaper = 'generated-wallpaper';
+    settings.appearance.wallpaperOpacity = 0.9;
+    settings.appearance.editorOpacity = 0.65;
+  }
+  settings.leftVisible = false;
+  settings.rightVisible = false;
+}
 let mode = { mode: 'full', pinned: false },
   filesChanged;
 const image = resolveFixtureAsset('学习流程.png');
