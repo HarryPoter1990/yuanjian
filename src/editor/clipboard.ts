@@ -23,6 +23,13 @@ export function convertRichText(
       strongDelimiter: '**',
     });
     turndown.use(gfm);
+    turndown.addRule('noteInlineFormatting', {
+      filter: ['mark', 'sub', 'sup', 'u'],
+      replacement: (content, node) => {
+        const tag = node.nodeName.toLowerCase();
+        return `<${tag}>${content}</${tag}>`;
+      },
+    });
     turndown.addRule('footnoteRef', {
       filter: (element) => element.hasAttribute('data-footnote-ref'),
       replacement: (_content, node) => `[^${(node as Element).getAttribute('data-footnote-ref')}]`,

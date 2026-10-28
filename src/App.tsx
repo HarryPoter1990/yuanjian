@@ -99,7 +99,7 @@ import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { syntaxColors } from './shared/appearance';
 import { useWorkspace } from './ui/useWorkspace';
 import { useNoteReferences } from './ui/useNoteReferences';
-import { referencePath } from './ui/noteReferences';
+import { notePathKey, referencePath } from './ui/noteReferences';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
 import { frameValue, panelWidth, visiblePanels } from './ui/layout';
@@ -925,8 +925,13 @@ export default function App() {
     );
     return result.reference;
   }
-  async function followLink(target: string) {
-    if (active && target.startsWith('#')) {
+  async function followLink(target: string, fromPath?: string) {
+    const origin = fromPath ?? active?.path;
+    const fromCurrent =
+      active && (!fromPath || notePathKey(fromPath) === notePathKey(referencePath(active)));
+    if (fromCurrent && target.startsWith(referencePath(active) + '#'))
+      target = target.slice(referencePath(active).length);
+    if (fromCurrent && target.startsWith('#')) {
       const position = noteLinkPosition(active.content, target);
       if ('error' in position) notify(position.error, true);
       else activateNote(active.id, positionFor(), position.line);
@@ -936,13 +941,13 @@ export default function App() {
       await run('打开链接', () => window.notes.openExternal(target));
       return;
     }
-    if (!active?.path) {
+    if (!active || !origin || origin.startsWith('draft:')) {
       notify('请先保存笔记，再打开相对链接。');
       return;
     }
     const leaving = positionFor();
     await run('打开链接', async () => {
-      const resolved = await window.notes.resolveLink(active.path!, target);
+      const resolved = await window.notes.resolveLink(origin, target);
       if (resolved.external) {
         await window.notes.openExternal(resolved.external);
         return;
@@ -956,14 +961,22 @@ export default function App() {
               return value;
             }
           };
-          const savedLink = extractLinks(active.baseContent).some(
+          const sourceTab = tabs.find(
+            (tab) => tab.path && notePathKey(tab.path) === notePathKey(origin),
+          );
+          const savedLink = extractLinks(sourceTab?.baseContent ?? '').some(
             (link) => !link.image && readable(link.target) === readable(target),
           );
-          if (active.dirty && !savedLink) {
-            notify('这是尚未保存的新链接，请先保存笔记再打开。', true);
+          if (sourceTab?.dirty && !savedLink) {
+            notify(
+              sourceTab.id === active.id
+                ? '这是尚未保存的新链接，请先保存笔记再打开。'
+                : '这是尚未保存的新链接，请先保存源笔记再打开。',
+              true,
+            );
             return;
           }
-          const note = await window.notes.openLinkedFile(active.path!, target);
+          const note = await window.notes.openLinkedFile(origin, target);
           if (note) {
             const targetHeading = resolved.heading || target.split('#')[1]?.split('|')[0];
             const position = targetHeading
@@ -1388,7 +1401,7 @@ export default function App() {
           const foreground = exportTheme ? colors.foreground : '#252b2a';
           const background = exportTheme ? colors.background : '#fff';
           const accent = exportTheme ? colors.accent : '#3b756b';
-          const style = `${exportCanvasStyle(background, foreground)}body{--foreground:${foreground};--background:${background};--accent:${accent};font-family:"${settings.appearance.bodyFont.replace(/["<>]/g, '')}",sans-serif;color:${foreground};background:${background};margin:0;line-height:${settings.appearance.lineHeight}}article.markdown-rendered{position:relative;max-width:${settings.appearance.contentWidth}px;margin:40px auto;padding:0 28px;font-size:${settings.appearance.fontSize}px;background:${exportWallpaper ? `color-mix(in srgb,${background} ${settings.appearance.editorOpacity * 100}%,transparent)` : background}}article img{max-width:100%}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd3cf;padding:8px}pre{white-space:pre-wrap;background:${exportTheme ? 'color-mix(in srgb,var(--foreground) 5%,var(--background))' : '#f4f5f2'};padding:16px;border-radius:6px}blockquote{border-left:3px solid ${accent};padding-left:16px}svg{max-width:100%}.export-wallpaper{position:fixed;inset:0;z-index:-1;width:100%;height:100%;object-fit:${settings.appearance.wallpaperFit === 'contain' ? 'contain' : 'cover'};object-position:${settings.appearance.wallpaperPosition};opacity:${settings.appearance.wallpaperOpacity};filter:blur(${settings.appearance.wallpaperBlur}px) brightness(${settings.appearance.wallpaperBrightness})}@media print{article.markdown-rendered{margin:0;max-width:none}pre,table,img{break-inside:avoid}*{print-color-adjust:exact;-webkit-print-color-adjust:exact}}`;
+          const style = `${exportCanvasStyle(background, foreground, { surface: exportTheme ? colors.surface : undefined, border: exportTheme ? colors.border : undefined, muted: exportTheme ? colors.muted : undefined, codeTheme: settings.appearance.codeTheme, dark: exportTheme && colors.dark })}body{--foreground:${foreground};--background:${background};--accent:${accent};font-family:"${settings.appearance.bodyFont.replace(/["<>]/g, '')}",sans-serif;color:${foreground};background:${background};margin:0;line-height:${settings.appearance.lineHeight}}article.markdown-rendered{position:relative;max-width:${settings.appearance.contentWidth}px;margin:40px auto;padding:0 28px;font-size:${settings.appearance.fontSize}px;background:${exportWallpaper ? `color-mix(in srgb,${background} ${settings.appearance.editorOpacity * 100}%,transparent)` : background}}article img{max-width:100%}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd3cf;padding:8px}pre{white-space:pre-wrap;background:${exportTheme ? 'color-mix(in srgb,var(--foreground) 5%,var(--background))' : '#f4f5f2'};padding:16px;border-radius:6px}blockquote{border-left:3px solid ${accent};padding-left:16px}svg{max-width:100%}.export-wallpaper{position:fixed;inset:0;z-index:-1;width:100%;height:100%;object-fit:${settings.appearance.wallpaperFit === 'contain' ? 'contain' : 'cover'};object-position:${settings.appearance.wallpaperPosition};opacity:${settings.appearance.wallpaperOpacity};filter:blur(${settings.appearance.wallpaperBlur}px) brightness(${settings.appearance.wallpaperBrightness})}@media print{article.markdown-rendered{margin:0;max-width:none}pre,table,img{break-inside:avoid}*{print-color-adjust:exact;-webkit-print-color-adjust:exact}}`;
           const title = active.title.replace(/[<>&"]/g, '');
           const wallpaper =
             exportWallpaper && wallpaperUrl
@@ -2342,7 +2355,7 @@ export default function App() {
                         }
                         onCursor={(cursor) => updateTab(active.id, { cursor })}
                         onScroll={(scrollTop) => updateTab(active.id, { scrollTop })}
-                        onLink={(target) => void followLink(target)}
+                        onLink={(target, fromPath) => void followLink(target, fromPath)}
                         onImage={image}
                         onError={error}
                       />
@@ -2365,7 +2378,7 @@ export default function App() {
                           onPosition={(position) =>
                             readingPositions.current.set(active.id, position)
                           }
-                          onLink={(target) => void followLink(target)}
+                          onLink={(target, fromPath) => void followLink(target, fromPath)}
                           onError={error}
                         />
                       </div>
@@ -2989,6 +3002,15 @@ export default function App() {
             <article
               className="reading-preview markdown-rendered"
               style={{
+                ...syntaxColors(settings.appearance.codeTheme, exportTheme && dark),
+                ...{
+                  '--background': exportTheme ? background : '#fff',
+                  '--foreground': exportTheme ? foreground : '#252b2a',
+                  '--surface': exportTheme ? surface : '#efefec',
+                  '--border': exportTheme ? border : '#ccd3cf',
+                  '--muted': exportTheme ? muted : '#666',
+                  '--accent': exportTheme ? accent : '#3b756b',
+                },
                 backgroundColor: exportTheme ? background : '#fff',
                 color: exportTheme ? foreground : '#252b2a',
               }}
@@ -2999,7 +3021,7 @@ export default function App() {
                 if (href) {
                   event.preventDefault();
                   setPanel(null);
-                  void followLink(href);
+                  void followLink(target?.dataset.noteLink ?? href, target?.dataset.noteFrom);
                 }
               }}
             />

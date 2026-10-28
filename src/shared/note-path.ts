@@ -26,3 +26,10 @@ export const clipboardFileReference = (reference: string) =>
   /^(?:https?|data|blob|note-asset|file):/i.test(reference)
     ? reference
     : reference.split('/').map(encodeURIComponent).join('/').replace(/^\/\//, '%2F%2F');
+
+export function clipboardNoteReference(reference: string, fromPath: string): string {
+  if (/^[a-z][a-z\d+.-]*:/i.test(reference) && !/^[a-z]:[\\/]/i.test(reference)) return reference;
+  const [file, fragment] = reference.split('#', 2);
+  const absolute = file ? absoluteNoteReference(file, fromPath) : fromPath;
+  return clipboardFileReference(absolute) + (fragment === undefined ? '' : '#' + fragment);
+}

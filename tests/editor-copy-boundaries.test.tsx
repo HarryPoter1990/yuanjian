@@ -4,8 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MarkdownEditor } from '../src/editor/MarkdownEditor';
 import { selectedCopy } from '../src/editor/clipboard-output';
-import type { MarkdownEditorHandle } from '../src/editor/types';
+import type { MarkdownEditorHandle, MarkdownEditorProps } from '../src/editor/types';
 import { defaultSettings } from '../src/shared/defaults';
+import { renderMarkdown } from '../src/editor/renderer';
 let host: HTMLDivElement, root: Root;
 const reference = createRef<MarkdownEditorHandle>();
 beforeEach(() => {
@@ -25,7 +26,10 @@ afterEach(async () => {
   host.remove();
   vi.unstubAllGlobals();
 });
-async function mount(value = '# 顶\n\n**加粗文字**\n\n$x+1$\n\n尾段') {
+async function mount(
+  value = '# 顶\n\n**加粗文字**\n\n$x+1$\n\n尾段',
+  extra: Partial<MarkdownEditorProps> = {},
+) {
   await act(async () =>
     root.render(
       <MarkdownEditor
@@ -35,6 +39,7 @@ async function mount(value = '# 顶\n\n**加粗文字**\n\n$x+1$\n\n尾段') {
         mode="live"
         settings={defaultSettings}
         onChange={() => {}}
+        {...extra}
       />,
     ),
   );
@@ -80,4 +85,48 @@ it('preserves all enclosing inline formats for a selection inside a formatted li
   html.innerHTML = content.html;
   expect(html.querySelector('strong em a, em strong a')?.textContent).toBe('嵌套文字');
   expect(content.markdown).toContain('https://example.org');
+});
+it.each([
+  ['**加粗文字**', '.prototype-strong'],
+  ['`users`', '.prototype-inline-code'],
+  ['==重点==', '.prototype-highlight'],
+  ['H~2~O', '.prototype-sub'],
+  ['[名字](target.md)', '.prototype-link'],
+  ['<u>下划线</u>', '.prototype-underline'],
+  ['<mark>重点</mark>', '.prototype-highlight'],
+])('copies visible source markers once when editing %s', async (format, selector) => {
+  const source = '# 顶\n\n' + format + '\n\n尾段';
+  const view = await mount(source);
+  const from = source.indexOf(format) + (format.startsWith('H') ? 2 : 1);
+  await act(async () => view.dispatch({ selection: { anchor: from } }));
+  const element = host.querySelector(selector)!;
+  textSelection(element);
+  const visible = document.getSelection()!.toString();
+  const expected = format.startsWith('H') ? '~2~' : format;
+  expect(visible).toBe(expected);
+  expect(selectedCopy(view)?.markdown).toBe(expected);
+  expect(view.state.doc.toString()).toBe(source);
+});
+it('keeps the source directory when copying a link inside an embedded note', async () => {
+  const view = await mount('# 顶\n\n![[sub/child.md]]\n\n尾段', {
+    notePath: 'D:/generated/root.md',
+    resolveNote: () => ({ path: 'D:/generated/sub/child.md', source: '[后续参考](other.md#标题)' }),
+  });
+  textSelection(host.querySelector('.note-embed-body a')!);
+  expect(decodeURIComponent(selectedCopy(view)?.markdown ?? '')).toContain(
+    'D:/generated/sub/other.md#标题',
+  );
+});
+it.each([
+  ['==重点==', '.prototype-highlight', 'mark'],
+  ['H~2~O', '.prototype-sub', 'sub'],
+  ['x^2^', '.prototype-sup', 'sup'],
+  ['<u>下划线</u>', '.prototype-underline', 'u'],
+])('retains inactive inline semantics when copying %s', async (source, selector, tag) => {
+  const view = await mount('# 顶\n\n' + source + '\n\n尾段');
+  textSelection(host.querySelector(selector)!);
+  const copied = selectedCopy(view)!;
+  const result = document.createElement('div');
+  result.innerHTML = renderMarkdown(copied.markdown);
+  expect(result.querySelector(tag)?.textContent).toBe(document.getSelection()!.toString());
 });

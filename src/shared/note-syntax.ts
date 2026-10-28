@@ -340,12 +340,18 @@ export function installNoteSyntax(
     while (environment.noteUsedIds?.some((id) => id.startsWith(prefix))) prefix = 'e-' + prefix;
     body = body
       .replace(/<img(?![^>]*\bdata-asset-from=)/g, `<img data-asset-from="${escape(result.path)}"`)
-      .replace(/\bid="([^"]*)"/g, (_all, id: string) => `id="${prefix}${id}"`)
-      .replace(
-        /href="#([^"]*)"/g,
-        (_all, id: string) =>
-          `href="#${prefix}${id}" data-note-link="${escape(result.path)}#${id}"`,
-      );
+      .replace(/(?<![-\w:])id="([^"]*)"/g, (_all, id: string) => `id="${prefix}${id}"`)
+      .replace(/<a\b([^>]*)>/g, (_all, attributes: string) => {
+        const local = /(?:^|\s)href="#([^"]*)"/.exec(attributes);
+        if (local) {
+          attributes = attributes.replace(/href="#([^"]*)"/, `href="#${prefix}$1"`);
+          if (!/\bdata-note-link=/.test(attributes))
+            attributes += ` data-note-link="${escape(result.path)}#${local[1]}"`;
+        }
+        if (!/\bdata-note-from=/.test(attributes))
+          attributes += ` data-note-from="${escape(result.path)}"`;
+        return `<a${attributes}>`;
+      });
     const original = result.path + (fragment ? `#${fragment}` : '');
     return `<section class="note-embed" data-note-target="${escape(target)}"><a class="note-embed-open" href="${escape(target)}" data-note-link="${escape(original)}">打开原笔记 · ${escape(target)}</a><div class="note-embed-body">${body}</div></section>`;
   };

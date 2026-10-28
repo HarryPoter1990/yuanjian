@@ -136,9 +136,10 @@ class InlinePreview extends WidgetType {
       const link = (event.target instanceof Element ? event.target : null)?.closest('a');
       event.preventDefault();
       if (link && (event.ctrlKey || event.metaKey)) {
-        view.state
-          .facet(previewConfig)
-          .onLink?.(link.dataset.noteLink ?? link.getAttribute('href') ?? '');
+        const target = link.dataset.noteLink ?? link.getAttribute('href') ?? '',
+          callback = view.state.facet(previewConfig).onLink;
+        if (link.dataset.noteFrom) callback?.(target, link.dataset.noteFrom);
+        else callback?.(target);
         return;
       }
       view.dispatch({
@@ -305,7 +306,12 @@ export function prototypeTextDecorations(
           } as Record<string, string>
         )[child.type];
         if (css) {
-          ranges.push(Decoration.mark({ class: css }).range(from, to));
+          ranges.push(
+            Decoration.mark({
+              class: css,
+              attributes: { 'data-source-visible': String(active(from, to)) },
+            }).range(from, to),
+          );
           if (!active(from, to)) {
             hide(from, positions[relative.contentFrom]);
             hide(positions[relative.contentTo], to);
@@ -324,6 +330,7 @@ export function prototypeTextDecorations(
               ranges.push(
                 Decoration.mark({
                   class: `prototype-${({ mark: 'highlight', u: 'underline' } as Record<string, string>)[open.tag] ?? open.tag}`,
+                  attributes: { 'data-source-visible': String(active(open.from, to)) },
                 }).range(open.from, to),
               );
               if (!active(open.from, to)) {
@@ -440,11 +447,10 @@ export function prototypeTextDecorations(
       ranges.push(
         Decoration.mark({
           class: cls,
-          ...(destination
-            ? {
-                attributes: linkAttributes(destination),
-              }
-            : {}),
+          attributes: {
+            ...(destination ? linkAttributes(destination) : {}),
+            'data-source-visible': String(active(node.from, node.to)),
+          },
         }).range(node.from, node.to),
       );
       if (!active(node.from, node.to)) {
@@ -504,7 +510,7 @@ export function prototypeTextDecorations(
     ranges.push(
       Decoration.mark({
         class: 'prototype-link',
-        attributes: linkAttributes(target),
+        attributes: { ...linkAttributes(target), 'data-source-visible': String(active(from, to)) },
       }).range(from, to),
     );
     if (!active(from, to)) {
@@ -587,6 +593,19 @@ export function prototypeTextDecorations(
 }
 
 export const prototypeLinks = EditorView.domEventHandlers({
+  mousedown(event) {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.button === 0 &&
+      event.target instanceof Element &&
+      event.target.closest('[data-link-target]')
+    ) {
+      // Keep the rendered link in place until click, instead of revealing markers under the pointer.
+      event.preventDefault();
+      return true;
+    }
+    return false;
+  },
   keydown(event, view) {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       const head = view.state.selection.main.head;

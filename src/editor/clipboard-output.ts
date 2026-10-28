@@ -6,7 +6,11 @@ import { previewSourcePosition } from './preview-source-position';
 import { inlineClipboardImages } from './clipboard-images';
 import { previewConfig } from './live-preview';
 import type { RenderOptions } from './types';
-import { absoluteNoteReference, clipboardFileReference } from '../shared/note-path';
+import {
+  absoluteNoteReference,
+  clipboardFileReference,
+  clipboardNoteReference,
+} from '../shared/note-path';
 
 export interface CopyContent {
   markdown: string;
@@ -76,9 +80,9 @@ function covers(range: Range, node: Node): boolean {
 }
 
 const inlineFormats =
-  'strong,b,em,i,a,code,s,del,mark,sub,sup,.prototype-strong,.prototype-emphasis,.prototype-link,.prototype-inline-code,.prototype-strike,.prototype-highlight,.prototype-sub,.prototype-sup';
+  'strong,b,em,i,a,code,s,del,mark,sub,sup,u,.prototype-strong,.prototype-emphasis,.prototype-link,.prototype-inline-code,.prototype-strike,.prototype-highlight,.prototype-sub,.prototype-sup,.prototype-underline';
 function semanticWrapper(element: Element, child: Node): Node | null {
-  if (element.matches('strong,b,em,i,a,code,s,del,mark,sub,sup')) {
+  if (element.matches('strong,b,em,i,a,code,s,del,mark,sub,sup,u')) {
     const wrapper = element.cloneNode(false);
     wrapper.appendChild(child);
     return wrapper;
@@ -92,6 +96,7 @@ function semanticWrapper(element: Element, child: Node): Node | null {
     ['prototype-highlight', 'mark'],
     ['prototype-sub', 'sub'],
     ['prototype-sup', 'sup'],
+    ['prototype-underline', 'u'],
   ].filter(([name]) => element.classList.contains(name));
   if (!tags.length) return null;
   let node = child;
@@ -103,13 +108,23 @@ function semanticWrapper(element: Element, child: Node): Node | null {
   }
   return node;
 }
-function cleanHTML(root: HTMLElement): string {
+function cleanHTML(root: HTMLElement, sourcePath?: string): string {
   for (const element of root.querySelectorAll('[class*="prototype-"]')) {
     const content = document.createDocumentFragment();
     if (!element.matches(inlineFormats)) continue;
     content.append(...element.childNodes);
     const wrapper = semanticWrapper(element, content);
     if (wrapper) element.replaceWith(wrapper);
+  }
+  for (const link of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+    const origin = link.dataset.noteFrom ?? sourcePath,
+      target = link.dataset.noteLink ?? link.getAttribute('href')!;
+    if (
+      origin &&
+      !link.closest('[data-footnote-ref],[data-footnote-definition]') &&
+      (link.dataset.noteFrom || !target.startsWith('#'))
+    )
+      link.setAttribute('href', clipboardNoteReference(target, origin));
   }
   for (const image of root.querySelectorAll<HTMLImageElement>('img[data-asset-src]')) {
     if (!/^data:image\/(?:png|jpeg|gif|webp|avif);/i.test(image.getAttribute('src') ?? ''))
@@ -198,7 +213,7 @@ export function markdownCopy(markdown: string, options: RenderOptions = {}): Cop
   [...root.querySelectorAll('.katex,.katex-error')].forEach((formula, index) => {
     if (maths[index]) annotateFormula(formula, maths[index].latex, maths[index].display);
   });
-  return { markdown, html: cleanHTML(root) };
+  return { markdown, html: cleanHTML(root, options.notePath) };
 }
 
 function sourceOffset(view: EditorView, node: Node, offset: number): number | null {
@@ -247,6 +262,18 @@ export function selectedCopy(view: EditorView): CopyContent | null {
     }
     const from = sourceOffset(view, range.startContainer, range.startOffset),
       to = sourceOffset(view, range.endContainer, range.endOffset);
+    const sourceVisible =
+      elementOf(range.startContainer)?.closest('[data-source-visible="true"]') ||
+      elementOf(range.endContainer)?.closest('[data-source-visible="true"]');
+    if (sourceVisible && from !== null && to !== null && from !== to) {
+      const start = Math.min(from, to),
+        end = Math.max(from, to),
+        source = view.state.sliceDoc(start, end);
+      const current = view.state.selection.main;
+      // Selected source already contains its markers; converting its styled DOM wraps it twice.
+      if (source === range.toString() || (current.from === start && current.to === end))
+        return { ...copy(source), range: { from: start, to: end } };
+    }
     if (
       from !== null &&
       to !== null &&
@@ -307,7 +334,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
         if (original) annotateFormula(formula, original.latex, original.display);
       }
     });
-    const html = cleanHTML(root),
+    const html = cleanHTML(root, view.state.facet(previewConfig).notePath),
       result = convertRichText(html, selection.toString());
     return result.markdown
       ? {

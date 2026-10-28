@@ -244,7 +244,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               ? propsRef.current.resolveAssetAsync(reference, from)
               : propsRef.current.resolveAssetAsync(reference)
             : window.notes.assetUrl(reference, from ?? propsRef.current.notePath ?? undefined),
-        onLink: (target) => propsRef.current.onLink?.(target),
+        onLink: (target, fromPath) =>
+          fromPath
+            ? propsRef.current.onLink?.(target, fromPath)
+            : propsRef.current.onLink?.(target),
       });
     }
 

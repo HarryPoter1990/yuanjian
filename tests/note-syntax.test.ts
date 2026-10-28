@@ -118,6 +118,27 @@ it('retains canonical origins for nested original-note entries', () => {
     ),
   ).toEqual(['D:/generated/sub/child.md', 'D:/generated/sub/grand.md#标题']);
 });
+it('retains the deepest origin and canonical anchor through nested embeds', () => {
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown('![[sub/child.md]]', {
+    notePath: 'D:/generated/root.md',
+    resolveNote: (reference) =>
+      reference === 'sub/child.md'
+        ? { path: 'D:/generated/sub/child.md', source: '![[grand.md]]' }
+        : {
+            path: 'D:/generated/sub/grand.md',
+            source: '# 标题\n\n[返回](#标题) 与 [其他](other.md)',
+          },
+  });
+  const back = [...root.querySelectorAll<HTMLAnchorElement>('a')].find(
+    (a) => a.textContent === '返回',
+  )!;
+  expect(decodeURIComponent(back.dataset.noteLink!)).toBe('D:/generated/sub/grand.md#标题');
+  expect(back.dataset.noteFrom).toBe('D:/generated/sub/grand.md');
+  expect(
+    root.querySelector(`[id="${decodeURIComponent(back.getAttribute('href')!.slice(1))}"]`),
+  ).not.toBeNull();
+});
 it('keeps reading output consistent and expands all folded content for PDF', () => {
   const source =
     '> [!info]- 标题\n> ==正文==\n\n<details>\n<summary>补充</summary>\n\n内容\n\n</details>';

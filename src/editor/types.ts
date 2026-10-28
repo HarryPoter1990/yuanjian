@@ -53,7 +53,7 @@ export interface MarkdownEditorProps {
   onSessionSave?(session: EditorSession): void;
   onCursor?(position: number): void;
   onScroll?(top: number): void;
-  onLink?(target: string): void;
+  onLink?(target: string, fromPath?: string): void;
   onImage?(file: File): Promise<string | null>;
   resolveAssetAsync?(reference: string, from?: string): Promise<string>;
   onError?(message: string): void;

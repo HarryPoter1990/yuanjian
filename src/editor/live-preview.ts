@@ -29,7 +29,7 @@ export interface PreviewConfig extends RenderOptions {
   mode: 'live' | 'source';
   resolveAsset?: (path: string) => string;
   resolveAssetAsync?: (path: string, from?: string) => Promise<string>;
-  onLink?: (target: string) => void;
+  onLink?: (target: string, fromPath?: string) => void;
 }
 export const previewConfig = Facet.define<PreviewConfig, PreviewConfig>({
   combine: (values) => values[0] ?? { mode: 'source' },
@@ -450,7 +450,9 @@ class PreviewWidget extends WidgetType {
       const link = target?.closest('a');
       if (link && (event.detail === 0 || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
-        this.config.onLink?.(link.dataset.noteLink ?? link.getAttribute('href') ?? '');
+        const target = link.dataset.noteLink ?? link.getAttribute('href') ?? '';
+        if (link.dataset.noteFrom) this.config.onLink?.(target, link.dataset.noteFrom);
+        else this.config.onLink?.(target);
         return;
       }
       const selected = root.ownerDocument.getSelection();

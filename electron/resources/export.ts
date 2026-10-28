@@ -293,7 +293,7 @@ export class ExportManager {
       },
     );
     html = html.replace(
-      /\sdata-(?:asset-(?:src|from)|note-link|source-(?:from|to|line))\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+      /\sdata-(?:asset-(?:src|from)|note-(?:link|from)|source-(?:from|to|line|visible))\s*=\s*(?:"[^"]*"|'[^']*')/gi,
       '',
     );
     const styles = await this.styles(html);

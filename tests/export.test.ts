@@ -287,7 +287,7 @@ describe('standalone document and Markdown exports', () => {
     });
     const embedded = html.replace(
       '<img src="note-asset://local/picture">',
-      '<img data-asset-src="missing.png" data-asset-from="D:/private-note/child.md" src="data:image/png;base64,BwgJ"><a href="child.md" data-note-link="D:/private-note/child.md">原笔记</a>',
+      '<img data-asset-src="missing.png" data-asset-from="D:/private-note/child.md" src="data:image/png;base64,BwgJ"><a href="child.md" data-note-link="D:/private-note/child.md" data-note-from="D:/private-note/root.md">原笔记</a>',
     );
     await exporter.exportDocument({
       format: 'html',

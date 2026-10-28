@@ -29,7 +29,7 @@ export function DocumentPreview({
 }: {
   note: TabState;
   settings: Settings;
-  onLink(target: string): void;
+  onLink(target: string, fromPath?: string): void;
   onError(message: string): void;
   ref?: Ref<DocumentPreviewHandle>;
   initialPosition?: ReadingPosition;
@@ -247,7 +247,9 @@ export function DocumentPreview({
             return;
           }
         }
-        callbacks.current.onLink(link?.dataset.noteLink ?? href);
+        if (link?.dataset.noteFrom)
+          callbacks.current.onLink(link.dataset.noteLink ?? href, link.dataset.noteFrom);
+        else callbacks.current.onLink(link?.dataset.noteLink ?? href);
       }}
     />
   );
