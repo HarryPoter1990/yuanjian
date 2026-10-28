@@ -35,6 +35,7 @@ export interface EditorSession {
 }
 
 export interface MarkdownEditorProps {
+  prototypeEditing?: boolean;
   value: string;
   onChange(value: string): void;
   mode: 'live' | 'source';

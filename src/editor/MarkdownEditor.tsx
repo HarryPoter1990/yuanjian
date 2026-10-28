@@ -41,6 +41,7 @@ import {
   history,
   historyField,
   historyKeymap,
+  isolateHistory,
   indentWithTab,
   redo,
   undo,
@@ -71,6 +72,7 @@ import type {
 } from './types';
 import 'katex/dist/katex.min.css';
 import './editor.css';
+import { prototypeEnter, prototypeDollarBackspace, prototypeListIndent } from './prototype-commands';
 
 const codeHighlighting = HighlightStyle.define([
   { tag: [tags.keyword, tags.operatorKeyword], color: 'var(--syntax-keyword)' },
@@ -86,13 +88,14 @@ function replaceSelection(view: EditorView, text: string): void {
   view.focus();
 }
 
-function wrapSelection(view: EditorView, before: string, after = before): void {
+function wrapSelection(view: EditorView, before: string, after = before, separate = false): void {
   const selection = view.state.selection.main;
   const selected = view.state.sliceDoc(selection.from, selection.to);
   view.dispatch({
     changes: { from: selection.from, to: selection.to, insert: before + selected + after },
     selection: EditorSelection.range(selection.from + before.length, selection.to + before.length),
     userEvent: 'input.format',
+    ...(separate ? { annotations: isolateHistory.of('full') } : {}),
   });
   view.focus();
 }
@@ -456,23 +459,23 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return true;
       }
       if (name === 'link') {
-        wrapSelection(view, '[', '](链接地址)');
+        wrapSelection(view, '[', '](链接地址)', propsRef.current.prototypeEditing);
         return true;
       }
       if (name === 'heading') {
-        applyHeading(view, 2);
+        applyHeading(view, 2, propsRef.current.prototypeEditing);
         return true;
       }
       if (name === 'list' || name === 'task' || name === 'quote') {
-        toggleLineFormat(view, name);
+        toggleLineFormat(view, name, propsRef.current.prototypeEditing);
         return true;
       }
       if (name === 'code') {
-        wrapSelection(view, '\n```\n', '\n```\n');
+        wrapSelection(view, '\n```\n', '\n```\n', propsRef.current.prototypeEditing);
         return true;
       }
       if (name === 'math') {
-        wrapSelection(view, '$', '$');
+        wrapSelection(view, '$', '$', propsRef.current.prototypeEditing);
         return true;
       }
       if (name === 'table') {
@@ -492,7 +495,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
     const setHeading = (level: HeadingLevel): void => {
       const view = viewRef.current;
-      if (view) applyHeading(view, level);
+      if (view) applyHeading(view, level, propsRef.current.prototypeEditing);
     };
 
     useImperativeHandle(ref, () => ({
@@ -508,7 +511,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         await insertImages(view, files);
       },
       wrap: (before, after) => {
-        if (viewRef.current) wrapSelection(viewRef.current, before, after);
+        if (viewRef.current) wrapSelection(viewRef.current, before, after, propsRef.current.prototypeEditing);
       },
       command: runCommand,
       setHeading,
@@ -598,6 +601,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             compactSearch,
             highlightSelectionMatches(),
             keymap.of([
+              ...(propsRef.current.prototypeEditing ? [
+                { key: 'Enter', run: prototypeEnter },
+                { key: 'Backspace', run: prototypeDollarBackspace },
+                { key: 'Tab', run: (view: EditorView) => prototypeListIndent(view) },
+                { key: 'Shift-Tab', run: (view: EditorView) => prototypeListIndent(view, true) },
+              ] : []),
               {
                 key: 'Home',
                 run: (view) => codeLineBoundary(view, false),

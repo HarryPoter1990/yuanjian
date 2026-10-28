@@ -168,10 +168,11 @@ function inlineFormatSpec(
   };
 }
 
-function selectedBodyLines(view: EditorView) {
+function selectedBodyLines(view: EditorView, protectMath = false) {
   const source = view.state.doc.toString();
   const tree = markdownLanguage.parser.parse(source);
   const properties = inspectFrontmatter(source);
+  const math = protectMath ? createMarkdownParser().parse(source, {}).filter(token => token.type === 'block_math' && token.map).map(token => token.map!) : [];
   const numbers = new Set<number>();
   for (const range of view.state.selection.ranges) {
     const first = view.state.doc.lineAt(range.from).number;
@@ -187,6 +188,7 @@ function selectedBodyLines(view: EditorView) {
     .map((number) => view.state.doc.line(number))
     .filter((line) => {
       if (
+        math.some(([from, to]) => line.number > from && line.number <= to) ||
         (!line.text.trim() && !view.state.selection.main.empty) ||
         (properties && line.from < properties.end)
       )
@@ -201,9 +203,9 @@ function selectedBodyLines(view: EditorView) {
     });
 }
 
-export function setHeading(view: EditorView, level: HeadingLevel): void {
+export function setHeading(view: EditorView, level: HeadingLevel, protectMath = false): void {
   const changes = [];
-  for (const line of selectedBodyLines(view)) {
+  for (const line of selectedBodyLines(view, protectMath)) {
     const mark = /^( {0,3})(#{1,6})(?:[ \t]+|$)/.exec(line.text);
     const indentation = mark?.[1].length ?? /^ {0,3}/.exec(line.text)![0].length;
     const insert = level ? '#'.repeat(level) + ' ' : '';
@@ -224,8 +226,8 @@ export function setHeading(view: EditorView, level: HeadingLevel): void {
   view.focus();
 }
 
-export function toggleLineFormat(view: EditorView, kind: 'list' | 'task' | 'quote'): void {
-  const lines = selectedBodyLines(view);
+export function toggleLineFormat(view: EditorView, kind: 'list' | 'task' | 'quote', protectMath = false): void {
+  const lines = selectedBodyLines(view, protectMath);
   const parts = lines.map((line) => {
     const indent = /^[ \t]*/.exec(line.text)![0].length;
     const match =
