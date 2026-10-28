@@ -3,13 +3,13 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import hljs from 'highlight.js';
 import type { RenderOptions } from './types';
-import { uniqueHeadingId } from '../shared/markdown';
+import { installHeadingIds } from '../shared/heading-id';
 import { withoutFrontmatter } from './frontmatter';
 import { iconMarkup } from '../ui/icon-markup';
-import { isEscaped } from './completion';
+import { installMathSyntax } from '../shared/math-syntax';
 import { wikiLinks } from '../shared/wiki';
-import { installFootnotes, footnoteIds } from '../shared/footnotes';
-import { installNoteSyntax } from './note-syntax';
+import { installFootnotes } from '../shared/footnotes';
+import { installNoteSyntax } from '../shared/note-syntax';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -57,57 +57,11 @@ function numberedCode(highlighted: string, numbers: boolean): string {
 }
 
 export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
+  options = { ...options, prototypeSyntax: options.prototypeSyntax ?? true };
   const md = new MarkdownIt({ html: false, linkify: true, typographer: false, breaks: false });
   wikiLinks(md);
   md.use(installFootnotes);
-  md.inline.ruler.after('escape', 'inline_math', (state, silent) => {
-    if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
-    let end = state.pos + 1;
-    while ((end = state.src.indexOf('$', end)) >= 0 && isEscaped(state.src, end)) end++;
-    if (end < 0 || end === state.pos + 1 || /\n/.test(state.src.slice(state.pos + 1, end)))
-      return false;
-    if (!silent) {
-      const token = state.push('inline_math', 'span', 0);
-      token.content = state.src.slice(state.pos + 1, end);
-      token.meta = {
-        sourceRange: { from: state.pos, to: end + 1, contentFrom: state.pos + 1, contentTo: end },
-      };
-    }
-    state.pos = end + 1;
-    return true;
-  });
-  md.block.ruler.before(
-    'fence',
-    'block_math',
-    (state, startLine, endLine, silent) => {
-      const start = state.bMarks[startLine] + state.tShift[startLine];
-      const first = state.src.slice(start, state.eMarks[startLine]);
-      if (!first.startsWith('$$')) return false;
-      let nextLine = startLine + 1;
-      let content: string;
-      if (first.length > 3 && first.endsWith('$$')) content = first.slice(2, -2);
-      else {
-        while (
-          nextLine < endLine &&
-          !/^\s*\$\$\s*$/.test(state.src.slice(state.bMarks[nextLine], state.eMarks[nextLine]))
-        )
-          nextLine++;
-        if (nextLine === endLine) return false;
-        content = [first.slice(2), state.getLines(startLine + 1, nextLine, state.blkIndent, false)]
-          .filter(Boolean)
-          .join('\n');
-        nextLine++;
-      }
-      if (silent) return true;
-      const token = state.push('block_math', 'div', 0);
-      token.block = true;
-      token.map = [startLine, nextLine];
-      token.content = content;
-      state.line = nextLine;
-      return true;
-    },
-    { alt: ['paragraph', 'reference', 'blockquote', 'list'] },
-  );
+  installMathSyntax(md);
   md.renderer.rules.inline_math = (tokens, index) => mathHtml(tokens[index].content);
   md.renderer.rules.block_math = (tokens, index) =>
     `<div class="math-block">${mathHtml(tokens[index].content, true)}</div>\n`;
@@ -174,7 +128,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
         /* Invalid percent escapes stay literal. */
       }
     }
-    const resolved = options.resolveAsset?.(reference) ?? reference;
+    const resolved = options.resolveAsset?.(reference, options.notePath) ?? reference;
     if (options.prototypeSyntax && options.resolveAsset && !safeImageUrl(resolved))
       return `<span class="note-reference-error" role="status">图片无法读取：${escapeHtml(reference)}</span>`;
     const source = safeImageUrl(resolved) ? ` src="${escapeHtml(resolved)}"` : '';
@@ -208,18 +162,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       }
     }
   });
-  md.core.ruler.after('inline', 'heading_ids', (state) => {
-    const used = new Set(footnoteIds(state.env));
-    const suffixes = new Map<string, number>();
-    state.tokens.forEach((token, index) => {
-      if (token.type !== 'heading_open') return;
-      const title = (state.tokens[index + 1]?.children ?? [])
-        .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
-        .map((child) => child.content)
-        .join('');
-      token.attrSet('id', uniqueHeadingId(title, used, suffixes));
-    });
-  });
+  installHeadingIds(md);
   md.inline.ruler.before('html_inline', 'table_cell_break', (state, silent) => {
     if (!state.env.yuanjianTableCellBreaks || state.src[state.pos] !== '<') return false;
     const match = /^<br[ \t]*\/?>/i.exec(state.src.slice(state.pos));
@@ -307,7 +250,7 @@ let mermaidReady: Promise<(typeof import('mermaid'))['default']> | undefined;
 
 export async function hydrateMarkdown(
   root: HTMLElement,
-  resolveAsset?: (path: string) => Promise<string>,
+  resolveAsset?: (path: string, from?: string) => Promise<string>,
 ): Promise<void> {
   const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[data-asset-src]'));
   await Promise.all(
@@ -315,7 +258,9 @@ export async function hydrateMarkdown(
       const reference = image.dataset.assetSrc ?? '';
       if (safeImageUrl(reference) || !resolveAsset) return;
       try {
-        const url = await resolveAsset(reference);
+        const url = image.dataset.assetFrom
+          ? await resolveAsset(reference, image.dataset.assetFrom)
+          : await resolveAsset(reference);
         if (safeImageUrl(url)) image.src = url;
         else image.title = '无法显示此图片地址';
       } catch {

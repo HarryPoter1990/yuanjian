@@ -1,9 +1,17 @@
 import type MarkdownIt from 'markdown-it';
 import { markdownLanguage } from '@codemirror/lang-markdown';
-import type { RenderOptions } from './types';
-import { uniqueHeadingId } from '../shared/markdown';
-import { footnoteIds } from '../shared/footnotes';
+import { uniqueHeadingId } from './heading-id';
+import { footnoteIds } from './footnotes';
 import { inspectFrontmatter } from './frontmatter';
+
+export type NoteResolution = { path: string; source: string } | { error: string };
+export interface NoteSyntaxOptions {
+  notePath?: string;
+  resolveNote?: (reference: string, from?: string) => NoteResolution;
+  embedStack?: readonly string[];
+  embedBudget?: { references: number; bytes: number };
+  exportMode?: 'html' | 'pdf';
+}
 
 type Token = ReturnType<MarkdownIt['parse']>[number];
 type BlockReference = { id: string; from: number; to: number };
@@ -88,8 +96,31 @@ export function selectNoteFragment(
     environment,
   );
   const lines = source.split('\n');
-  if (fragment.startsWith('^')) {
-    const found = (environment.noteBlocks ?? []).filter((b) => b.id === fragment.slice(1));
+  for (const token of tokens) {
+    if (
+      token.type === 'footnote_open' &&
+      token.map &&
+      fragment === `fn${Number(token.meta.id) + 1}`
+    )
+      return { source: lines.slice(token.map[0], token.map[1]).join('\n'), line: token.map[0] + 1 };
+    for (const child of token.children ?? [])
+      if (token.map && child.type === 'footnote_ref') {
+        const id = `fnref${Number(child.meta.id) + 1}${child.meta.subId ? `:${child.meta.subId}` : ''}`;
+        if (fragment === id)
+          return {
+            source: lines.slice(token.map[0], token.map[1]).join('\n'),
+            line: token.map[0] + 1,
+          };
+      }
+  }
+  const blockId = fragment.startsWith('^')
+    ? fragment.slice(1)
+    : fragment.startsWith('block-') &&
+        !tokens.some((token) => token.type === 'heading_open' && token.attrGet('id') === fragment)
+      ? fragment.slice(6)
+      : null;
+  if (blockId !== null) {
+    const found = (environment.noteBlocks ?? []).filter((b) => b.id === blockId);
     if (found.length !== 1)
       return { error: found.length ? `块标识重复：${fragment}` : `找不到段落：${fragment}` };
     return { source: lines.slice(found[0].from, found[0].to).join('\n'), line: found[0].from + 1 };
@@ -111,10 +142,11 @@ export function selectNoteFragment(
 
 export function installNoteSyntax(
   md: MarkdownIt,
-  options: RenderOptions,
-  render: (source: string, options: RenderOptions) => string,
+  options: NoteSyntaxOptions,
+  render: (source: string, options: NoteSyntaxOptions) => string,
 ): void {
   const escape = md.utils.escapeHtml;
+  const budget = options.embedBudget ?? { references: 0, bytes: 0 };
   md.core.ruler.before('block', 'note_comments', (state) => {
     const ranges = noteCommentRanges(state.src);
     (state.env as NoteEnvironment).noteComments = ranges;
@@ -205,6 +237,7 @@ export function installNoteSyntax(
   md.inline.ruler.before('html_inline', 'note_safe_html', (state, silent) => {
     const match = /^<(\/)?(br|u|sup|sub|mark)\b[^>]*>/i.exec(state.src.slice(state.pos));
     if (!match) return false;
+    if (match[2].toLowerCase() === 'br' && !/^<br\s*\/?>$/i.test(match[0])) return false;
     if (!silent) {
       const token = state.push('html_inline', '', 0);
       token.content = `<${match[1] ?? ''}${match[2].toLowerCase()}>`;
@@ -273,6 +306,8 @@ export function installNoteSyntax(
   };
   md.renderer.rules.note_details_close = () => '</details>\n';
   const embed = (target: string, ordinal: number, environment: NoteEnvironment): string => {
+    if (++budget.references > 128)
+      return '<span class="note-reference-error" role="status">嵌入引用过多，请打开原笔记查看</span>';
     const [reference, rawFragment = ''] = target.split('#', 2);
     let fragment: string;
     try {
@@ -287,6 +322,8 @@ export function installNoteSyntax(
       `<span class="note-reference-error" role="status">${escape(message)}</span>`;
     if (!result) return error(`无法解析嵌入笔记：${target}`);
     if ('error' in result) return error(result.error);
+    budget.bytes += result.source.length;
+    if (budget.bytes > 2 * 1024 * 1024) return error('嵌入内容超过 2 MiB，请打开原笔记查看');
     const stack = options.embedStack ?? (options.notePath ? [options.notePath] : []);
     const identity = result.path + (fragment ? `#${fragment}` : '');
     if (stack.includes(identity) || stack.length >= 12)
@@ -297,17 +334,20 @@ export function installNoteSyntax(
       ...options,
       notePath: result.path,
       embedStack: [...stack, identity],
+      embedBudget: budget,
     });
     let prefix = `note-embed-${ordinal}-`;
     while (environment.noteUsedIds?.some((id) => id.startsWith(prefix))) prefix = 'e-' + prefix;
     body = body
+      .replace(/<img(?![^>]*\bdata-asset-from=)/g, `<img data-asset-from="${escape(result.path)}"`)
       .replace(/\bid="([^"]*)"/g, (_all, id: string) => `id="${prefix}${id}"`)
       .replace(
         /href="#([^"]*)"/g,
         (_all, id: string) =>
           `href="#${prefix}${id}" data-note-link="${escape(result.path)}#${id}"`,
       );
-    return `<section class="note-embed" data-note-target="${escape(target)}"><a class="note-embed-open" href="${escape(target)}">打开原笔记 · ${escape(target)}</a><div class="note-embed-body">${body}</div></section>`;
+    const original = result.path + (fragment ? `#${fragment}` : '');
+    return `<section class="note-embed" data-note-target="${escape(target)}"><a class="note-embed-open" href="${escape(target)}" data-note-link="${escape(original)}">打开原笔记 · ${escape(target)}</a><div class="note-embed-body">${body}</div></section>`;
   };
   const imageTarget = (target: string) =>
     /\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#].*)?$/i.test(target);
@@ -320,7 +360,7 @@ export function installNoteSyntax(
     if (!silent) {
       const token = state.push(imageTarget(target) ? 'image' : 'note_embed', '', 0);
       token.content = target;
-      token.meta = { sourceRange: { from: state.pos, to: end + 2 } };
+      token.meta = { embedded: true, sourceRange: { from: state.pos, to: end + 2 } };
       if (token.type === 'image') {
         token.attrSet('src', target);
         const size = /^(\d{1,5})(?:x(\d{1,5}))?$/.exec(dimensions);
@@ -434,7 +474,10 @@ export function installNoteSyntax(
           child.meta = { ...child.meta, embedOrdinal: ++embedOrdinal };
         if (child.type === 'link_open') {
           const href = child.attrGet('href') ?? '';
-          if (href.startsWith('#^')) child.attrSet('href', '#block-' + href.slice(2));
+          if (href.startsWith('#^')) {
+            child.meta = { ...child.meta, originalTarget: href };
+            child.attrSet('href', '#block-' + href.slice(2));
+          }
         }
       }
     const headings = tokens.flatMap((t, i) =>

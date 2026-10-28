@@ -1,7 +1,10 @@
 import type { EditorView } from '@codemirror/view';
 import type { Settings } from '../shared/types';
+import type { NoteSyntaxOptions } from '../shared/note-syntax';
+import type { NoteInsertionCommand } from './note-insertions';
 
 export type EditorCommand =
+  | NoteInsertionCommand
   | 'undo'
   | 'redo'
   | 'find'
@@ -37,6 +40,7 @@ export interface EditorSession {
 export interface MarkdownEditorProps {
   prototypeEditing?: boolean;
   resolveNote?: RenderOptions['resolveNote'];
+  noteRevision?: number;
   resolveAsset?: RenderOptions['resolveAsset'];
   value: string;
   onChange(value: string): void;
@@ -51,7 +55,7 @@ export interface MarkdownEditorProps {
   onScroll?(top: number): void;
   onLink?(target: string): void;
   onImage?(file: File): Promise<string | null>;
-  resolveAssetAsync?(reference: string): Promise<string>;
+  resolveAssetAsync?(reference: string, from?: string): Promise<string>;
   onError?(message: string): void;
 }
 
@@ -71,16 +75,10 @@ export interface MarkdownEditorHandle {
   getView(): EditorView | null;
 }
 
-export interface RenderOptions {
+export interface RenderOptions extends NoteSyntaxOptions {
+  noteRevision?: number;
   prototypeSyntax?: boolean;
-  notePath?: string;
-  resolveNote?: (
-    reference: string,
-    from?: string,
-  ) => { path: string; source: string } | { error: string };
-  embedStack?: readonly string[];
-  exportMode?: 'html' | 'pdf';
-  resolveAsset?: (path: string) => string;
+  resolveAsset?: (path: string, from?: string) => string;
   codeLineNumbers?: boolean;
   codeWrap?: boolean;
   codeFold?: boolean;

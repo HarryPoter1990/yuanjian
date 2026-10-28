@@ -818,6 +818,16 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   font: 12px/1.6 var(--ui-font, system-ui);
   margin-bottom: 12px;
 }
+@media print {
+  .note-embed-open {
+    display: none;
+  }
+  .note-embed,
+  .note-callout,
+  .note-details {
+    break-inside: avoid;
+  }
+}
 .note-toc {
   padding-block: 8px;
 }

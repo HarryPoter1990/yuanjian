@@ -4,7 +4,11 @@ import type { EditorState, Range } from '@codemirror/state';
 import { createMarkdownParser, hydrateMarkdown, mathHtml, renderParsedMarkdown } from './renderer';
 import { inCode, isEscaped } from './completion';
 import { previewConfig, toggleNoteFold, type MarkdownBlock } from './live-preview';
-import { calloutPresentation, noteCommentRanges, type NoteEnvironment } from './note-syntax';
+import {
+  calloutPresentation,
+  noteCommentRanges,
+  type NoteEnvironment,
+} from '../shared/note-syntax';
 
 export const textBlock = (block: MarkdownBlock) =>
   !/^\s*\[toc\]\s*$/i.test(block.source) &&
@@ -16,6 +20,11 @@ export const textBlock = (block: MarkdownBlock) =>
     'blockquote_open',
     'note_callout_open',
   ].includes(block.type);
+const linkAttributes = (target: string) => ({
+  'data-link-target': target,
+  title: `${target}\nCtrl+单击或光标在链接内按 Ctrl+Enter 打开`,
+  role: 'link',
+});
 
 class Prefix extends WidgetType {
   constructor(
@@ -28,6 +37,14 @@ class Prefix extends WidgetType {
   eq(other: Prefix) {
     return this.value === other.value && this.checked === other.checked && this.from === other.from;
   }
+  updateDOM(root: HTMLElement) {
+    const input = root.querySelector<HTMLInputElement>('input');
+    if (this.checked === null || !input) return false;
+    input.checked = this.checked;
+    input.dataset.taskOffset = String(this.from);
+    input.setAttribute('aria-label', this.checked ? '标记为未完成' : '标记为完成');
+    return true;
+  }
   toDOM(view: EditorView) {
     const span = document.createElement('span');
     span.className = 'prototype-list-prefix';
@@ -36,13 +53,20 @@ class Prefix extends WidgetType {
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.checked = this.checked;
+      input.dataset.taskOffset = String(this.from);
       input.setAttribute('aria-label', this.checked ? '标记为未完成' : '标记为完成');
-      input.addEventListener('change', () =>
+      input.addEventListener('change', () => {
+        const from = Number(input.dataset.taskOffset);
+        if (
+          !Number.isInteger(from) ||
+          !/^\[[ xX]\]$/.test(view.state.doc.sliceString(from - 1, from + 2))
+        )
+          return;
         view.dispatch({
-          changes: { from: this.from, to: this.from + 1, insert: input.checked ? 'x' : ' ' },
+          changes: { from, to: from + 1, insert: input.checked ? 'x' : ' ' },
           userEvent: 'input.task',
-        }),
-      );
+        });
+      });
       span.append(input);
     }
     return span;
@@ -65,6 +89,8 @@ class InlineMath extends WidgetType {
   toDOM(view: EditorView) {
     const span = document.createElement('span');
     span.className = 'prototype-inline-math';
+    span.dataset.sourceFrom = String(this.from);
+    span.dataset.sourceTo = String(this.to);
     span.innerHTML = mathHtml(this.source, false);
     span.addEventListener('click', (event) => {
       if (!span.ownerDocument.getSelection()?.isCollapsed) return;
@@ -182,16 +208,14 @@ export function prototypeTextDecorations(
   const wiki = [...source.matchAll(/\[\[([^\]\n]+)\]\]/g)].filter((m) => !inCode(state, m.index!));
   const ranges: Range<Decoration>[] = [],
     hidden: { from: number; to: number }[] = [];
-  const atomic = blocks
-    .filter(textBlock)
-    .flatMap((block) =>
-      block.tokens
-        .filter((token) => ['fence', 'block_math', 'table_open'].includes(token.type) && token.map)
-        .map((token) => ({
-          from: state.doc.line(token.map![0] + 1).from,
-          to: state.doc.line(Math.min(state.doc.lines, token.map![1])).to,
-        })),
-    );
+  const atomic = blocks.filter(textBlock).flatMap((block) =>
+    block.tokens
+      .filter((token) => ['fence', 'block_math', 'table_open'].includes(token.type) && token.map)
+      .map((token) => ({
+        from: state.doc.line(token.map![0] + 1).from,
+        to: state.doc.line(Math.min(state.doc.lines, token.map![1])).to,
+      })),
+  );
   const listLabels = new Map<number, number>();
   for (const block of blocks) {
     const stack: { ordered: boolean; next: number }[] = [];
@@ -382,11 +406,9 @@ export function prototypeTextDecorations(
         ranges.push(
           Decoration.mark({
             class: 'prototype-link',
-            attributes: {
-              'data-link-target':
-                target.includes('@') && !target.includes('://') ? `mailto:${target}` : target,
-              title: 'Ctrl+单击打开链接',
-            },
+            attributes: linkAttributes(
+              target.includes('@') && !target.includes('://') ? `mailto:${target}` : target,
+            ),
           }).range(node.from, node.to),
         );
         if (!active(node.from, node.to)) {
@@ -420,10 +442,7 @@ export function prototypeTextDecorations(
           class: cls,
           ...(destination
             ? {
-                attributes: {
-                  'data-link-target': destination,
-                  title: 'Ctrl+单击打开链接',
-                },
+                attributes: linkAttributes(destination),
               }
             : {}),
         }).range(node.from, node.to),
@@ -457,7 +476,7 @@ export function prototypeTextDecorations(
     ranges.push(
       Decoration.mark({
         class: 'prototype-link',
-        attributes: { 'data-link-target': match.url, title: 'Ctrl+单击打开链接' },
+        attributes: linkAttributes(match.url),
       }).range(from, to),
     );
   }
@@ -485,7 +504,7 @@ export function prototypeTextDecorations(
     ranges.push(
       Decoration.mark({
         class: 'prototype-link',
-        attributes: { 'data-link-target': target, title: 'Ctrl+单击打开链接' },
+        attributes: linkAttributes(target),
       }).range(from, to),
     );
     if (!active(from, to)) {
@@ -498,6 +517,11 @@ export function prototypeTextDecorations(
       ranges.push(
         Decoration.line({
           class: `cm-heading-source cm-heading-source-${block.headingLevel}`,
+          attributes: {
+            role: 'heading',
+            'aria-level': String(block.headingLevel),
+            id: block.tokens.find((token) => token.type === 'heading_open')?.attrGet('id') ?? '',
+          },
         }).range(block.from),
       );
       if (!active(block.from, block.to)) hide(state.doc.lineAt(block.from).to, block.to);
@@ -516,9 +540,21 @@ export function prototypeTextDecorations(
         ranges.push(
           Decoration.line({
             class: `cm-heading-source cm-heading-source-${heading[2].length}`,
+            attributes: {
+              role: 'heading',
+              'aria-level': String(heading[2].length),
+              id:
+                block.tokens
+                  .find((token) => token.type === 'heading_open' && token.map?.[0] === n - 1)
+                  ?.attrGet('id') ?? '',
+            },
           }).range(line.from),
         );
-        if (!active(line.from, line.to)) hide(line.from, line.from + heading[0].length);
+        if (!active(line.from, line.to)) {
+          hide(line.from, line.from + heading[0].length);
+          const suffix = /[ \t]+#+[ \t]*$/.exec(line.text.slice(heading[0].length));
+          if (suffix) hide(line.from + heading[0].length + suffix.index, line.to);
+        }
       } else if (quote) {
         ranges.push(Decoration.line({ class: 'prototype-quote-line' }).range(line.from));
         if (!active(line.from, line.to)) hide(line.from, line.from + quote[0].length);
@@ -551,14 +587,27 @@ export function prototypeTextDecorations(
 }
 
 export const prototypeLinks = EditorView.domEventHandlers({
+  keydown(event, view) {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      const head = view.state.selection.main.head;
+      const link = [...view.contentDOM.querySelectorAll<HTMLElement>('[data-link-target]')].find(
+        (node) =>
+          head >= view.posAtDOM(node, 0) && head <= view.posAtDOM(node, node.childNodes.length),
+      );
+      if (!link) return false;
+      event.preventDefault();
+      view.state.facet(previewConfig).onLink?.(link.dataset.linkTarget ?? '');
+      return true;
+    }
+    return false;
+  },
   click(event, view) {
     const target =
       event.target instanceof Element
         ? event.target.closest<HTMLElement>('[data-link-target]')
         : null;
     if (!target) return false;
-    // The prototype shell handles link targets locally; normal clicking remains text editing.
-    if (event.ctrlKey || event.metaKey) {
+    if (event.ctrlKey || event.metaKey || event.detail === 0) {
       event.preventDefault();
       view.state.facet(previewConfig).onLink?.(target.dataset.linkTarget ?? '');
       return true;

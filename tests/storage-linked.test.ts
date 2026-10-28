@@ -81,4 +81,35 @@ describe('explicit navigation from a standalone note', () => {
     expect(opened?.path).toBe(text);
     expect(opened?.content).toContain('用户显式选择的文本');
   });
+  it('reads an approved embed without opening a tab, writing history or granting more paths', async () => {
+    await store.approveFile(neighbor);
+    const before = store.getApprovedPaths();
+    const original = await readFile(neighbor, 'utf8');
+    expect(await store.readEmbeddedNote(source, '中文%20邻居.md')).toEqual({
+      path: neighbor,
+      source: original,
+    });
+    expect(store.getApprovedPaths()).toEqual(before);
+    expect(store.getSession().tabs).toEqual([]);
+    expect(await store.listHistory()).toEqual([]);
+    expect(await readFile(neighbor, 'utf8')).toBe(original);
+  });
+  it('does not auto-authorize adjacent files for embedding', async () => {
+    const result = await store.readEmbeddedNote(source, '中文 邻居.md');
+    expect(result).toEqual({ error: expect.stringMatching(/授权/) });
+    await expect(store.authorize(neighbor)).rejects.toThrow(/授权/);
+    await expect(store.readEmbeddedNote(neighbor, '入口.md')).rejects.toThrow(/授权/);
+  });
+  it('reports missing and non-Markdown embed targets', async () => {
+    expect(await store.readEmbeddedNote(source, '缺失.md')).toEqual({ error: expect.any(String) });
+    const attachment = path.join(notes, '附件.txt');
+    await writeFile(attachment, '附件内容');
+    await store.approveFile(attachment);
+    expect(await store.readEmbeddedNote(source, '附件.txt')).toEqual({
+      error: expect.stringContaining('Markdown'),
+    });
+    expect(await store.readEmbeddedNote(source, 'https://example.com')).toEqual({
+      error: expect.stringContaining('外部'),
+    });
+  });
 });

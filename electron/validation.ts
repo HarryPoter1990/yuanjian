@@ -182,6 +182,7 @@ export const argumentSchemas = {
   saveSession: z.tuple([sessionSchema]),
   openFile: z.tuple([file.optional()]),
   openLinkedFile: z.tuple([file, z.string().max(32768)]),
+  readEmbeddedNote: z.tuple([file, z.string().max(32768)]),
   saveFile: z.tuple([
     z.object({
       path: file.nullable(),

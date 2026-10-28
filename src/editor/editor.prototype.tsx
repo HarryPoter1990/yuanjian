@@ -17,7 +17,7 @@ import {
   syntaxInsertions,
 } from './prototype-fixtures';
 import { createMarkdownParser, hydrateMarkdown, renderReadingMarkdown } from './renderer';
-import { selectNoteFragment } from './note-syntax';
+import { selectNoteFragment } from '../shared/note-syntax';
 import { footnoteLine } from '../shared/footnotes';
 import { isolateHistory } from '@codemirror/commands';
 import { exportPrototypeHtml } from './prototype-export';

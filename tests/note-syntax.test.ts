@@ -101,6 +101,23 @@ it('reports unresolved, cyclic and ambiguous block targets rather than silently 
   expect(duplicate.querySelectorAll('[id="block-same"]')).toHaveLength(0);
   expect(duplicate.textContent).toContain('重复');
 });
+it('retains canonical origins for nested original-note entries', () => {
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown('![[sub/child.md]]', {
+    notePath: 'D:/generated/root.md',
+    resolveNote: (reference, from) =>
+      reference === 'sub/child.md'
+        ? { path: 'D:/generated/sub/child.md', source: '![[grand.md#标题]]' }
+        : from === 'D:/generated/sub/child.md'
+          ? { path: 'D:/generated/sub/grand.md', source: '# 标题\n\n内容' }
+          : { error: '错误来源' },
+  });
+  expect(
+    [...root.querySelectorAll<HTMLElement>('.note-embed-open')].map(
+      (node) => node.dataset.noteLink,
+    ),
+  ).toEqual(['D:/generated/sub/child.md', 'D:/generated/sub/grand.md#标题']);
+});
 it('keeps reading output consistent and expands all folded content for PDF', () => {
   const source =
     '> [!info]- 标题\n> ==正文==\n\n<details>\n<summary>补充</summary>\n\n内容\n\n</details>';
@@ -113,7 +130,7 @@ it('keeps reading output consistent and expands all folded content for PDF', () 
 });
 it('leaves the current-version renderer unchanged unless prototype syntax is requested', () => {
   const root = document.createElement('div');
-  root.innerHTML = renderMarkdown('==内容==\n\n> [!info]\n> 内容');
+  root.innerHTML = renderMarkdown('==内容==\n\n> [!info]\n> 内容', { prototypeSyntax: false });
   expect(root.querySelector('mark,[data-callout]')).toBeNull();
 });
 it('includes headings inside details in the same unique TOC', () => {

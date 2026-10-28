@@ -275,6 +275,31 @@ describe('standalone document and Markdown exports', () => {
     expect(result).toContain('data:font/ttf;base64,CQgHBg==');
     expect(result).not.toContain('Unused Imported');
   });
+  it('uses the resolved image src and removes internal note provenance from exported files', async () => {
+    const target = path.join(root, '嵌入.html');
+    const exporter = new ExportManager(store, {
+      buildDirectory: build,
+      chooseSave: async () => target,
+      assetData: async () => {
+        throw Error('Must not reread an already inlined image');
+      },
+      renderPdf: async () => undefined,
+    });
+    const embedded = html.replace(
+      '<img src="note-asset://local/picture">',
+      '<img data-asset-src="missing.png" data-asset-from="D:/private-note/child.md" src="data:image/png;base64,BwgJ"><a href="child.md" data-note-link="D:/private-note/child.md">原笔记</a>',
+    );
+    await exporter.exportDocument({
+      format: 'html',
+      html: embedded,
+      notePath: null,
+      title: '嵌入',
+    });
+    const result = await readFile(target, 'utf8');
+    expect(result).toContain('src="data:image/png;base64,BwgJ"');
+    expect(result).toContain('href="child.md"');
+    expect(result).not.toMatch(/data-asset-|data-note-link|private-note/);
+  });
   it('inlines wallpaper asset URLs in the preserved export style block', async () => {
     const target = path.join(root, '壁纸.html');
     const styled = html.replace(

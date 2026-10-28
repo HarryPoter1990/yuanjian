@@ -65,7 +65,7 @@ it('keeps a genuinely partial formula as visible characters', async () => {
 });
 it('preserves formatting when the selected visible text is contained inside a strong element', async () => {
   const view = await mount();
-  textSelection(host.querySelector('.markdown-preview-block strong')!);
+  textSelection(host.querySelector('.prototype-strong')!);
   const content = selectedCopy(view)!;
   expect(content.markdown).toBe('**加粗文字**');
   const html = document.createElement('div');
@@ -74,7 +74,7 @@ it('preserves formatting when the selected visible text is contained inside a st
 });
 it('preserves all enclosing inline formats for a selection inside a formatted link', async () => {
   const view = await mount('# 顶\n\n***[嵌套文字](https://example.org)***\n\n尾段');
-  textSelection(host.querySelector('.markdown-preview-block a')!);
+  textSelection(host.querySelector('[data-link-target]')!);
   const content = selectedCopy(view)!;
   const html = document.createElement('div');
   html.innerHTML = content.html;

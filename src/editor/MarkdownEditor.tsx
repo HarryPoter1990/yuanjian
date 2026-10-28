@@ -10,6 +10,7 @@ import {
   Compartment,
   EditorSelection,
   EditorState,
+  Prec,
   Text,
   Transaction,
   type Extension,
@@ -63,6 +64,7 @@ import { compactSearch, openEditorSearch } from './search-panel';
 import { readClipboardContent, type ClipboardPart } from './clipboard-reader';
 import { EditorContextMenu, editorMenuAt, type EditorMenuState } from './context-menu';
 import { markdownCopy, selectedCopy, writeCopy, type CopyContent } from './clipboard-output';
+import { insertNoteSyntax, noteInsertions } from './note-insertions';
 import { embeddedClipboardImages } from './clipboard-images';
 import type {
   EditorCommand,
@@ -108,7 +110,8 @@ function wrapSelection(view: EditorView, before: string, after = before, separat
 }
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor(props, ref) {
+  function MarkdownEditor(incomingProps, ref) {
+    const props = { ...incomingProps, prototypeEditing: incomingProps.prototypeEditing ?? true };
     const host = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const propsRef = useRef(props);
@@ -226,6 +229,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         prototypeEditing: current.prototypeEditing,
         prototypeSyntax: current.prototypeEditing,
         resolveNote: current.resolveNote,
+        noteRevision: current.noteRevision,
         resolveAsset: current.resolveAsset,
         notePath: current.notePath ?? undefined,
         mode: current.mode,
@@ -234,10 +238,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         codeFold: current.settings.codeFold,
         codeFontSize: current.settings.appearance.codeFontSize ?? 16,
         codeLineHeight: current.settings.appearance.codeLineHeight ?? 1.6,
-        resolveAssetAsync: (reference) =>
+        resolveAssetAsync: (reference, from) =>
           propsRef.current.resolveAssetAsync
-            ? propsRef.current.resolveAssetAsync(reference)
-            : window.notes.assetUrl(reference, propsRef.current.notePath ?? undefined),
+            ? from
+              ? propsRef.current.resolveAssetAsync(reference, from)
+              : propsRef.current.resolveAssetAsync(reference)
+            : window.notes.assetUrl(reference, from ?? propsRef.current.notePath ?? undefined),
         onLink: (target) => propsRef.current.onLink?.(target),
       });
     }
@@ -272,7 +278,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     function featureExtensions(): Extension {
       const current = propsRef.current;
       return [
-        current.prototypeEditing ? prototypeLinks : [],
+        current.prototypeEditing ? Prec.highest(prototypeLinks) : [],
         current.settings.codeLineNumbers
           ? lineNumbers({
               formatNumber: (number, state) => {
@@ -465,6 +471,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const view = viewRef.current;
       if (!view) return false;
       if (name === 'undo') return undo(view);
+      if (noteInsertions.some((entry) => entry.command === name)) {
+        const changed = insertNoteSyntax(view, name);
+        if (!changed) report('请在正文中选择单行文字后应用此格式；代码、公式与跨行选区保持原样。');
+        return changed;
+      }
       if (name === 'redo') return redo(view);
       if (name === 'find' || name === 'replace') return openEditorSearch(view, name === 'replace');
       if (name === 'bold' || name === 'italic') {
@@ -908,6 +919,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       props.notePath,
       props.prototypeEditing,
       props.resolveNote,
+      props.noteRevision,
       props.settings.appearance.codeFontSize,
       props.settings.appearance.codeLineHeight,
     ]);

@@ -6,6 +6,7 @@ import { previewSourcePosition } from './preview-source-position';
 import { inlineClipboardImages } from './clipboard-images';
 import { previewConfig } from './live-preview';
 import type { RenderOptions } from './types';
+import { absoluteNoteReference, clipboardFileReference } from '../shared/note-path';
 
 export interface CopyContent {
   markdown: string;
@@ -47,7 +48,7 @@ function originalFormula(
   view: EditorView,
   formula: Element,
 ): { latex: string; display: boolean } | undefined {
-  const root = formula.closest<HTMLElement>('.markdown-preview-block');
+  const root = formula.closest<HTMLElement>('.markdown-preview-block,.prototype-inline-math');
   if (!root) return;
   const index = [...root.querySelectorAll('.katex,.katex-error')].indexOf(formula);
   return formulas(
@@ -74,10 +75,52 @@ function covers(range: Range, node: Node): boolean {
   return !before.toString().trim() && !after.toString().trim();
 }
 
+const inlineFormats =
+  'strong,b,em,i,a,code,s,del,mark,sub,sup,.prototype-strong,.prototype-emphasis,.prototype-link,.prototype-inline-code,.prototype-strike,.prototype-highlight,.prototype-sub,.prototype-sup';
+function semanticWrapper(element: Element, child: Node): Node | null {
+  if (element.matches('strong,b,em,i,a,code,s,del,mark,sub,sup')) {
+    const wrapper = element.cloneNode(false);
+    wrapper.appendChild(child);
+    return wrapper;
+  }
+  const tags = [
+    ['prototype-strong', 'strong'],
+    ['prototype-emphasis', 'em'],
+    ['prototype-link', 'a'],
+    ['prototype-inline-code', 'code'],
+    ['prototype-strike', 'del'],
+    ['prototype-highlight', 'mark'],
+    ['prototype-sub', 'sub'],
+    ['prototype-sup', 'sup'],
+  ].filter(([name]) => element.classList.contains(name));
+  if (!tags.length) return null;
+  let node = child;
+  for (const [, tag] of tags.reverse()) {
+    const wrapper = document.createElement(tag);
+    if (tag === 'a') wrapper.setAttribute('href', element.getAttribute('data-link-target') ?? '');
+    wrapper.append(node);
+    node = wrapper;
+  }
+  return node;
+}
 function cleanHTML(root: HTMLElement): string {
+  for (const element of root.querySelectorAll('[class*="prototype-"]')) {
+    const content = document.createDocumentFragment();
+    if (!element.matches(inlineFormats)) continue;
+    content.append(...element.childNodes);
+    const wrapper = semanticWrapper(element, content);
+    if (wrapper) element.replaceWith(wrapper);
+  }
   for (const image of root.querySelectorAll<HTMLImageElement>('img[data-asset-src]')) {
     if (!/^data:image\/(?:png|jpeg|gif|webp|avif);/i.test(image.getAttribute('src') ?? ''))
-      image.setAttribute('src', image.dataset.assetSrc ?? '');
+      image.setAttribute(
+        'src',
+        image.dataset.assetFrom
+          ? clipboardFileReference(
+              absoluteNoteReference(image.dataset.assetSrc ?? '', image.dataset.assetFrom),
+            )
+          : (image.dataset.assetSrc ?? ''),
+      );
   }
   for (const control of root.querySelectorAll(
     '.code-caption,.code-language-toolbar,.code-line-number,.table-toolbar,.note-embed-open,button,select',
@@ -209,7 +252,9 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       to !== null &&
       from !== to &&
       !elementOf(range.startContainer)?.closest('.markdown-preview-block') &&
-      !elementOf(range.endContainer)?.closest('.markdown-preview-block')
+      !elementOf(range.endContainer)?.closest('.markdown-preview-block') &&
+      !elementOf(range.startContainer)?.closest(inlineFormats) &&
+      !elementOf(range.endContainer)?.closest(inlineFormats)
     )
       return {
         ...copy(view.state.sliceDoc(Math.min(from, to), Math.max(from, to))),
@@ -223,11 +268,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
       ancestor && ancestor !== view.contentDOM;
       ancestor = ancestor.parentElement
     ) {
-      if (ancestor.matches('strong,b,em,i,a,code,s,del,mark,sub,sup')) {
-        const wrapper = ancestor.cloneNode(false);
-        wrapper.appendChild(copied);
-        copied = wrapper;
-      }
+      copied = semanticWrapper(ancestor, copied) ?? copied;
       if (ancestor.classList.contains('markdown-preview-block')) break;
     }
     root.append(copied);

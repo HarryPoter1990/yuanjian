@@ -179,7 +179,7 @@ describe('mounted CodeMirror editor', () => {
     const source = '# 一级标题\n\n## 二级标题\n\n正文';
     const { props, onChange } = await mount({ value: source });
     const activeHeading = host.querySelector('.cm-line.cm-heading-source-1');
-    const renderedHeading = host.querySelector('h2');
+    const renderedHeading = host.querySelector('.cm-heading-source-2');
     const renderedSize = renderedHeading && getComputedStyle(renderedHeading).fontSize;
     expect(activeHeading?.textContent).toBe('# 一级标题');
     expect(activeHeading && getComputedStyle(activeHeading).fontSize).toBe('2em');
@@ -307,7 +307,8 @@ describe('mounted CodeMirror editor', () => {
   it('does not reconfigure CodeMirror or rebuild previews while only sidebar width changes', async () => {
     const { props } = await mount();
     const view = editor();
-    const preview = host.querySelector('.markdown-preview-block');
+    const preview = host.querySelector('.prototype-strong');
+    expect(preview).not.toBeNull();
     const update = vi.spyOn(view, 'update');
     for (let index = 0; index < 56; index++) {
       const settings = structuredClone(defaultSettings);
@@ -322,7 +323,7 @@ describe('mounted CodeMirror editor', () => {
         .flatMap(([transactions]) => transactions)
         .filter((transaction) => transaction.reconfigured),
     ).toHaveLength(0);
-    expect(host.querySelector('.markdown-preview-block')).toBe(preview);
+    expect(host.querySelector('.prototype-strong')).toBe(preview);
     expect(editor()).toBe(view);
     expect(editor().state.doc.toString()).toBe(props.value);
     const settings = structuredClone(defaultSettings);
@@ -336,8 +337,8 @@ describe('mounted CodeMirror editor', () => {
         .some((transaction) => transaction.reconfigured),
     ).toBe(true);
   });
-  it('reveals a clicked paragraph, edits Chinese source and supports undo and mode switches', async () => {
-    const { props, onChange } = await mount();
+  it('legacy block widget: reveals a clicked paragraph, edits Chinese source and supports undo and mode switches', async () => {
+    const { props, onChange } = await mount({ prototypeEditing: false });
     expect(host.querySelectorAll('.markdown-preview-block')).toHaveLength(2);
     const paragraph = Array.from(
       host.querySelectorAll<HTMLElement>('.markdown-preview-block'),
@@ -388,9 +389,9 @@ describe('mounted CodeMirror editor', () => {
     expect(editor().state.doc.toString()).not.toContain(':---:');
   });
 
-  it('maps clicks in formatted text back to the corresponding original source position', async () => {
+  it('legacy block widget: maps clicks in formatted text back to the corresponding original source position', async () => {
     const value = '文首\n\n普通 **原文**。';
-    await mount({ value });
+    await mount({ prototypeEditing: false, value });
     const strong = host.querySelector('strong');
     if (!strong?.firstChild) throw new Error('Expected bold preview');
     Object.defineProperty(document, 'caretPositionFromPoint', {
@@ -428,10 +429,11 @@ describe('mounted CodeMirror editor', () => {
   it('keeps unchanged preview DOM and table handlers correct when earlier source shifts', async () => {
     const value = '开始\n\n后面的 **段落**\n\n| A | B |\n| --- | --- |\n| 一 | 二 |';
     await mount({ value });
-    const preview = host.querySelector('.markdown-preview-block');
+    const preview = host.querySelector('.prototype-strong');
+    expect(preview).not.toBeNull();
     const grid = host.querySelector('.markdown-table-widget');
     await act(async () => reference.current?.insert('前面增加文字'));
-    expect(host.querySelector('.markdown-preview-block')).toBe(preview);
+    expect(host.querySelector('.prototype-strong')).toBe(preview);
     expect(host.querySelector('.markdown-table-widget')).toBe(grid);
     const input = host.querySelector<HTMLInputElement>('[aria-label="表格第 2 行第 1 列"]');
     await act(async () => {
@@ -462,7 +464,7 @@ describe('mounted CodeMirror editor', () => {
     expect(editor().state.doc.toString()).toContain('## 富文本\n\n**加粗**');
     await act(async () => reference.current?.insert('\n\n[目标](other.md)\n\n'));
     await act(async () => editor().dispatch({ selection: { anchor: 0 } }));
-    const link = host.querySelector<HTMLAnchorElement>('a[href="other.md"]');
+    const link = host.querySelector<HTMLElement>('[data-link-target="other.md"]');
     await act(async () => link?.click());
     expect(onLink).toHaveBeenCalledWith('other.md');
     const imagePaste = new Event('paste', { bubbles: true, cancelable: true });

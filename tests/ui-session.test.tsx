@@ -101,6 +101,7 @@ function Harness() {
 function makeAPI(session: SessionState): DesktopAPI {
   const settings = structuredClone(defaultSettings);
   return {
+    readEmbeddedNote: vi.fn(async () => ({ error: '测试夹具中没有此引用笔记' })),
     prepareFiles: vi.fn(async () => []),
     pendingHistory: vi.fn(async () => []),
     searchNotes: vi.fn(async () => ({ notes: [], issues: [], truncated: false })),

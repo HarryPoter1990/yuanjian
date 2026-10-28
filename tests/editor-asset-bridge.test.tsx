@@ -42,7 +42,11 @@ it('resolves an imported draft image through its controlled origin callback', as
   );
   await vi.waitFor(() => expect(resolve).toHaveBeenCalledWith('relative.png'));
   expect(fallback).not.toHaveBeenCalled();
-  expect(host.querySelector('img')?.getAttribute('src')).toBe('note-asset://generated/image.png');
+  await vi.waitFor(() =>
+    expect(host.querySelector('img[data-asset-src]')?.getAttribute('src')).toBe(
+      'note-asset://generated/image.png',
+    ),
+  );
 });
 it('awaits file insertion through the existing pending-selection guard', async () => {
   const reference = createRef<MarkdownEditorHandle>();

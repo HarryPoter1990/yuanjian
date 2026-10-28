@@ -74,13 +74,20 @@ describe('source mode keeps only visible editor work', () => {
     const edited = view.state.doc.toString(),
       head = view.state.selection.main.head;
     await act(async () => render(edited, 'live'));
-    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://example.com/two');
-    expect([...host.querySelectorAll('h1')].map((h) => h.id)).toEqual(['新重复', '新重复-1']);
+    expect(host.querySelector('[data-link-target]')?.getAttribute('data-link-target')).toBe(
+      'https://example.com/two',
+    );
+    expect([...host.querySelectorAll('[role=heading][aria-level="1"]')].map((h) => h.id)).toEqual([
+      '新重复',
+      '新重复-1',
+    ]);
     expect(view.state.selection.main.head).toBe(head);
     expect(onChange).toHaveBeenCalledTimes(1);
     await act(async () => ref.current!.command('undo'));
     expect(view.state.doc.toString()).toBe(source);
-    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://example.com/one');
+    expect(host.querySelector('[data-link-target]')?.getAttribute('data-link-target')).toBe(
+      'https://example.com/one',
+    );
   });
   it('retains formula preview and shows raw metadata at the caret when source switches back to live', async () => {
     const formula = await mount('$x$', 2);

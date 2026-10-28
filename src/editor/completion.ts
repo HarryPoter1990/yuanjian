@@ -1,3 +1,5 @@
+import { isEscaped } from '../shared/math-syntax';
+export { isEscaped } from '../shared/math-syntax';
 import {
   autocompletion,
   snippetCompletion,
@@ -67,12 +69,6 @@ export function inCode(state: EditorState, position: number): boolean {
     node = node.parent;
   }
   return false;
-}
-
-export function isEscaped(text: string, position: number): boolean {
-  let start = position;
-  while (start > 0 && text[start - 1] === '\\') start--;
-  return (position - start) % 2 === 1;
 }
 
 export function inMath(state: EditorState, position: number): boolean {

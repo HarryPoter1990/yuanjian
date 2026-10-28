@@ -273,7 +273,7 @@ export class ExportManager {
     let html = request.html.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
     html = await asyncReplace(
       html,
-      /\b(src|poster)\s*=\s*("([^"]*)"|'([^']*)')/gi,
+      /(?<![-\w:])(src|poster)\s*=\s*("([^"]*)"|'([^']*)')/gi,
       async (match) => {
         const url = decodeAttribute(match[3] ?? match[4]);
         if (/^(?:data:|https?:\/\/|#)/i.test(url)) return match[0];
@@ -291,6 +291,10 @@ export class ExportManager {
           throw new Error('导出正文引用了不支持的本地图片资源');
         return `${match[1]}="${dataUri(resource.bytes, resource.mime)}"`;
       },
+    );
+    html = html.replace(
+      /\sdata-(?:asset-(?:src|from)|note-link|source-(?:from|to|line))\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+      '',
     );
     const styles = await this.styles(html);
     const appearance = this.store.getSettings().appearance;

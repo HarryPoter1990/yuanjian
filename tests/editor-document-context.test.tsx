@@ -46,9 +46,9 @@ async function mount(value: string, initialCursor = value.length) {
 
 describe('document context in live editing', () => {
   it.each([
-    { body: '普通 **正文**', selector: 'strong', text: '正文' },
-    { body: '# 普通标题', selector: 'h1', text: '普通标题' },
-    { body: '- 普通列表', selector: 'li', text: '普通列表' },
+    { body: '普通 **正文**', selector: '.prototype-strong', text: '正文' },
+    { body: '# 普通标题', selector: '[role=heading][aria-level="1"]', text: '普通标题' },
+    { body: '- 普通列表', selector: '.prototype-list-line', text: '•普通列表' },
   ])(
     'keeps a leading horizontal rule followed by $body as ordinary Markdown',
     async ({ body, selector, text }) => {
@@ -65,11 +65,15 @@ describe('document context in live editing', () => {
   it('renders reference links using document definitions and refreshes a changed definition', async () => {
     const source = '[参考][guide]\n\n[guide]: https://example.com/one\n\n尾段';
     const { view, onChange } = await mount(source);
-    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://example.com/one');
+    expect(host.querySelector('[data-link-target]')?.getAttribute('data-link-target')).toBe(
+      'https://example.com/one',
+    );
     expect(onChange).not.toHaveBeenCalled();
     const from = source.indexOf('/one');
     await act(async () => view.dispatch({ changes: { from, to: from + 4, insert: '/two' } }));
-    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://example.com/two');
+    expect(host.querySelector('[data-link-target]')?.getAttribute('data-link-target')).toBe(
+      'https://example.com/two',
+    );
     expect(view.state.doc.toString()).toBe(source.replace('/one', '/two'));
   });
   it('keeps two horizontal rules around an opening paragraph as ordinary Markdown', async () => {
@@ -77,19 +81,19 @@ describe('document context in live editing', () => {
     const { view, onChange } = await mount(source);
     expect(host.querySelector('.markdown-frontmatter')).toBeNull();
     expect(host.querySelectorAll('hr')).toHaveLength(2);
-    expect(host.querySelector('strong')?.textContent).toBe('段落');
-    expect(host.querySelector('h1')?.textContent).toBe('合法标题');
+    expect(host.querySelector('.prototype-strong')?.textContent).toBe('段落');
+    expect(host.querySelector('[role=heading][aria-level="1"]')?.textContent).toBe('合法标题');
     expect(view.state.doc.toString()).toBe(source);
     expect(onChange).not.toHaveBeenCalled();
   });
   it('keeps duplicate heading IDs global without a permanent source-marker gutter', async () => {
     const source = '# 重复\n\n# 重复\n\n尾段';
     const { view, onChange } = await mount(source);
-    expect([...host.querySelectorAll('h1')].map((h) => h.id)).toEqual(
+    expect([...host.querySelectorAll('[role=heading][aria-level="1"]')].map((h) => h.id)).toEqual(
       extractHeadings(source).map((h) => h.id),
     );
     expect(host.querySelector('.markdown-heading-prefix,.markdown-heading-suffix')).toBeNull();
-    expect(host.querySelector('h1')?.textContent).toBe('重复');
+    expect(host.querySelector('[role=heading][aria-level="1"]')?.textContent).toBe('重复');
     expect(view.state.doc.toString()).toBe(source);
     expect(onChange).not.toHaveBeenCalled();
   });

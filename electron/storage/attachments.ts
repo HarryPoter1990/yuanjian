@@ -16,6 +16,7 @@ import { imageExtensions, noteExtensions } from './adapters';
 import { hash, isMissing, readOptional } from './io';
 import type { NoteStore } from './store';
 import { replaceImageTargets } from './markdown-ranges';
+import { noteCommentRanges } from '../../src/shared/note-syntax';
 
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const referenceSyntax = new MarkdownIt({ html: true });
@@ -242,6 +243,11 @@ export class AttachmentStore {
       )
         uncertainty.add(`「${path.basename(file)}」含有无法确认内容的嵌入引用`);
       references.set(file, [...(references.get(file) ?? []), ...links]);
+      // Hidden comments remain reversible source content and may still need their attachments.
+      for (const range of noteCommentRanges(content)) {
+        const raw = content.slice(range.from, range.to);
+        addReferences(file, raw.startsWith('<!--') ? raw.slice(4, -3) : raw.slice(2, -2));
+      }
     };
     // Candidate files remain restricted to indexed roots. Already approved standalone notes and
     // unsaved session content can only add protections; they never widen the deletion scope.

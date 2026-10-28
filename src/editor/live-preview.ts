@@ -28,13 +28,53 @@ export interface PreviewConfig extends RenderOptions {
   prototypeEditing?: boolean;
   mode: 'live' | 'source';
   resolveAsset?: (path: string) => string;
-  resolveAssetAsync?: (path: string) => Promise<string>;
+  resolveAssetAsync?: (path: string, from?: string) => Promise<string>;
   onLink?: (target: string) => void;
 }
 export const previewConfig = Facet.define<PreviewConfig, PreviewConfig>({
   combine: (values) => values[0] ?? { mode: 'source' },
 });
 export const toggleNoteFold = StateEffect.define<{ from: number; collapsed: boolean }>();
+const holdPointerLayout = StateEffect.define<boolean>();
+
+// Revealing Markdown while the pointer is selecting moves the text underneath it.
+// Keep the current layout for the gesture, then reveal the completed selection.
+const pointerLayout = ViewPlugin.define((view) => {
+  let held = false;
+  let alive = true;
+  const finish = () => {
+    if (!held) return;
+    held = false;
+    queueMicrotask(() => {
+      if (alive) view.dispatch({ effects: holdPointerLayout.of(false) });
+    });
+  };
+  const start = (event: MouseEvent) => {
+    const config = view.state.facet(previewConfig);
+    if (
+      event.button !== 0 ||
+      !config.prototypeEditing ||
+      config.mode !== 'live' ||
+      !(event.target instanceof Element) ||
+      event.target.closest('button,input,textarea,select,a,.markdown-preview-block')
+    )
+      return;
+    held = true;
+    view.dispatch({ effects: holdPointerLayout.of(true) });
+  };
+  view.contentDOM.addEventListener('mousedown', start, true);
+  view.dom.ownerDocument.addEventListener('mouseup', finish);
+  view.dom.ownerDocument.defaultView?.addEventListener('blur', finish);
+  return {
+    destroy() {
+      alive = false;
+      held = false;
+      view.contentDOM.removeEventListener('mousedown', start, true);
+      view.dom.ownerDocument.removeEventListener('mouseup', finish);
+      view.dom.ownerDocument.defaultView?.removeEventListener('blur', finish);
+    },
+  };
+});
 export interface MarkdownBlock {
   from: number;
   to: number;
@@ -46,7 +86,7 @@ export interface MarkdownBlock {
   semanticKey: string;
   error?: string;
 }
-const parser = createMarkdownParser();
+const parser = createMarkdownParser({ prototypeSyntax: false });
 const semanticKey = (tokens: MarkdownBlock['tokens']) =>
   JSON.stringify(
     tokens.map((item) => [
@@ -635,6 +675,7 @@ export const livePreviewField = StateField.define<{
   wrappers: RangeSet<BlockWrapper>;
   metadataExpanded: boolean;
   folds: Map<number, boolean>;
+  pointerHeld: boolean;
 }>({
   create(state) {
     const blocks = state.facet(previewConfig).mode === 'live' ? markdownBlocks(state) : [];
@@ -643,16 +684,28 @@ export const livePreviewField = StateField.define<{
       blocks,
       folds,
       metadataExpanded: false,
+      pointerHeld: false,
       ...buildDecorations(state, blocks, false, folds),
     };
   },
   update(value, transaction) {
+    let pointerHeld = value.pointerHeld;
+    for (const effect of transaction.effects)
+      if (effect.is(holdPointerLayout)) pointerHeld = effect.value;
+    if (
+      transaction.docChanged ||
+      transaction.state.facet(previewConfig).mode !== 'live' ||
+      !transaction.state.facet(previewConfig).prototypeEditing
+    )
+      pointerHeld = false;
+    if (pointerHeld) return { ...value, pointerHeld };
     if (
       !transaction.docChanged &&
       !transaction.selection &&
       !transaction.reconfigured &&
       !transaction.effects.some(
-        (effect) => effect.is(expandFrontmatter) || effect.is(toggleNoteFold),
+        (effect) =>
+          effect.is(expandFrontmatter) || effect.is(toggleNoteFold) || effect.is(holdPointerLayout),
       )
     )
       return value;
@@ -688,6 +741,7 @@ export const livePreviewField = StateField.define<{
       blocks,
       folds,
       metadataExpanded,
+      pointerHeld,
       ...buildDecorations(transaction.state, blocks, metadataExpanded, folds),
     };
   },
@@ -697,5 +751,6 @@ export const livePreviewField = StateField.define<{
     codeScrollMeasurements,
     codeCursorScrolling,
     frontmatterFocus,
+    pointerLayout,
   ],
 });

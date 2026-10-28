@@ -51,6 +51,15 @@ describe('attachment cleanup treats unknown references conservatively', () => {
     await expect(store.trashAttachments([image])).rejects.toThrow(/确认|不确定|引用/);
     expect(trash).not.toHaveBeenCalled();
   });
+  it.each(['%% ![以后恢复](assets/keep.png) %%', '<!-- ![[assets/keep.png]] -->'])(
+    'keeps attachments that are still referenced in reversible comments: %s',
+    async (content) => {
+      await writeFile(note, content);
+      expect((await store.scanAttachments()).some((item) => item.path === image)).toBe(false);
+      await expect(store.trashAttachments([image])).rejects.toThrow(/引用|确认/);
+      expect(trash).not.toHaveBeenCalled();
+    },
+  );
   it('does not mark literal HTML examples in code as unknown references', async () => {
     await writeFile(
       note,

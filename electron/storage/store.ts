@@ -53,6 +53,7 @@ import { MoveStore } from './move';
 import { replaceImageTargets } from './markdown-ranges';
 import { searchDocument, sortSearchNotes } from '../../src/shared/search';
 import type { SearchPage } from '../../src/shared/types';
+import type { NoteResolution } from '../../src/shared/note-syntax';
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
 interface SavedFormat {
@@ -695,6 +696,25 @@ export class NoteStore {
       exists: matches.length === 1,
       candidates: matches,
     };
+  }
+
+  /** Rendering may read existing grants, but may never grant access to another file. */
+  async readEmbeddedNote(fromPath: string, target: string): Promise<NoteResolution> {
+    const resolved = await this.resolveLink(fromPath, target);
+    if (resolved.external) return { error: '不支持嵌入外部网页，请使用普通链接' };
+    if (!resolved.path || !resolved.exists)
+      return {
+        error:
+          resolved.candidates.length > 1
+            ? `存在多个同名笔记，请填写完整路径：${target}`
+            : `目标不存在或尚未授权，请先打开原笔记：${target}`,
+      };
+    if (!markdownExtensions.has(path.extname(resolved.path).toLowerCase()))
+      return { error: '笔记嵌入只支持 Markdown 文件' };
+    if ((await stat(resolved.path)).size > 2 * 1024 * 1024)
+      return { error: `引用笔记超过 2 MiB，请打开原笔记查看：${target}` };
+    const note = await this.readNote(resolved.path);
+    return { path: resolved.path, source: note.content };
   }
 
   /** An explicit user navigation grants only the Markdown file actually linked in its source. */

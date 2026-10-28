@@ -33,13 +33,14 @@ describe('safe breaks inside Markdown table cells', () => {
       expect(host.querySelector('[onclick]')).toBeNull();
     },
   );
-  it('does not enable HTML or new BR behavior outside table cells', () => {
+  it('allows the approved BR subset outside tables while keeping executable HTML inert', () => {
     const host = rendered(
       'ordinary<br>text\n\n<img src=x onerror=evil()>\n\n' + table('<script>evil()</script>'),
     );
-    expect(host.querySelector('br')).toBeNull();
+    expect(host.querySelectorAll('br')).toHaveLength(1);
     expect(host.querySelector('img')).toBeNull();
     expect(host.querySelector('script')).toBeNull();
-    expect(host.textContent).toContain('ordinary<br>text');
+    expect(host.textContent).toContain('ordinarytext');
+    expect(host.querySelector('[onerror]')).toBeNull();
   });
 });

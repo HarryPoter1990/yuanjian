@@ -26,12 +26,13 @@ afterEach(async () => {
   Reflect.deleteProperty(document, 'caretPositionFromPoint');
   vi.unstubAllGlobals();
 });
-async function mount(source: string) {
+async function mount(source: string, legacyBlockWidget = false) {
   const ref = createRef<MarkdownEditorHandle>();
   const onLink = vi.fn();
   await act(async () =>
     root.render(
       <MarkdownEditor
+        prototypeEditing={!legacyBlockWidget}
         ref={ref}
         value={source}
         mode="live"
@@ -81,9 +82,9 @@ describe('precise source positions around generated inline content', () => {
         );
     },
   );
-  it('activates only the clicked mixed block at the exact ordinary character', async () => {
+  it('legacy block widget: activates only the clicked mixed block at the exact ordinary character', async () => {
     const source = '# 顶\n\n前 $x$ 后 **目标**\n\n尾段';
-    const { view } = await mount(source);
+    const { view } = await mount(source, true);
     const strong = host.querySelector('strong')!;
     Object.defineProperty(document, 'caretPositionFromPoint', {
       configurable: true,
@@ -111,9 +112,9 @@ describe('precise source positions around generated inline content', () => {
     expect(view.state.selection.main.head).toBe(source.indexOf('$x$') + 1);
     expect(view.state.doc.toString()).toBe(source);
   });
-  it('edits a live link on ordinary pointer click and opens it with Ctrl or keyboard activation', async () => {
+  it('legacy block widget: edits a live link on ordinary pointer click and opens it with Ctrl or keyboard activation', async () => {
     const source = '# 顶\n\n[显示](target.md)\n\n尾段';
-    const { view, onLink } = await mount(source);
+    const { view, onLink } = await mount(source, true);
     const link = host.querySelector('a')!;
     Object.defineProperty(document, 'caretPositionFromPoint', {
       configurable: true,

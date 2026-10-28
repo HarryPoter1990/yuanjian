@@ -47,8 +47,15 @@ import type {
   Template,
   ViewTab,
 } from './shared/types';
-import { extractHeadings, extractLinks, extractTags, setFrontmatterTags } from './shared/markdown';
+import {
+  extractHeadings,
+  extractLinks,
+  extractTags,
+  noteLinkPosition,
+  setFrontmatterTags,
+} from './shared/markdown';
 import { MarkdownEditor } from './editor/MarkdownEditor';
+import { noteInsertions } from './editor/note-insertions';
 import { convertRichText } from './editor/clipboard';
 import { ImportPanel } from './components/ImportPanel';
 import type {
@@ -59,7 +66,6 @@ import type {
   HeadingLevel,
 } from './editor/types';
 import { hydrateMarkdown, renderMarkdown } from './editor/renderer';
-import { footnoteLine } from './shared/footnotes';
 import { shortcutConflicts } from './shared/shortcuts';
 import { DropdownMenu, IconButton, Modal, OperationContext } from './components/Controls';
 import { Sidebar } from './components/Sidebar';
@@ -92,6 +98,8 @@ import { QuickOpenPanel, type QuickOpenTarget } from './components/QuickOpenPane
 import { AttachmentPanel, HistoryPanel } from './components/RecoveryPanels';
 import { syntaxColors } from './shared/appearance';
 import { useWorkspace } from './ui/useWorkspace';
+import { useNoteReferences } from './ui/useNoteReferences';
+import { referencePath } from './ui/noteReferences';
 import { validateExportContent } from './ui/exportValidation';
 import { exportCanvasStyle } from './ui/exportStyle';
 import { frameValue, panelWidth, visiblePanels } from './ui/layout';
@@ -150,6 +158,7 @@ export default function App() {
     viewOrder,
   } = workspace;
   const active = tabs.find((tab) => tab.id === activeId) || null;
+  const noteReferences = useNoteReferences(active, tabs, workspace.index);
   const [panel, setPanelState] = useState<Panel>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [forcedPanels, setForcedPanels] = useState<{ left?: boolean; right?: boolean }>({});
@@ -918,11 +927,10 @@ export default function App() {
   }
   async function followLink(target: string) {
     if (active && target.startsWith('#')) {
-      const line = footnoteLine(active.content, target.slice(1));
-      if (line) {
-        activateNote(active.id, positionFor(), line);
-        return;
-      }
+      const position = noteLinkPosition(active.content, target);
+      if ('error' in position) notify(position.error, true);
+      else activateNote(active.id, positionFor(), position.line);
+      return;
     }
     if (/^https?:\/\//i.test(target)) {
       await run('打开链接', () => window.notes.openExternal(target));
@@ -957,16 +965,17 @@ export default function App() {
           }
           const note = await window.notes.openLinkedFile(active.path!, target);
           if (note) {
+            const targetHeading = resolved.heading || target.split('#')[1]?.split('|')[0];
+            const position = targetHeading
+              ? noteLinkPosition(note.content, targetHeading)
+              : undefined;
+            if (position && 'error' in position) {
+              notify(position.error, true);
+              return;
+            }
             const id = workspace.openDocument(note);
             setGraphActive(false);
-            const targetHeading = resolved.heading || target.split('#')[1]?.split('|')[0];
-            const heading =
-              targetHeading &&
-              extractHeadings(note.content).find(
-                (item) =>
-                  item.text === readable(targetHeading) || item.id === readable(targetHeading),
-              );
-            activateNote(id, leaving, heading ? heading.line : undefined);
+            activateNote(id, leaving, position?.line);
             return;
           }
         }
@@ -981,12 +990,14 @@ export default function App() {
       const openedId = await workspace.open(resolved.path);
       if (openedId) {
         const note = workspace.getTab(openedId);
-        const heading =
-          note &&
-          extractHeadings(note.content).find(
-            (item) => item.text === resolved.heading || item.id === resolved.heading,
-          );
-        activateNote(openedId, leaving, heading ? heading.line : undefined);
+        const position =
+          note && resolved.heading ? noteLinkPosition(note.content, resolved.heading) : undefined;
+        if (position && 'error' in position) {
+          workspace.setActiveId(active.id);
+          notify(position.error, true);
+          return;
+        }
+        activateNote(openedId, leaving, position?.line);
       }
     });
   }
@@ -1310,6 +1321,8 @@ export default function App() {
       active.content,
       settings
         ? {
+            notePath: noteReferences.notePath,
+            resolveNote: noteReferences.resolveNote,
             codeLineNumbers: settings.codeLineNumbers,
             codeWrap: settings.codeWrap,
             codeFold: settings.codeFold,
@@ -1318,12 +1331,15 @@ export default function App() {
           }
         : {},
     );
-    void hydrateMarkdown(preview.current, (path) =>
-      window.notes.assetUrl(path, active.path || undefined),
+    void hydrateMarkdown(preview.current, (path, from) =>
+      window.notes.assetUrl(path, from ?? active.path ?? undefined),
     ).catch((reason) => error(`预览排版失败：${errorText(reason)}`));
   }, [
     panel,
     active?.content,
+    noteReferences.revision,
+    noteReferences.notePath,
+    noteReferences.resolveNote,
     settings?.codeLineNumbers,
     settings?.codeWrap,
     settings?.codeFold,
@@ -1343,8 +1359,12 @@ export default function App() {
         }
         path = await window.notes.exportBundle(active.path, active.content);
       } else {
+        const references = await noteReferences.prepare(active);
         const content = document.createElement('div');
         content.innerHTML = renderMarkdown(active.content, {
+          notePath: referencePath(active),
+          resolveNote: references.resolveNote,
+          exportMode: format,
           codeLineNumbers: settings.codeLineNumbers,
           codeWrap: settings.codeWrap,
           codeFold: settings.codeFold,
@@ -1355,8 +1375,10 @@ export default function App() {
           'position:fixed;left:-20000px;top:0;width:850px;opacity:0;pointer-events:none';
         document.body.append(content);
         try {
-          await hydrateMarkdown(content, (asset) =>
-            window.notes.assetUrl(asset, active.path || undefined),
+          await hydrateMarkdown(content, (asset, from) =>
+            active.importSourceId && !from
+              ? window.notes.importAssetUrl(active.importSourceId, asset)
+              : window.notes.assetUrl(asset, from ?? active.path ?? undefined),
           );
           validateExportContent(content);
           content
@@ -1981,6 +2003,28 @@ export default function App() {
                           </button>
                           {formatOpen && (
                             <FormatPanel anchor={formatAnchor} onClose={() => setFormatOpen(false)}>
+                              <label className="note-insertion-control">
+                                插入语法
+                                <select
+                                  aria-label="插入 Markdown 语法"
+                                  value=""
+                                  onChange={(event) => {
+                                    const entry = noteInsertions.find(
+                                      (item) => item.command === event.target.value,
+                                    );
+                                    if (entry) format(entry.command);
+                                  }}
+                                >
+                                  <option value="" disabled>
+                                    选择语法…
+                                  </option>
+                                  {noteInsertions.map((entry) => (
+                                    <option key={entry.command} value={entry.command}>
+                                      {entry.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
                               {settings.toolbarVisible && (
                                 <div
                                   className="editor-toolbar"
@@ -2272,10 +2316,14 @@ export default function App() {
                         mode={documentView === 'split' ? 'source' : active.mode}
                         settings={displaySettings!}
                         notePath={active.path}
+                        resolveNote={noteReferences.resolveNote}
+                        noteRevision={noteReferences.revision}
                         resolveAssetAsync={
                           active.importSourceId
-                            ? (reference) =>
-                                window.notes.importAssetUrl(active.importSourceId!, reference)
+                            ? (reference, from) =>
+                                from
+                                  ? window.notes.assetUrl(reference, from)
+                                  : window.notes.importAssetUrl(active.importSourceId!, reference)
                             : undefined
                         }
                         initialCursor={active.cursor}
@@ -2305,6 +2353,8 @@ export default function App() {
                           key={active.id}
                           ref={readingPreview}
                           note={active}
+                          resolveNote={noteReferences.resolveNote}
+                          noteRevision={noteReferences.revision}
                           settings={displaySettings!}
                           initialPosition={
                             readingPositions.current.get(active.id) ?? {

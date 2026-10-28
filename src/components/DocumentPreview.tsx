@@ -1,7 +1,8 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
 import type { Settings, TabState } from '../shared/types';
 import { hydrateMarkdown, renderReadingMarkdown } from '../editor/renderer';
-import type { EditorScrollAnchor } from '../editor/types';
+import type { EditorScrollAnchor, RenderOptions } from '../editor/types';
+import { referencePath } from '../ui/noteReferences';
 import { errorText } from '../ui/model';
 
 export interface ReadingPosition {
@@ -23,6 +24,8 @@ export function DocumentPreview({
   ref,
   initialPosition,
   onPosition,
+  resolveNote,
+  noteRevision,
 }: {
   note: TabState;
   settings: Settings;
@@ -31,6 +34,8 @@ export function DocumentPreview({
   ref?: Ref<DocumentPreviewHandle>;
   initialPosition?: ReadingPosition;
   onPosition?(position: ReadingPosition): void;
+  resolveNote?: RenderOptions['resolveNote'];
+  noteRevision?: number;
 }) {
   const root = useRef<HTMLElement>(null);
   const identity = useRef('');
@@ -125,6 +130,8 @@ export function DocumentPreview({
       if (!root.current) return;
       try {
         root.current.innerHTML = renderReadingMarkdown(note.content, {
+          notePath: referencePath(note),
+          resolveNote,
           codeLineNumbers: settings.codeLineNumbers,
           codeWrap: settings.codeWrap,
           codeFold: settings.codeFold,
@@ -146,10 +153,10 @@ export function DocumentPreview({
         callbacks.current.onError(errorText(error));
         return;
       }
-      void hydrateMarkdown(root.current, (reference) =>
-        note.importSourceId
+      void hydrateMarkdown(root.current, (reference, from) =>
+        note.importSourceId && !from
           ? window.notes.importAssetUrl(note.importSourceId, reference)
-          : window.notes.assetUrl(reference, note.path ?? undefined),
+          : window.notes.assetUrl(reference, from ?? note.path ?? undefined),
       )
         .then(() => {
           if (alive) layoutIntent.current?.();
@@ -167,6 +174,8 @@ export function DocumentPreview({
     note.content,
     note.path,
     note.importSourceId,
+    resolveNote,
+    noteRevision,
     settings.codeLineNumbers,
     settings.codeWrap,
     settings.codeFold,
@@ -238,7 +247,7 @@ export function DocumentPreview({
             return;
           }
         }
-        callbacks.current.onLink(href);
+        callbacks.current.onLink(link?.dataset.noteLink ?? href);
       }}
     />
   );

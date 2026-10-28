@@ -1,3 +1,5 @@
+import type { NoteResolution } from './note-syntax';
+
 export interface NoteDocument {
   id: string;
   path: string | null;
@@ -16,6 +18,7 @@ export interface NoteLink {
   target: string;
   label: string;
   image: boolean;
+  embedded?: boolean;
   line: number;
 }
 export interface NoteMeta {
@@ -316,6 +319,7 @@ export interface DesktopAPI {
   saveSession(session: SessionState): Promise<void>;
   openFile(path?: string): Promise<NoteDocument | null>;
   openLinkedFile(fromPath: string, target: string): Promise<NoteDocument | null>;
+  readEmbeddedNote(fromPath: string, target: string): Promise<NoteResolution>;
   saveFile(request: SaveRequest): Promise<SaveOutcome>;
   selectDirectory(): Promise<string | null>;
   getTree(root: string): Promise<FileEntry[]>;

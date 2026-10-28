@@ -3,13 +3,28 @@ import { Document } from 'yaml';
 import type { Heading, NoteLink, NoteMeta } from './types';
 import { inspectFrontmatter } from './frontmatter';
 import { wikiLinks } from './wiki';
-import { installFootnotes, footnoteIds, type FootnoteEnvironment } from './footnotes';
+import { installFootnotes, type FootnoteEnvironment } from './footnotes';
+import { installHeadingIds } from './heading-id';
+import { installMathSyntax } from './math-syntax';
+import { installNoteSyntax, selectNoteFragment } from './note-syntax';
+export { headingId, uniqueHeadingId } from './heading-id';
 
 const markdown = new MarkdownIt({ html: false, linkify: false });
+wikiLinks(markdown);
 markdown.use(installFootnotes);
-const headingMarkdown = new MarkdownIt({ html: false, linkify: false });
-wikiLinks(headingMarkdown);
-headingMarkdown.use(installFootnotes);
+installMathSyntax(markdown);
+installHeadingIds(markdown);
+installNoteSyntax(markdown, {}, () => '');
+export function noteFragment(source: string, fragment: string) {
+  return selectNoteFragment(markdown, source.replace(/\r\n?/g, '\n'), fragment);
+}
+export function noteLinkPosition(source: string, fragment: string) {
+  try {
+    return noteFragment(source, decodeURIComponent(fragment.replace(/^#/, '')));
+  } catch {
+    return { error: '链接位置编码无效' };
+  }
+}
 function readableTarget(target: string): string {
   try {
     return decodeURI(target);
@@ -56,29 +71,6 @@ function frontmatter(content: string) {
 export function normalizeTag(tag: string): string {
   return tag.trim().replace(/^#/, '');
 }
-export function headingId(text: string): string {
-  return (
-    text
-      .normalize('NFKC')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}_\s-]/gu, '')
-      .trim()
-      .replace(/\s+/g, '-') || 'section'
-  );
-}
-export function uniqueHeadingId(
-  text: string,
-  used: Set<string>,
-  suffixes: Map<string, number>,
-): string {
-  const base = headingId(text);
-  let suffix = suffixes.get(base) ?? 0;
-  let id = suffix ? `${base}-${suffix}` : base;
-  while (used.has(id)) id = `${base}-${++suffix}`;
-  used.add(id);
-  suffixes.set(base, suffix + 1);
-  return id;
-}
 
 function analyze(content: string) {
   const front = frontmatter(content);
@@ -87,23 +79,16 @@ function analyze(content: string) {
   const headings: Heading[] = [];
   const links: NoteLink[] = [];
   const tags = new Set(front.tags.map(normalizeTag).filter(Boolean));
-  const headingIds = new Set(footnoteIds(environment));
-  const headingSuffixes = new Map<string, number>();
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.type === 'heading_open') {
       const inline = tokens[i + 1];
-      const text = (
-        headingMarkdown.parseInline(inline?.content ?? '', {
-          ...environment,
-          footnotes: environment.footnotes ? structuredClone(environment.footnotes) : undefined,
-        })[0]?.children ?? []
-      )
-        .filter((child) => ['text', 'code_inline', 'image'].includes(child.type))
+      const text = (inline?.children ?? [])
+        .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
         .map((child) => child.content)
         .join('');
-      const id = uniqueHeadingId(text, headingIds, headingSuffixes);
+      const id = token.attrGet('id') ?? '';
       headings.push({
         level: Number(token.tag.slice(1)),
         text,
@@ -111,13 +96,25 @@ function analyze(content: string) {
         id,
       });
     }
-    if (token.type !== 'inline') continue;
+    if (token.type === 'note_embed_block') {
+      links.push({
+        target: token.content,
+        label: token.content,
+        image: false,
+        embedded: true,
+        line: (token.map?.[0] ?? 0) + front.lines + 1,
+      });
+      continue;
+    }
+    if (['note_callout_open', 'note_details_open'].includes(token.type) && token.meta?.title) {
+      token.children = markdown.parseInline(token.meta.title, {})[0]?.children ?? [];
+    } else if (token.type !== 'inline') continue;
     const line = (token.map?.[0] ?? 0) + front.lines + 1;
     const children = token.children ?? [];
     for (let j = 0; j < children.length; j++) {
       const child = children[j];
       if (child.type === 'link_open') {
-        const target = child.attrGet('href');
+        const target = child.meta?.originalTarget ?? child.attrGet('href');
         if (target) {
           let label = '';
           for (let k = j + 1; k < children.length && children[k].type !== 'link_close'; k++)
@@ -127,17 +124,22 @@ function analyze(content: string) {
       } else if (child.type === 'image') {
         const target = child.attrGet('src');
         if (target)
-          links.push({ target: readableTarget(target), label: child.content, image: true, line });
-      } else if (child.type === 'text') {
-        for (const match of child.content.matchAll(/(!?)\[\[([^\]\n]+)\]\]/g)) {
-          const [target, ...alias] = match[2].split('|');
           links.push({
-            target: target.trim(),
-            label: alias.join('|') || target.trim(),
-            image: match[1] === '!',
+            target: readableTarget(target),
+            label: child.content,
+            image: true,
+            ...(child.meta?.embedded ? { embedded: true } : {}),
             line,
           });
-        }
+      } else if (child.type === 'note_embed') {
+        links.push({
+          target: child.content,
+          label: child.content,
+          image: false,
+          embedded: true,
+          line,
+        });
+      } else if (child.type === 'text') {
         for (const match of child.content.matchAll(/(?:^|\s)#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu))
           tags.add(match[1]);
       }

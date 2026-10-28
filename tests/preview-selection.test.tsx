@@ -34,12 +34,13 @@ afterEach(async () => {
     Object.defineProperty(document, 'caretPositionFromPoint', originalCaretPoint);
   else Reflect.deleteProperty(document, 'caretPositionFromPoint');
 });
-async function mount(source: string, mode: 'live' | 'source' = 'live') {
+async function mount(source: string, mode: 'live' | 'source' = 'live', legacyBlockWidget = false) {
   const onChange = vi.fn();
   const onLink = vi.fn();
   await act(async () =>
     root.render(
       <MarkdownEditor
+        prototypeEditing={!legacyBlockWidget}
         ref={reference}
         value={source}
         mode={mode}
@@ -61,8 +62,8 @@ function textContaining(element: Element, value: string): Text {
   throw new Error(`Text not found: ${value}`);
 }
 function preview(value: string): HTMLElement {
-  const block = [...host.querySelectorAll<HTMLElement>('.markdown-preview-block')].find((element) =>
-    element.textContent?.includes(value),
+  const block = [...host.querySelectorAll<HTMLElement>('.markdown-preview-block,.cm-line')].find(
+    (element) => element.textContent?.includes(value),
   );
   if (!block) throw new Error(`Preview not found: ${value}`);
   return block;
@@ -75,7 +76,7 @@ describe('preview selection and heading prefixes', () => {
       const source = `${prefix}标题\n\n尾段`;
       const { view, onChange } = await mount(source);
       expect(host.querySelector('.markdown-heading-prefix,.markdown-heading-suffix')).toBeNull();
-      expect(host.querySelector(`h${level}`)?.textContent).toBe('标题');
+      expect(host.querySelector(`[role=heading][aria-level="${level}"]`)?.textContent).toBe('标题');
       await act(async () => view.dispatch({ selection: { anchor: 1 } }));
       expect(host.querySelector(`.cm-heading-source-${level}`)?.textContent).toBe(`${prefix}标题`);
       expect(view.state.doc.toString()).toBe(source);
@@ -83,10 +84,10 @@ describe('preview selection and heading prefixes', () => {
     },
   );
   it.each([false, true])(
-    'retains a heading drag range and its reversed=%s direction',
+    'legacy block widget: retains a heading drag range and its reversed=%s direction',
     async (reversed) => {
       const source = '### 标题重复标题\n\n尾段';
-      const { view, onChange } = await mount(source);
+      const { view, onChange } = await mount(source, 'live', true);
       const block = preview('标题重复标题');
       const text = textContaining(block, '标题重复标题');
       const anchor = reversed ? 5 : 1,
@@ -106,14 +107,14 @@ describe('preview selection and heading prefixes', () => {
     const source = '  ###   标题  ###  \n\n尾段';
     const { view } = await mount(source);
     expect(host.querySelector('.markdown-heading-prefix,.markdown-heading-suffix')).toBeNull();
-    expect(host.querySelector('h3')?.textContent).toBe('标题');
+    expect(host.querySelector('[role=heading][aria-level="3"]')?.textContent).toBe('标题');
     expect(view.state.doc.toString()).toBe(source);
   });
   it.each([false, true])(
-    'maps a cross-block drag without sorting reversed=%s endpoints',
+    'legacy block widget: maps a cross-block drag without sorting reversed=%s endpoints',
     async (reversed) => {
       const source = '### 标题内容\n\n第二段内容\n\n尾段';
-      const { view } = await mount(source);
+      const { view } = await mount(source, 'live', true);
       const first = preview('标题内容'),
         second = preview('第二段内容');
       const a = textContaining(first, '标题内容'),
@@ -132,10 +133,10 @@ describe('preview selection and heading prefixes', () => {
     },
   );
   it.each([false, true])(
-    'retains the original pointer anchor after a native focus reset, reversed=%s',
+    'legacy block widget: retains the original pointer anchor after a native focus reset, reversed=%s',
     async (reversed) => {
       const source = '### 标题重复标题\n\n尾段';
-      const { view } = await mount(source);
+      const { view } = await mount(source, 'live', true);
       const block = preview('标题重复标题'),
         text = textContaining(block, '标题重复标题');
       const anchor = reversed ? 5 : 1,
@@ -159,9 +160,9 @@ describe('preview selection and heading prefixes', () => {
       expect(view.state.doc.toString()).toBe(source);
     },
   );
-  it('maps a rendered endpoint and an already editable source endpoint together', async () => {
+  it('legacy block widget: maps a rendered endpoint and an already editable source endpoint together', async () => {
     const source = '### 标题内容\n\n尾段正文';
-    const { view } = await mount(source);
+    const { view } = await mount(source, 'live', true);
     const block = preview('标题内容'),
       first = textContaining(block, '标题内容');
     const lastLine = [...view.contentDOM.querySelectorAll('.cm-line')].find((element) =>
@@ -175,10 +176,10 @@ describe('preview selection and heading prefixes', () => {
     expect(view.state.selection.main.head).toBe(source.indexOf('尾段正文') + 2);
   });
   it.each(['blur', 'Escape', 'document change'])(
-    'discards a pending pointer anchor after %s',
+    'legacy block widget: discards a pending pointer anchor after %s',
     async (reason) => {
       const source = '### 标题重复标题\n\n尾段';
-      const { view } = await mount(source);
+      const { view } = await mount(source, 'live', true);
       const block = preview('标题重复标题'),
         text = textContaining(block, '标题重复标题');
       const point = vi
@@ -205,9 +206,9 @@ describe('preview selection and heading prefixes', () => {
       expect(point).toHaveBeenCalledTimes(1);
     },
   );
-  it('leaves an unmappable native drag range intact instead of collapsing it', async () => {
+  it('legacy block widget: leaves an unmappable native drag range intact instead of collapsing it', async () => {
     const source = '前 <span>文字</span> 与正文\n\n尾段';
-    const { view } = await mount(source);
+    const { view } = await mount(source, 'live', true);
     const block = preview('与正文'),
       text = textContaining(block, '与正文');
     getSelection()?.setBaseAndExtent(text, 1, text, 3);
@@ -223,7 +224,7 @@ describe('preview selection and heading prefixes', () => {
     const { onLink, view } = await mount(source);
     await act(async () =>
       host
-        .querySelector('a')
+        .querySelector('[data-link-target]')
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
     );
     expect(onLink).toHaveBeenCalledWith('https://example.com');
@@ -238,7 +239,7 @@ describe('preview selection and heading prefixes', () => {
     const { onLink } = await mount(source);
     const text = textContaining(preview('选择正文'), '选择正文');
     getSelection()?.setBaseAndExtent(text, 0, text, 3);
-    const link = host.querySelector('a');
+    const link = host.querySelector<HTMLElement>('[data-link-target]');
     if (!link) throw new Error('Missing link');
     link.focus();
     await act(async () =>

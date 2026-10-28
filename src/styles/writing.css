@@ -99,6 +99,23 @@ body {
   border: 0;
   background: transparent;
 }
+.note-insertion-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.note-insertion-control select {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
 .format-panel .toolbar-formatting {
   display: flex;
   flex-wrap: wrap;
