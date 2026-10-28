@@ -117,6 +117,17 @@ it('keeps the source directory when copying a link inside an embedded note', asy
     'D:/generated/sub/other.md#标题',
   );
 });
+it('preserves an ordinary relative link instead of turning it into a machine-specific path', async () => {
+  const view = await mount('# 顶\n\n[同级笔记](other.md)\n\n尾段', {
+    notePath: 'D:/generated/root.md',
+  });
+  textSelection(host.querySelector('[data-link-target]')!);
+  const copied = selectedCopy(view)!;
+  expect(copied.markdown).toBe('[同级笔记](other.md)');
+  const html = document.createElement('div');
+  html.innerHTML = copied.html;
+  expect(html.querySelector('a')?.getAttribute('href')).toBe('other.md');
+});
 it.each([
   ['==重点==', '.prototype-highlight', 'mark'],
   ['H~2~O', '.prototype-sub', 'sub'],

@@ -108,7 +108,7 @@ function semanticWrapper(element: Element, child: Node): Node | null {
   }
   return node;
 }
-function cleanHTML(root: HTMLElement, sourcePath?: string): string {
+function cleanHTML(root: HTMLElement): string {
   for (const element of root.querySelectorAll('[class*="prototype-"]')) {
     const content = document.createDocumentFragment();
     if (!element.matches(inlineFormats)) continue;
@@ -117,7 +117,7 @@ function cleanHTML(root: HTMLElement, sourcePath?: string): string {
     if (wrapper) element.replaceWith(wrapper);
   }
   for (const link of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
-    const origin = link.dataset.noteFrom ?? sourcePath,
+    const origin = link.dataset.noteFrom,
       target = link.dataset.noteLink ?? link.getAttribute('href')!;
     if (
       origin &&
@@ -213,7 +213,7 @@ export function markdownCopy(markdown: string, options: RenderOptions = {}): Cop
   [...root.querySelectorAll('.katex,.katex-error')].forEach((formula, index) => {
     if (maths[index]) annotateFormula(formula, maths[index].latex, maths[index].display);
   });
-  return { markdown, html: cleanHTML(root, options.notePath) };
+  return { markdown, html: cleanHTML(root) };
 }
 
 function sourceOffset(view: EditorView, node: Node, offset: number): number | null {
@@ -334,7 +334,7 @@ export function selectedCopy(view: EditorView): CopyContent | null {
         if (original) annotateFormula(formula, original.latex, original.display);
       }
     });
-    const html = cleanHTML(root, view.state.facet(previewConfig).notePath),
+    const html = cleanHTML(root),
       result = convertRichText(html, selection.toString());
     return result.markdown
       ? {
