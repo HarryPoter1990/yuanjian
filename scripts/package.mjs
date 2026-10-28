@@ -41,7 +41,9 @@ const configuration = {
   beforeBuild: path.join(project, 'scripts/before-build.cjs'),
   afterPack: path.join(project, 'scripts/after-pack.cjs'),
   electronVersion: metadata.devDependencies.electron,
-  electronDist: path.join(project, 'node_modules/electron/dist'),
+  electronDist: process.env.ELECTRON_OVERRIDE_DIST_PATH
+    ? path.resolve(process.env.ELECTRON_OVERRIDE_DIST_PATH)
+    : path.join(project, 'node_modules/electron/dist'),
   win: { ...metadata.build.win, icon: path.join(project, 'build/icon.ico') },
   directories: {
     app: staging,
