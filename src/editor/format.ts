@@ -172,7 +172,12 @@ function selectedBodyLines(view: EditorView, protectMath = false) {
   const source = view.state.doc.toString();
   const tree = markdownLanguage.parser.parse(source);
   const properties = inspectFrontmatter(source);
-  const math = protectMath ? createMarkdownParser().parse(source, {}).filter(token => token.type === 'block_math' && token.map).map(token => token.map!) : [];
+  const math = protectMath
+    ? createMarkdownParser()
+        .parse(source, {})
+        .filter((token) => token.type === 'block_math' && token.map)
+        .map((token) => token.map!)
+    : [];
   const numbers = new Set<number>();
   for (const range of view.state.selection.ranges) {
     const first = view.state.doc.lineAt(range.from).number;
@@ -226,7 +231,11 @@ export function setHeading(view: EditorView, level: HeadingLevel, protectMath = 
   view.focus();
 }
 
-export function toggleLineFormat(view: EditorView, kind: 'list' | 'task' | 'quote', protectMath = false): void {
+export function toggleLineFormat(
+  view: EditorView,
+  kind: 'list' | 'task' | 'quote',
+  protectMath = false,
+): void {
   const lines = selectedBodyLines(view, protectMath);
   const parts = lines.map((line) => {
     const indent = /^[ \t]*/.exec(line.text)![0].length;

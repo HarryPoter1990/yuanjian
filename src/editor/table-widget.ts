@@ -7,16 +7,79 @@ import { convertRichText } from './clipboard';
 
 const gridStates = new WeakMap<HTMLElement, { update(source: string): boolean; destroy(): void }>();
 
+function cellAtVisualEdge(input: HTMLTextAreaElement, down: boolean): boolean {
+  const p = input.selectionStart;
+  if (p !== input.selectionEnd) return false;
+  const style = getComputedStyle(input),
+    mirror = document.createElement('div');
+  for (const key of [
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'fontStyle',
+    'lineHeight',
+    'letterSpacing',
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft',
+    'borderTopWidth',
+    'borderRightWidth',
+    'borderBottomWidth',
+    'borderLeftWidth',
+    'boxSizing',
+    'textIndent',
+    'tabSize',
+  ] as const)
+    mirror.style[key] = style[key];
+  Object.assign(mirror.style, {
+    position: 'fixed',
+    left: '-10000px',
+    top: '0',
+    visibility: 'hidden',
+    width: `${input.getBoundingClientRect().width}px`,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'break-word',
+    borderStyle: 'solid',
+  });
+  const start = document.createElement('span'),
+    caret = document.createElement('span'),
+    end = document.createElement('span');
+  start.textContent = caret.textContent = end.textContent = '\u200b';
+  mirror.append(
+    start,
+    document.createTextNode(input.value.slice(0, p)),
+    caret,
+    document.createTextNode(input.value.slice(p)),
+    end,
+  );
+  document.body.append(mirror);
+  try {
+    const y = caret.getBoundingClientRect().top,
+      edge = (down ? end : start).getBoundingClientRect().top;
+    const tolerance = Math.max(1, (parseFloat(style.lineHeight) || 20) / 4);
+    return down ? y >= edge - tolerance : y <= edge + tolerance;
+  } finally {
+    mirror.remove();
+  }
+}
+
 export class TableWidget extends WidgetType {
   constructor(
     readonly source: string,
     readonly from: number,
     readonly to: number,
+    readonly prototypeEditing = false,
   ) {
     super();
   }
   eq(other: TableWidget): boolean {
-    return this.source === other.source && this.from === other.from && this.to === other.to;
+    return (
+      this.source === other.source &&
+      this.from === other.from &&
+      this.to === other.to &&
+      this.prototypeEditing === other.prototypeEditing
+    );
   }
   updateDOM(container: HTMLElement, _view: EditorView, previous: TableWidget): boolean {
     if (this.source !== previous.source && !gridStates.get(container)?.update(this.source))
@@ -367,6 +430,49 @@ export class TableWidget extends WidgetType {
         input.dataset.column = String(columnNumber);
         input.addEventListener('keydown', (event) => {
           if (event.isComposing || event.keyCode === 229) return;
+          if (
+            this.prototypeEditing &&
+            !event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            ['ArrowUp', 'ArrowDown'].includes(event.key)
+          ) {
+            const p = input.selectionStart,
+              q = input.selectionEnd,
+              down = event.key === 'ArrowDown';
+            const atEdge = p === q && cellAtVisualEdge(input, down);
+            if (atEdge) {
+              event.preventDefault();
+              event.stopPropagation();
+              const targetRow = rowNumber + (down ? 1 : -1);
+              const cell = inputs[targetRow]?.[columnNumber];
+              if (cell) {
+                cell.focus({ preventScroll: true });
+                const target = down
+                  ? Math.min(
+                      p,
+                      cell.value.indexOf('\n') < 0 ? cell.value.length : cell.value.indexOf('\n'),
+                    )
+                  : cell.value.lastIndexOf('\n') +
+                    1 +
+                    Math.min(p, cell.value.length - cell.value.lastIndexOf('\n') - 1);
+                cell.setSelectionRange(target, target);
+              } else {
+                const edge = Number(down ? container.dataset.tableTo : container.dataset.tableFrom);
+                const number = view.state.doc.lineAt(edge).number + (down ? 1 : -1);
+                if (number >= 1 && number <= view.state.doc.lines) {
+                  const line = view.state.doc.line(number);
+                  view.dispatch({
+                    selection: { anchor: line.from + Math.min(p, line.length) },
+                    scrollIntoView: true,
+                    userEvent: 'select',
+                  });
+                  view.focus();
+                }
+              }
+              return;
+            }
+          }
           if (
             (event.ctrlKey || event.metaKey) &&
             !event.altKey &&

@@ -110,11 +110,12 @@ export function mathCompletionSource(
   };
 }
 
-export function mathCompletion(snippets: Snippet[]): Extension {
+export function mathCompletion(snippets: Snippet[], immediateTab = false): Extension {
   return autocompletion({
     override: [mathCompletionSource(snippets)],
     activateOnTyping: true,
     defaultKeymap: true,
+    ...(immediateTab ? { interactionDelay: 0 } : {}),
   });
 }
 

@@ -22,8 +22,10 @@ import { activeMathRange } from './completion';
 import { MathPreviewWidget } from './math-preview';
 import { previewSourcePosition } from './preview-source-position';
 import { inspectFrontmatter } from './frontmatter';
+import { prototypeTextDecorations, textBlock } from './prototype-preview';
 
 export interface PreviewConfig extends RenderOptions {
+  prototypeEditing?: boolean;
   mode: 'live' | 'source';
   resolveAsset?: (path: string) => string;
   resolveAssetAsync?: (path: string) => Promise<string>;
@@ -428,9 +430,12 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[], metadataE
   const config = state.facet(previewConfig);
   const ranges: Range<Decoration>[] = [];
   const wrappers: Range<BlockWrapper>[] = [];
+  if (config.prototypeEditing && config.mode === 'live')
+    ranges.push(...prototypeTextDecorations(state, blocks));
   if (config.mode === 'live')
     for (const block of blocks) {
       if (block.from >= block.to) continue;
+      if (config.prototypeEditing && textBlock(block)) continue;
       if (block.type === 'frontmatter') {
         if (block.error)
           ranges.push(
@@ -485,7 +490,7 @@ function buildDecorations(state: EditorState, blocks: MarkdownBlock[], metadataE
         Decoration.replace({
           block: true,
           widget: isTable
-            ? new TableWidget(block.source, block.from, block.to)
+            ? new TableWidget(block.source, block.from, block.to, Boolean(config.prototypeEditing))
             : new PreviewWidget(block, config),
         }).range(block.from, block.to),
       );

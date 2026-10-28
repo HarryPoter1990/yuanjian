@@ -52,6 +52,7 @@ import {
   closeBracketsKeymap,
   completionKeymap,
   nextSnippetField,
+  prevSnippetField,
 } from '@codemirror/autocomplete';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
@@ -72,7 +73,13 @@ import type {
 } from './types';
 import 'katex/dist/katex.min.css';
 import './editor.css';
-import { prototypeEnter, prototypeDollarBackspace, prototypeListIndent } from './prototype-commands';
+import {
+  prototypeEnter,
+  prototypeDollarBackspace,
+  prototypeListIndent,
+} from './prototype-commands';
+import { prototypeLinks } from './prototype-preview';
+import { prototypeVertical, prototypeHorizontal } from './prototype-navigation';
 
 const codeHighlighting = HighlightStyle.define([
   { tag: [tags.keyword, tags.operatorKeyword], color: 'var(--syntax-keyword)' },
@@ -216,6 +223,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     function configuration(): Extension {
       const current = propsRef.current;
       return previewConfig.of({
+        prototypeEditing: current.prototypeEditing,
         mode: current.mode,
         codeLineNumbers: current.settings.codeLineNumbers,
         codeWrap: current.settings.codeWrap,
@@ -260,6 +268,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     function featureExtensions(): Extension {
       const current = propsRef.current;
       return [
+        current.prototypeEditing ? prototypeLinks : [],
         current.settings.codeLineNumbers
           ? lineNumbers({
               formatNumber: (number, state) => {
@@ -277,7 +286,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           : [],
         current.settings.codeFold ? foldGutter() : [],
         current.mode === 'live' || current.settings.codeWrap ? EditorView.lineWrapping : [],
-        mathCompletion(current.settings.snippets),
+        mathCompletion(current.settings.snippets, current.prototypeEditing),
         EditorView.theme({
           '&': {
             fontSize: `${current.mode === 'source' ? (current.settings.appearance.codeFontSize ?? 16) : current.settings.appearance.fontSize}px`,
@@ -511,7 +520,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         await insertImages(view, files);
       },
       wrap: (before, after) => {
-        if (viewRef.current) wrapSelection(viewRef.current, before, after, propsRef.current.prototypeEditing);
+        if (viewRef.current)
+          wrapSelection(viewRef.current, before, after, propsRef.current.prototypeEditing);
       },
       command: runCommand,
       setHeading,
@@ -601,12 +611,42 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             compactSearch,
             highlightSelectionMatches(),
             keymap.of([
-              ...(propsRef.current.prototypeEditing ? [
-                { key: 'Enter', run: prototypeEnter },
-                { key: 'Backspace', run: prototypeDollarBackspace },
-                { key: 'Tab', run: (view: EditorView) => prototypeListIndent(view) },
-                { key: 'Shift-Tab', run: (view: EditorView) => prototypeListIndent(view, true) },
-              ] : []),
+              ...(propsRef.current.prototypeEditing
+                ? [
+                    {
+                      key: 'ArrowUp',
+                      run: (view: EditorView) => prototypeVertical(view, false),
+                      shift: (view: EditorView) => prototypeVertical(view, false, true),
+                    },
+                    {
+                      key: 'ArrowDown',
+                      run: (view: EditorView) => prototypeVertical(view, true),
+                      shift: (view: EditorView) => prototypeVertical(view, true, true),
+                    },
+                    {
+                      key: 'ArrowLeft',
+                      run: (view: EditorView) => prototypeHorizontal(view, false),
+                    },
+                    {
+                      key: 'ArrowRight',
+                      run: (view: EditorView) => prototypeHorizontal(view, true),
+                    },
+                    { key: 'Enter', run: prototypeEnter },
+                    { key: 'Backspace', run: prototypeDollarBackspace },
+                    {
+                      key: 'Tab',
+                      run: (view: EditorView) =>
+                        nextSnippetField(view) ||
+                        acceptCompletion(view) ||
+                        prototypeListIndent(view),
+                    },
+                    {
+                      key: 'Shift-Tab',
+                      run: (view: EditorView) =>
+                        prevSnippetField(view) || prototypeListIndent(view, true),
+                    },
+                  ]
+                : []),
               {
                 key: 'Home',
                 run: (view) => codeLineBoundary(view, false),

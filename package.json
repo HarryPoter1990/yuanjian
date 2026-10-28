@@ -9,6 +9,7 @@
   "license": "MIT",
   "main": "dist-electron/main.cjs",
   "scripts": {
+    "prototype:editor": "node scripts/prototype-editor.mjs",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write --ignore-unknown src electron tests e2e scripts *.ts *.html *.json",

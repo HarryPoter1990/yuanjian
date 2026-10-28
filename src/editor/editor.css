@@ -687,3 +687,41 @@ details:not([open]) > summary.code-caption .code-fold-icon {
     background: white;
   }
 }
+.prototype-strong {
+  font-weight: 700;
+}
+.prototype-emphasis {
+  font-style: italic;
+}
+.prototype-strike {
+  text-decoration: line-through;
+}
+.prototype-inline-code {
+  font-family: var(--code-font, monospace);
+  background: var(--panel, #efefec);
+  border-radius: 3px;
+}
+.prototype-link {
+  color: var(--accent, #755c48);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown-editor .prototype-quote-line {
+  border-left: 2px solid var(--border, #d0cec9);
+  padding-left: 12px;
+  color: var(--text-muted, inherit);
+}
+.prototype-list-prefix {
+  display: inline-block;
+  min-width: 1.4em;
+  color: var(--text-muted, #777);
+}
+.prototype-list-prefix input {
+  width: 14px;
+  height: 14px;
+  margin: 0 7px 0 0;
+  accent-color: var(--accent, #755c48);
+}
+.prototype-inline-math .katex {
+  font-size: 1.05em;
+}
