@@ -175,7 +175,8 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     }
     const resolved = options.resolveAsset?.(reference) ?? reference;
     const source = safeImageUrl(resolved) ? ` src="${escapeHtml(resolved)}"` : '';
-    return `<img${source} data-asset-src="${escapeHtml(reference)}" alt="${escapeHtml(token.content)}" loading="lazy">`;
+    const title = token.attrGet('title');
+    return `<img${source} data-asset-src="${escapeHtml(reference)}" alt="${escapeHtml(token.content)}"${title ? ` title="${escapeHtml(title)}"` : ''} loading="lazy">`;
   };
   md.core.ruler.after('inline', 'task_lists', (state) => {
     let listDepth = 0;

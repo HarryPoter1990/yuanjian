@@ -1,7 +1,7 @@
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import type { EditorState, Range } from '@codemirror/state';
-import { mathHtml } from './renderer';
+import { createMarkdownParser, hydrateMarkdown, mathHtml, renderParsedMarkdown } from './renderer';
 import { inCode, isEscaped } from './completion';
 import { previewConfig, type MarkdownBlock } from './live-preview';
 
@@ -84,6 +84,42 @@ class InlineMath extends WidgetType {
   }
 }
 
+class InlinePreview extends WidgetType {
+  constructor(
+    readonly html: string,
+    readonly from: number,
+    readonly to: number,
+  ) {
+    super();
+  }
+  eq(other: InlinePreview) {
+    return this.html === other.html && this.from === other.from && this.to === other.to;
+  }
+  toDOM(view: EditorView) {
+    const root = document.createElement('span');
+    root.className = 'prototype-inline-preview markdown-rendered';
+    root.innerHTML = this.html;
+    void hydrateMarkdown(root, view.state.facet(previewConfig).resolveAssetAsync).then(() => {
+      if (root.isConnected) view.requestMeasure();
+    });
+    root.addEventListener('click', (event) => {
+      if (!root.ownerDocument.getSelection()?.isCollapsed) return;
+      const link = (event.target instanceof Element ? event.target : null)?.closest('a');
+      event.preventDefault();
+      if (link && (event.ctrlKey || event.metaKey)) {
+        view.state.facet(previewConfig).onLink?.(link.getAttribute('href') ?? '');
+        return;
+      }
+      view.dispatch({
+        selection: { anchor: Math.min(this.to - 1, this.from + 1) },
+        userEvent: 'select',
+      });
+      view.focus();
+    });
+    return root;
+  }
+}
+
 export function prototypeMathRanges(state: EditorState) {
   const source = state.doc.toString(),
     ranges: { from: number; to: number; body: string }[] = [];
@@ -102,6 +138,8 @@ export function prototypeTextDecorations(
   blocks: MarkdownBlock[],
 ): Range<Decoration>[] {
   const source = state.doc.toString();
+  const config = state.facet(previewConfig);
+  const parser = createMarkdownParser(config);
   const references =
     (blocks[0]?.environment as { references?: Record<string, { href: string }> })?.references ?? {};
   const wiki = [...source.matchAll(/\[\[([^\]\n]+)\]\]/g)].filter((m) => !inCode(state, m.index!));
@@ -119,11 +157,69 @@ export function prototypeTextDecorations(
     ranges.push(Decoration.replace(widget ? { widget } : {}).range(from, to));
   };
   const tree = markdownLanguage.parser.parse(state.doc.toString());
+  const linkRanges: { from: number; to: number }[] = [];
   tree.iterate({
     enter(node) {
       if (!supported(node.from, node.to)) return;
       if (wiki.some((m) => node.from >= m.index! && node.to <= m.index! + m[0].length)) return;
       if (['FencedCode', 'CodeBlock'].includes(node.name)) return false;
+      if (['Image', 'Link', 'Autolink', 'InlineCode'].includes(node.name))
+        linkRanges.push({ from: node.from, to: node.to });
+      if (node.name === 'Image') {
+        if (!active(node.from, node.to)) {
+          const inline = parser.parseInline(
+            source.slice(node.from, node.to),
+            blocks[0]?.environment ?? {},
+          );
+          hide(
+            node.from,
+            node.to,
+            new InlinePreview(
+              renderParsedMarkdown(inline[0].children ?? [], config),
+              node.from,
+              node.to,
+            ),
+          );
+        }
+        return false;
+      }
+      if (['Escape', 'Entity', 'HardBreak'].includes(node.name)) {
+        if (!active(node.from, node.to)) {
+          const raw = source.slice(node.from, node.to);
+          const value =
+            node.name === 'Escape'
+              ? raw.slice(1)
+              : node.name === 'HardBreak'
+                ? ''
+                : parser.utils.unescapeAll(raw);
+          hide(
+            node.from,
+            node.to,
+            value
+              ? new InlinePreview(parser.utils.escapeHtml(value), node.from, node.to)
+              : undefined,
+          );
+        }
+        return;
+      }
+      if (node.name === 'Autolink') {
+        const target = source.slice(node.from + 1, node.to - 1);
+        ranges.push(
+          Decoration.mark({
+            class: 'prototype-link',
+            attributes: {
+              'data-link-target':
+                target.includes('@') && !target.includes('://') ? `mailto:${target}` : target,
+              title: 'Ctrl+单击打开链接',
+            },
+          }).range(node.from, node.to),
+        );
+        if (!active(node.from, node.to)) {
+          hide(node.from, node.from + 1);
+          hide(node.to - 1, node.to);
+        }
+        return false;
+      }
       const names: Record<string, string> = {
         StrongEmphasis: 'prototype-strong',
         Emphasis: 'prototype-emphasis',
@@ -174,6 +270,36 @@ export function prototypeTextDecorations(
       }
     },
   });
+  for (const match of parser.linkify.match(source) ?? []) {
+    const from = match.index,
+      to = match.lastIndex;
+    if (
+      !supported(from, to) ||
+      inCode(state, from) ||
+      linkRanges.some((r) => from < r.to && to > r.from)
+    )
+      continue;
+    ranges.push(
+      Decoration.mark({
+        class: 'prototype-link',
+        attributes: { 'data-link-target': match.url, title: 'Ctrl+单击打开链接' },
+      }).range(from, to),
+    );
+  }
+  for (const match of source.matchAll(/\[\^([^\]\n]+)\]/g)) {
+    const from = match.index!,
+      to = from + match[0].length;
+    if (!supported(from, to) || inCode(state, from) || active(from, to)) continue;
+    const token = blocks
+      .flatMap((b) => b.tokens.flatMap((t) => t.children ?? []))
+      .find((t) => t.type === 'footnote_ref' && t.meta.label === match[1]);
+    if (token)
+      hide(
+        from,
+        to,
+        new InlinePreview(renderParsedMarkdown([token], config, blocks[0]?.environment), from, to),
+      );
+  }
   for (const match of wiki) {
     const from = match.index!,
       to = from + match[0].length;
@@ -193,12 +319,23 @@ export function prototypeTextDecorations(
     }
   }
   for (const block of blocks.filter(textBlock)) {
+    if (block.headingLevel && !/^ {0,3}#/.test(block.source)) {
+      ranges.push(
+        Decoration.line({
+          class: `cm-heading-source cm-heading-source-${block.headingLevel}`,
+        }).range(block.from),
+      );
+      if (!active(block.from, block.to)) hide(state.doc.lineAt(block.from).to, block.to);
+    }
     for (let n = state.doc.lineAt(block.from).number; n <= state.doc.lineAt(block.to).number; n++) {
       const line = state.doc.line(n);
       if (inCode(state, line.from + Math.min(line.length, 1))) continue;
       const heading = /^( {0,3})(#{1,6})[ \t]+/.exec(line.text);
       const quote = /^( {0,3}>[ \t]?)+/.exec(line.text);
-      const list = /^( *)([-+*]|\d+[.)])[ \t]+(?:\[([ xX])\][ \t]+)?/.exec(line.text);
+      const quoteLength = quote?.[0].length ?? 0;
+      const list = /^( *)([-+*]|\d+[.)])[ \t]+(?:\[([ xX])\][ \t]+)?/.exec(
+        line.text.slice(quoteLength),
+      );
       if (heading) {
         ranges.push(
           Decoration.line({
@@ -209,14 +346,16 @@ export function prototypeTextDecorations(
       } else if (quote) {
         ranges.push(Decoration.line({ class: 'prototype-quote-line' }).range(line.from));
         if (!active(line.from, line.to)) hide(line.from, line.from + quote[0].length);
-      } else if (list) {
+      }
+      if (list) {
         ranges.push(Decoration.line({ class: 'prototype-list-line' }).range(line.from));
         if (!active(line.from, line.to)) {
           const marker = /^\d/.test(list[2]) ? list[2] : '•';
-          const taskFrom = list[3] === undefined ? 0 : line.from + list[0].indexOf('[') + 1;
+          const taskFrom =
+            list[3] === undefined ? 0 : line.from + quoteLength + list[0].indexOf('[') + 1;
           hide(
-            line.from + list[1].length,
-            line.from + list[0].length,
+            line.from + quoteLength + list[1].length,
+            line.from + quoteLength + list[0].length,
             new Prefix(
               marker,
               list[3] === undefined ? null : list[3].toLowerCase() === 'x',
