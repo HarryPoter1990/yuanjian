@@ -84,6 +84,28 @@ body,
   flex: 1;
   min-height: 0;
 }
+.prototype-edit-pane {
+  height: 100%;
+}
+.prototype-edit-pane[hidden] {
+  display: none;
+}
+.prototype-reading {
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 28px max(24px, calc((100% - 780px) / 2));
+  line-height: 1.8;
+}
+.prototype-toolbar select {
+  max-width: 150px;
+  background: var(--background);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+}
 .prototype-footer {
   display: flex;
   justify-content: space-between;
