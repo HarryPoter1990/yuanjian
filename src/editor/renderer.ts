@@ -175,6 +175,8 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       }
     }
     const resolved = options.resolveAsset?.(reference) ?? reference;
+    if (options.prototypeSyntax && options.resolveAsset && !safeImageUrl(resolved))
+      return `<span class="note-reference-error" role="status">图片无法读取：${escapeHtml(reference)}</span>`;
     const source = safeImageUrl(resolved) ? ` src="${escapeHtml(resolved)}"` : '';
     const title = token.attrGet('title');
     const dimensions = ['width', 'height']

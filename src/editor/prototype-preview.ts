@@ -110,7 +110,9 @@ class InlinePreview extends WidgetType {
       const link = (event.target instanceof Element ? event.target : null)?.closest('a');
       event.preventDefault();
       if (link && (event.ctrlKey || event.metaKey)) {
-        view.state.facet(previewConfig).onLink?.(link.getAttribute('href') ?? '');
+        view.state
+          .facet(previewConfig)
+          .onLink?.(link.dataset.noteLink ?? link.getAttribute('href') ?? '');
         return;
       }
       view.dispatch({
@@ -180,12 +182,38 @@ export function prototypeTextDecorations(
   const wiki = [...source.matchAll(/\[\[([^\]\n]+)\]\]/g)].filter((m) => !inCode(state, m.index!));
   const ranges: Range<Decoration>[] = [],
     hidden: { from: number; to: number }[] = [];
+  const atomic = blocks
+    .filter(textBlock)
+    .flatMap((block) =>
+      block.tokens
+        .filter((token) => ['fence', 'block_math', 'table_open'].includes(token.type) && token.map)
+        .map((token) => ({
+          from: state.doc.line(token.map![0] + 1).from,
+          to: state.doc.line(Math.min(state.doc.lines, token.map![1])).to,
+        })),
+    );
+  const listLabels = new Map<number, number>();
+  for (const block of blocks) {
+    const stack: { ordered: boolean; next: number }[] = [];
+    for (const token of block.tokens) {
+      if (token.type === 'ordered_list_open' || token.type === 'bullet_list_open')
+        stack.push({
+          ordered: token.type === 'ordered_list_open',
+          next: Number(token.attrGet('start') ?? 1),
+        });
+      else if (token.type === 'ordered_list_close' || token.type === 'bullet_list_close')
+        stack.pop();
+      else if (token.type === 'list_item_open' && token.map && stack.at(-1)?.ordered)
+        listLabels.set(token.map[0], stack.at(-1)!.next++);
+    }
+  }
   const active = (from: number, to: number) =>
     state.selection.ranges.some((r) =>
       r.empty ? r.head >= from && r.head <= to : r.from < to && r.to > from,
     );
   const supported = (from: number, to: number) =>
-    blocks.some((b) => textBlock(b) && from >= b.from && to <= b.to);
+    blocks.some((b) => textBlock(b) && from >= b.from && to <= b.to) &&
+    !atomic.some((b) => from >= b.from && to <= b.to);
   const hide = (from: number, to: number, widget?: WidgetType) => {
     if (from >= to || hidden.some((r) => from < r.to && to > r.from)) return;
     hidden.push({ from, to });
@@ -476,6 +504,7 @@ export function prototypeTextDecorations(
     }
     for (let n = state.doc.lineAt(block.from).number; n <= state.doc.lineAt(block.to).number; n++) {
       const line = state.doc.line(n);
+      if (atomic.some((block) => line.from >= block.from && line.to <= block.to)) continue;
       if (inCode(state, line.from + Math.min(line.length, 1))) continue;
       const heading = /^( {0,3})(#{1,6})[ \t]+/.exec(line.text);
       const quote = /^( {0,3}>[ \t]?)+/.exec(line.text);
@@ -497,7 +526,9 @@ export function prototypeTextDecorations(
       if (list) {
         ranges.push(Decoration.line({ class: 'prototype-list-line' }).range(line.from));
         if (!active(line.from, line.to)) {
-          const marker = /^\d/.test(list[2]) ? list[2] : '•';
+          const marker = /^\d/.test(list[2])
+            ? `${listLabels.get(n - 1) ?? parseInt(list[2])}${list[2].slice(-1)}`
+            : '•';
           const taskFrom =
             list[3] === undefined ? 0 : line.from + quoteLength + list[0].indexOf('[') + 1;
           hide(

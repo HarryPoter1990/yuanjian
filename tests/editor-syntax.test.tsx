@@ -137,3 +137,22 @@ it('copies prototype syntax as original Markdown and rendered HTML without hidde
   expect(rendered.querySelector('mark')?.textContent).toBe('正文');
   expect(rendered.textContent).not.toContain('内部注释');
 });
+it('previews fenced code and tables nested in callouts without exposing surrounding source', async () => {
+  await mount(
+    '> [!info] 示例\n>\n> ```java\n> int value = 1;\n> ```\n>\n> | 项目 | 说明 |\n> | --- | --- |\n> | 输入 | 文字 |',
+  );
+  expect(host.querySelector('.code-container code')?.textContent).toContain('int value = 1;');
+  expect(host.querySelector('table')?.textContent).toContain('输入');
+});
+it('uses parsed ordered-list numbering outside the edited line', async () => {
+  await mount('1. 第一项\n1. 第二项\n1. 第三项');
+  expect([...host.querySelectorAll('.prototype-list-prefix')].map((e) => e.textContent)).toEqual([
+    '1.',
+    '2.',
+    '3.',
+  ]);
+});
+it('keeps complex nested previews hidden when their callout is folded', async () => {
+  await mount('> [!info]- 折叠\n>\n> ```js\n> const hidden = true;\n> ```');
+  expect(host.querySelector('.code-container')).toBeNull();
+});

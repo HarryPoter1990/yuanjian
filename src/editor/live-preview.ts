@@ -234,8 +234,22 @@ function sourcePosition(view: EditorView, node: Node | null, offset: number): nu
     const block = view.state
       .field(livePreviewField)
       .blocks.find((candidate) => candidate.from === from && candidate.to === to);
-    if (!block) return null;
-    const position = previewSourcePosition(preview, block.source, node, offset);
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to > view.state.doc.length ||
+      from > to
+    )
+      return null;
+    // Nested prototype widgets own a subrange of a top-level list or callout block.
+    const source =
+      block?.source ??
+      (view.state.facet(previewConfig).prototypeEditing
+        ? view.state.doc.sliceString(from, to)
+        : undefined);
+    if (source === undefined) return null;
+    const position = previewSourcePosition(preview, source, node, offset);
     return position === null ? null : from + position;
   }
   if (!element?.closest('.cm-line')) return null;
@@ -396,7 +410,7 @@ class PreviewWidget extends WidgetType {
       const link = target?.closest('a');
       if (link && (event.detail === 0 || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
-        this.config.onLink?.(link.getAttribute('href') ?? '');
+        this.config.onLink?.(link.dataset.noteLink ?? link.getAttribute('href') ?? '');
         return;
       }
       const selected = root.ownerDocument.getSelection();
@@ -439,10 +453,31 @@ function buildDecorations(
   const config = state.facet(previewConfig);
   const ranges: Range<Decoration>[] = [];
   const wrappers: Range<BlockWrapper>[] = [];
+  const nested: MarkdownBlock[] = [];
+  if (config.prototypeEditing)
+    for (const block of blocks.filter(textBlock))
+      block.tokens.forEach((token, index) => {
+        if (!['fence', 'block_math', 'table_open'].includes(token.type) || !token.map) return;
+        const from = state.doc.line(token.map[0] + 1).from,
+          to = state.doc.line(Math.min(state.doc.lines, token.map[1])).to;
+        let end = index + 1;
+        if (token.type === 'table_open') {
+          while (end < block.tokens.length && block.tokens[end].type !== 'table_close') end++;
+          end++;
+        }
+        nested.push({
+          ...block,
+          from,
+          to,
+          source: state.doc.sliceString(from, to),
+          type: `nested_${token.type}`,
+          tokens: block.tokens.slice(index, end),
+        });
+      });
   if (config.prototypeEditing && config.mode === 'live')
     ranges.push(...prototypeTextDecorations(state, blocks, folds));
   if (config.mode === 'live')
-    for (const block of blocks) {
+    for (const block of [...blocks, ...nested]) {
       if (block.from >= block.to) continue;
       if (config.prototypeEditing && textBlock(block)) continue;
       if (block.type === 'frontmatter') {

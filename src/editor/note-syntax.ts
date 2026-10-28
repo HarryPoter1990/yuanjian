@@ -1,12 +1,16 @@
 import type MarkdownIt from 'markdown-it';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import type { RenderOptions } from './types';
+import { uniqueHeadingId } from '../shared/markdown';
+import { footnoteIds } from '../shared/footnotes';
+import { inspectFrontmatter } from './frontmatter';
 
 type Token = ReturnType<MarkdownIt['parse']>[number];
 type BlockReference = { id: string; from: number; to: number };
 export interface NoteEnvironment {
   noteComments?: { from: number; to: number }[];
   noteBlocks?: BlockReference[];
+  noteUsedIds?: string[];
 }
 const calloutTypes: Record<string, [string, string]> = {
   note: ['笔记', '✎'],
@@ -76,7 +80,13 @@ export function selectNoteFragment(
 ): { source: string; line: number } | { error: string } {
   if (!fragment) return { source, line: 1 };
   const environment: NoteEnvironment = {};
-  const tokens = md.parse(source, environment);
+  const properties = inspectFrontmatter(source);
+  const tokens = md.parse(
+    properties
+      ? source.slice(0, properties.end).replace(/[^\n]/g, ' ') + source.slice(properties.end)
+      : source,
+    environment,
+  );
   const lines = source.split('\n');
   if (fragment.startsWith('^')) {
     const found = (environment.noteBlocks ?? []).filter((b) => b.id === fragment.slice(1));
@@ -211,11 +221,27 @@ export function installNoteSyntax(
       if (!/^<details(?:\s+open)?>\s*$/i.test(line)) return false;
       let close = start + 1,
         depth = 1;
+      let fence: { char: string; size: number } | undefined;
       for (; close < end; close++) {
         const text = state.src.slice(
           state.bMarks[close] + state.tShift[close],
           state.eMarks[close],
         );
+        const marker = /^(`{3,}|~{3,})(.*)$/.exec(text);
+        if (fence) {
+          if (
+            marker &&
+            marker[1][0] === fence.char &&
+            marker[1].length >= fence.size &&
+            !marker[2].trim()
+          )
+            fence = undefined;
+          continue;
+        }
+        if (marker) {
+          fence = { char: marker[1][0], size: marker[1].length };
+          continue;
+        }
         if (/^<details(?:\s+open)?>\s*$/i.test(text)) depth++;
         else if (/^<\/details>\s*$/i.test(text) && --depth === 0) break;
       }
@@ -246,8 +272,14 @@ export function installNoteSyntax(
     return `<details class="note-details"${token.meta.open || options.exportMode === 'pdf' ? ' open' : ''}><summary>${md.renderInline(token.meta.title)}</summary>`;
   };
   md.renderer.rules.note_details_close = () => '</details>\n';
-  const embed = (target: string): string => {
-    const [reference, fragment = ''] = target.split('#', 2);
+  const embed = (target: string, ordinal: number, environment: NoteEnvironment): string => {
+    const [reference, rawFragment = ''] = target.split('#', 2);
+    let fragment: string;
+    try {
+      fragment = decodeURIComponent(rawFragment);
+    } catch {
+      return `<span class="note-reference-error">嵌入位置编码无效：${escape(target)}</span>`;
+    }
     const result = reference
       ? options.resolveNote?.(reference, options.notePath)
       : options.resolveNote?.(options.notePath ?? '', options.notePath);
@@ -261,11 +293,20 @@ export function installNoteSyntax(
       return error(`循环引用或嵌入层级过深：${target}`);
     const selected = selectNoteFragment(md, result.source, fragment);
     if ('error' in selected) return error(selected.error);
-    const body = render(selected.source, {
+    let body = render(selected.source, {
       ...options,
       notePath: result.path,
       embedStack: [...stack, identity],
     });
+    let prefix = `note-embed-${ordinal}-`;
+    while (environment.noteUsedIds?.some((id) => id.startsWith(prefix))) prefix = 'e-' + prefix;
+    body = body
+      .replace(/\bid="([^"]*)"/g, (_all, id: string) => `id="${prefix}${id}"`)
+      .replace(
+        /href="#([^"]*)"/g,
+        (_all, id: string) =>
+          `href="#${prefix}${id}" data-note-link="${escape(result.path)}#${id}"`,
+      );
     return `<section class="note-embed" data-note-target="${escape(target)}"><a class="note-embed-open" href="${escape(target)}">打开原笔记 · ${escape(target)}</a><div class="note-embed-body">${body}</div></section>`;
   };
   const imageTarget = (target: string) =>
@@ -293,7 +334,8 @@ export function installNoteSyntax(
     state.pos = end + 2;
     return true;
   });
-  md.renderer.rules.note_embed = (tokens, index) => embed(tokens[index].content);
+  md.renderer.rules.note_embed = (tokens, index, _opts, env) =>
+    embed(tokens[index].content, tokens[index].meta?.embedOrdinal ?? index, env);
   md.block.ruler.before(
     'paragraph',
     'note_embed_block',
@@ -371,6 +413,30 @@ export function installNoteSyntax(
       if (blocks.filter((b) => b.id === id).length === 1) token.attrSet('id', `block-${id}`);
       else token.attrSet('data-reference-error', `块标识重复：${id}`);
     }
+    const used = new Set([
+        ...footnoteIds(state.env),
+        ...blocks.map((block) => `block-${block.id}`),
+      ]),
+      suffixes = new Map<string, number>();
+    tokens.forEach((token, index) => {
+      if (token.type !== 'heading_open') return;
+      const title = (tokens[index + 1]?.children ?? [])
+        .filter((child) => ['text', 'code_inline', 'image', 'inline_math'].includes(child.type))
+        .map((child) => child.content)
+        .join('');
+      token.attrSet('id', uniqueHeadingId(title, used, suffixes));
+    });
+    (state.env as NoteEnvironment).noteUsedIds = [...used];
+    let embedOrdinal = 0;
+    for (const token of tokens)
+      for (const child of [token, ...(token.children ?? [])]) {
+        if (child.type === 'note_embed' || child.type === 'note_embed_block')
+          child.meta = { ...child.meta, embedOrdinal: ++embedOrdinal };
+        if (child.type === 'link_open') {
+          const href = child.attrGet('href') ?? '';
+          if (href.startsWith('#^')) child.attrSet('href', '#block-' + href.slice(2));
+        }
+      }
     const headings = tokens.flatMap((t, i) =>
       t.type === 'heading_open'
         ? [

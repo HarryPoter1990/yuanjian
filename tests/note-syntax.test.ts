@@ -135,3 +135,36 @@ it('allows an acyclic same-note section embed', () => {
   expect(root.querySelector('.note-embed-body')?.textContent).toContain('一份契约');
   expect(root.querySelector('.note-reference-error')).toBeNull();
 });
+it('exports local block links to actual anchors and reserves block ids from headings', () => {
+  const root = html('# block-contract\n\n一份契约。 ^contract\n\n[[#^contract|定义]]');
+  const ids = [...root.querySelectorAll('[id]')].map((e) => e.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  const link = root.querySelector<HTMLAnchorElement>('p a')!;
+  expect(link.getAttribute('href')).toBe('#block-contract');
+  expect(root.querySelector('p[id="block-contract"]')?.textContent).toContain('一份契约');
+});
+it('namespaces repeated embeds so footnotes and local links cannot collide', () => {
+  const source = '# 笔记\n\n正文[^注]\n\n[[#笔记|回到标题]]\n\n[^注]: 补充';
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown('![[同一篇]]\n\n![[同一篇]]', {
+    ...options,
+    resolveNote: () => ({ path: '同一篇.md', source }),
+  });
+  const ids = [...root.querySelectorAll('[id]')].map((e) => e.id);
+  expect(ids.length).toBeGreaterThan(3);
+  expect(new Set(ids).size).toBe(ids.length);
+  for (const a of root.querySelectorAll('a[href^="#"]'))
+    expect(root.querySelector(`[id="${a.getAttribute('href')!.slice(1)}"]`)).not.toBeNull();
+});
+it('does not terminate details at literal closing tags in fenced code', () => {
+  const root = html(
+    '<details>\n<summary>示例</summary>\n\n```html\n</details>\n```\n\n最后正文。\n\n</details>',
+  );
+  expect(root.querySelector('details code')?.textContent).toContain('</details>');
+  expect(root.querySelector('details')?.textContent).toContain('最后正文');
+});
+it('reports missing images when the prototype asset resolver cannot provide them', () => {
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown('![[缺失.png|200]]', { ...options, resolveAsset: () => '' });
+  expect(root.querySelector('.note-reference-error')?.textContent).toContain('缺失.png');
+});
