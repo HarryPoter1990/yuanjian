@@ -4,9 +4,9 @@
 
 打开已有笔记即可开始写作，多个目录共用一套设置。写长文时可以收起侧栏，临时记事时可以切换到置顶的小便笺。笔记保存在你选择的位置，字体和配色也可以按自己的习惯调整。
 
-**Windows x64 · 预览版 0.10.0 · MIT**
+**Windows x64 · 预览版 0.11.2 · MIT**
 
-[下载](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.10.0) · [使用说明](docs/usage.md) · [反馈问题](https://github.com/HarryPoter1990/yuanjian/issues) · [更新记录](CHANGELOG.md)
+[下载](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.11.2) · [使用说明](docs/usage.md) · [反馈问题](https://github.com/HarryPoter1990/yuanjian/issues) · [更新记录](CHANGELOG.md)
 
 ## 功能
 
@@ -21,7 +21,7 @@
 
 ## 下载与开始使用
 
-在 [0.10.0 下载页](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.10.0) 的 **Assets** 中下载 `Yuanjian-Setup-0.10.0-x64.exe`。同页的 `SHA256SUMS.txt` 可用于核对文件完整性。“Source code” 是源码归档，安装软件请选择 `.exe` 文件。
+在 [0.11.2 下载页](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.11.2) 的 **Assets** 中下载 `Yuanjian-Setup-0.11.2-x64.exe`。同页的 `SHA256SUMS.txt` 可用于核对文件完整性。“Source code” 是源码归档，安装软件请选择 `.exe` 文件。
 
 目前提供 Windows x64 安装包，尚未签名，暂不支持自动更新。
 
