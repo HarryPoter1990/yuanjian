@@ -27,6 +27,10 @@ npm run build
 
 `npm test` 和 `npm run test:e2e` 包含 Electron 窗口测试。专项界面检查命令见 `package.json`；部分脚本需要 Edge，或需要先执行 `npm run build`。
 
+`node scripts/check-workspace-syntax.mjs` 在无头 Edge 中运行完整工作区的生成笔记场景，使用内存文件与剪贴板适配器。它检查真实鼠标拖选、复制、链接、嵌入、模式切换及导出请求；输出位于 `artifacts/integration-2026-10-28/browser`。
+
+构建后运行 `node scripts/check-note-integration-hidden.mjs artifacts/integration-2026-10-28/browser`，可用始终隐藏的 Electron 窗口验证实际预加载、文件授权边界、离线 HTML 和 PDF 输出。仅使用 `.test-data` 中生成的文件，不读取系统剪贴板或现有笔记。它不等同于前台中文输入法、窗口拖动或安装器测试。
+
 联网端到端测试默认关闭，设置 `LOCAL_NOTES_ONLINE_TEST=1` 后会下载测试字体和公共测试图片。测试文件与运行输出分别位于 `.test-data/` 和 `artifacts/`，不提交到仓库。
 
 ## 代码目录
