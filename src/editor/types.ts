@@ -36,6 +36,7 @@ export interface EditorSession {
 
 export interface MarkdownEditorProps {
   prototypeEditing?: boolean;
+  resolveNote?: RenderOptions['resolveNote'];
   value: string;
   onChange(value: string): void;
   mode: 'live' | 'source';
@@ -70,6 +71,14 @@ export interface MarkdownEditorHandle {
 }
 
 export interface RenderOptions {
+  prototypeSyntax?: boolean;
+  notePath?: string;
+  resolveNote?: (
+    reference: string,
+    from?: string,
+  ) => { path: string; source: string } | { error: string };
+  embedStack?: readonly string[];
+  exportMode?: 'html' | 'pdf';
   resolveAsset?: (path: string) => string;
   codeLineNumbers?: boolean;
   codeWrap?: boolean;

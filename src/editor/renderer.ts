@@ -9,6 +9,7 @@ import { iconMarkup } from '../ui/icon-markup';
 import { isEscaped } from './completion';
 import { wikiLinks } from '../shared/wiki';
 import { installFootnotes, footnoteIds } from '../shared/footnotes';
+import { installNoteSyntax } from './note-syntax';
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -176,7 +177,10 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     const resolved = options.resolveAsset?.(reference) ?? reference;
     const source = safeImageUrl(resolved) ? ` src="${escapeHtml(resolved)}"` : '';
     const title = token.attrGet('title');
-    return `<img${source} data-asset-src="${escapeHtml(reference)}" alt="${escapeHtml(token.content)}"${title ? ` title="${escapeHtml(title)}"` : ''} loading="lazy">`;
+    const dimensions = ['width', 'height']
+      .map((name) => (token.attrGet(name) ? ` ${name}="${escapeHtml(token.attrGet(name)!)}"` : ''))
+      .join('');
+    return `<img${source} data-asset-src="${escapeHtml(reference)}" alt="${escapeHtml(token.content)}"${title ? ` title="${escapeHtml(title)}"` : ''}${dimensions} loading="lazy">`;
   };
   md.core.ruler.after('inline', 'task_lists', (state) => {
     let listDepth = 0;
@@ -242,6 +246,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       }
     }
   });
+  if (options.prototypeSyntax) installNoteSyntax(md, options, renderMarkdown);
   return md;
 }
 
