@@ -78,6 +78,7 @@ let watcher: FSWatcher | null = null;
 let watchedKey = '';
 let mayClose = false;
 let uiReady = false;
+let startupShown = false;
 let persistWindowState: () => Promise<void> = async () => {};
 const pendingOpenPaths: string[] = [];
 async function requestOpen(file: string): Promise<void> {
@@ -236,6 +237,9 @@ async function renderPdf(htmlFile: string, target: string): Promise<void> {
 
 async function boot() {
   const dataDirectory = app.getPath('userData');
+  const initialFile = process.argv.find(
+    (value) => /\.(md|markdown|mdown|mkd|txt)$/i.test(value) && !value.startsWith('--'),
+  );
   if (testMode && process.env.HTTPS_PROXY) {
     const proxy = new URL(process.env.HTTPS_PROXY);
     await session.defaultSession.setProxy({
@@ -266,7 +270,7 @@ async function boot() {
     progress,
     fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
   });
-  await store.initialize();
+  await store.initialize({ deferHistoryPrune: true });
   importer = new TransferService(store, {
     chooseFiles: async () => {
       const result = await dialog.showOpenDialog(window!, {
@@ -359,6 +363,10 @@ async function boot() {
       applyWindowTheme(window, theme);
     },
     bootstrap: async (): Promise<Bootstrap> => {
+      const settings = store.getSettings();
+      const startupPath = initialFile
+        ? await store.approveFile(path.resolve(initialFile))
+        : undefined;
       let availableFonts = bundledFonts;
       const warnings: string[] = [...migrationWarnings];
       const pending = await store.pendingHistory();
@@ -367,16 +375,22 @@ async function boot() {
           `有 ${pending.length} 项历史补记未完成，可在版本历史中重试；正文不会被重写。`,
         );
       try {
-        availableFonts = await fonts.getFonts();
+        const { uiFont, bodyFont, codeFont, headingFont } = settings.appearance;
+        availableFonts = [
+          ...bundledFonts,
+          ...(await fonts.managedFonts([uiFont, bodyFont, codeFont, headingFont])),
+        ];
       } catch (error) {
         warnings.push(
-          `系统字体读取失败，可在设置中重试：${error instanceof Error ? error.message : String(error)}`,
+          `笔记字体读取失败，可在设置中重试：${error instanceof Error ? error.message : String(error)}`,
         );
       }
       return {
-        settings: store.getSettings(),
+        settings,
         session: store.getSession(),
         fonts: availableFonts,
+        startupPath,
+        fontListDeferred: true,
         dataDirectory,
         version: app.getVersion(),
         warnings,
@@ -500,6 +514,9 @@ async function boot() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
+      additionalArguments: initialFile
+        ? [`--yuanjian-startup-name=${path.basename(initialFile)}`]
+        : [],
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -543,9 +560,52 @@ async function boot() {
   window.webContents.on('will-navigate', (event, url) => {
     if (url.split('#')[0] !== mainUrl) event.preventDefault();
   });
-  window.once('ready-to-show', () => {
+  let nativeReady = false;
+  let rendererReady = false;
+  let maintenance: ReturnType<typeof setTimeout> | undefined;
+  function showStartupWindow() {
+    if (startupShown || !nativeReady || !rendererReady || mainWindow.isDestroyed()) return;
+    startupShown = true;
+    clearTimeout(showDeadline);
     mainWindow.show();
     modes.start();
+    maintenance = setTimeout(() => {
+      void store.pruneHistory().catch((error) =>
+        progress({
+          id: 'history-maintenance',
+          kind: 'error',
+          completed: 0,
+          message: `例行历史清理未完成：${error instanceof Error ? error.message : String(error)}`,
+        }),
+      );
+    }, 1500);
+  }
+  function startupReady(event: Electron.IpcMainEvent) {
+    if (
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame?.url.split('#')[0] !== mainUrl ||
+      event.senderFrame?.routingId !== mainWindow.webContents.mainFrame.routingId
+    )
+      return;
+    rendererReady = true;
+    showStartupWindow();
+  }
+  ipcMain.on('notes:startup-ready', startupReady);
+  const showDeadline = setTimeout(
+    () => {
+      rendererReady = true;
+      showStartupWindow();
+    },
+    Math.max(0, 2000 - process.uptime() * 1000),
+  );
+  mainWindow.once('ready-to-show', () => {
+    nativeReady = true;
+    showStartupWindow();
+  });
+  mainWindow.once('closed', () => {
+    clearTimeout(showDeadline);
+    clearTimeout(maintenance);
+    ipcMain.off('notes:startup-ready', startupReady);
   });
   window.on('close', (event) => {
     if (mayClose) return;
@@ -562,13 +622,6 @@ async function boot() {
   });
   await window.loadURL(mainUrl);
   await refreshWatcher();
-  const initialFile = process.argv.find(
-    (value) => /\.(md|markdown|mdown|mkd|txt)$/i.test(value) && !value.startsWith('--'),
-  );
-  if (initialFile) {
-    await store.approveFile(path.resolve(initialFile));
-    await requestOpen(path.resolve(initialFile));
-  }
 }
 
 const lock = testMode || app.requestSingleInstanceLock();
@@ -583,9 +636,11 @@ else {
         if (windowModes?.getMode().mode !== 'full') return;
       } // The controller reports persistence errors to the existing renderer.
     }
-    window?.show();
-    if (window?.isMinimized()) window.restore();
-    window?.focus();
+    if (startupShown) {
+      window?.show();
+      if (window?.isMinimized()) window.restore();
+      window?.focus();
+    }
     if (file && store) {
       await store.approveFile(path.resolve(file));
       await requestOpen(path.resolve(file));

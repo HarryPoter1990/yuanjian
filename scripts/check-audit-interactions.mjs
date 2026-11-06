@@ -113,6 +113,7 @@ try {
   await check(
     'crlf-link-insertion',
     async (page) => {
+      await page.getByRole('button', { name: '打开格式菜单', exact: true }).click();
       await page.getByRole('button', { name: '链接', exact: true }).click();
       await page.getByRole('textbox', { name: '链接显示文字', exact: true }).fill('新链接');
       await page
@@ -233,10 +234,12 @@ try {
     'mode-control-survives-hidden-toolbar',
     async (page) => {
       await expect(page.locator('.editor-toolbar')).toHaveCount(0);
-      const mode = page.getByRole('button', { name: '即时排版', exact: true });
+      const mode = page.getByRole('button', { name: '切换编辑模式', exact: true });
       await expect(mode).toBeVisible();
+      await expect(mode).toContainText('即时排版');
       await mode.click();
-      await expect(page.getByRole('button', { name: '源码', exact: true })).toBeVisible();
+      await page.getByRole('menuitem', { name: '源码', exact: true }).click();
+      await expect(mode).toContainText('源码');
     },
     '?toolbar-hidden',
   );

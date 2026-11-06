@@ -83,6 +83,7 @@ const toolbarLabels: Record<string, string> = {
 interface Props {
   settings: Settings;
   fonts: FontEntry[];
+  loadSystemFonts?: boolean;
   dataDirectory: string;
   version: string;
   onChange(settings: Settings): void;
@@ -96,6 +97,7 @@ interface Props {
 export function SettingsPanel({
   settings,
   fonts,
+  loadSystemFonts,
   dataDirectory,
   version,
   onChange,
@@ -273,11 +275,25 @@ export function SettingsPanel({
     }
   }
   useEffect(() => {
-    if (visible === 'fonts')
+    if (visible === 'fonts') {
+      let alive = true;
       void window.notes
         .getFontCatalog()
         .then(setCatalog)
         .catch((error) => onError(errorText(error)));
+      if (loadSystemFonts)
+        void window.notes
+          .getFonts()
+          .then((entries) => {
+            if (alive) onFonts(entries);
+          })
+          .catch((error) => {
+            if (alive) onError(errorText(error));
+          });
+      return () => {
+        alive = false;
+      };
+    }
     if (visible === 'history')
       void window.notes
         .historyStats()

@@ -404,6 +404,64 @@ describe('desktop session and save lifecycle', () => {
     expect(api.openFile).not.toHaveBeenCalled();
     expect(value.tabs.map((tab) => tab.content)).toEqual(['尚未保存的现场', '空白草稿的记录']);
   });
+  it('opens the startup file before checking other clean tabs and preserves dirty drafts', async () => {
+    const saved = asTab(note);
+    const target = {
+      ...note,
+      id: 'startup-target',
+      path: 'D:\\notes\\启动目标.md',
+      title: '启动目标.md',
+      content: '目标正文',
+    };
+    const draft = { ...asTab(note), id: 'draft', path: null, dirty: true, content: '未保存的草稿' };
+    await mount({ tabs: [saved, draft], activeId: saved.id }, (api) => {
+      const bootstrap = api.bootstrap;
+      api.bootstrap = async () => ({ ...(await bootstrap()), startupPath: target.path! });
+      api.openFile = vi.fn(async (file) =>
+        file === target.path ? target : { ...note, content: '更新的磁盘内容', hash: 'updated' },
+      );
+    });
+    expect(api.openFile).toHaveBeenCalledExactlyOnceWith(target.path);
+    expect(value.getTab(value.activeId!)?.content).toBe('目标正文');
+    expect(value.getTab(draft.id)?.content).toBe('未保存的草稿');
+    expect(value.checkingTabs).toEqual([saved.id]);
+    await act(async () => value.setActiveId(saved.id));
+    expect(value.getTab(saved.id)?.content).toBe('更新的磁盘内容');
+    expect(value.checkingTabs).toEqual([]);
+  });
+  it('keeps a dirty saved session when the requested startup file is already open', async () => {
+    const dirty = { ...asTab(note), content: '尚未保存的现场', dirty: true };
+    await mount({ tabs: [dirty], activeId: dirty.id }, (api) => {
+      const bootstrap = api.bootstrap;
+      api.bootstrap = async () => ({ ...(await bootstrap()), startupPath: note.path! });
+    });
+    expect(api.openFile).not.toHaveBeenCalled();
+    expect(value.getTab(value.activeId!)?.content).toBe(dirty.content);
+  });
+  it('waits for the latest disk read when a deferred tab changes during restore', async () => {
+    const other = { ...note, id: 'other-tab', path: 'D:\\notes\\待恢复.md', title: '待恢复.md' };
+    const reads: Array<(document: NoteDocument) => void> = [];
+    let filesChanged: (paths: string[]) => void = () => {};
+    await mount({ tabs: [asTab(note), asTab(other)], activeId: note.id }, (api) => {
+      api.onFilesChanged = (callback) => {
+        filesChanged = callback;
+        return () => {};
+      };
+      api.openFile = vi.fn((file) =>
+        file === other.path
+          ? new Promise<NoteDocument>((resolve) => reads.push(resolve))
+          : Promise.resolve(note),
+      );
+    });
+    await act(async () => value.setActiveId(other.id));
+    await act(async () => filesChanged([other.path]));
+    expect(reads).toHaveLength(2);
+    await act(async () => reads[0]({ ...other, content: '旧读取结果', hash: 'older' }));
+    expect(value.checkingTabs).toContain(other.id);
+    await act(async () => reads[1]({ ...other, content: '最新磁盘内容', hash: 'latest' }));
+    expect(value.getTab(other.id)?.content).toBe('最新磁盘内容');
+    expect(value.checkingTabs).not.toContain(other.id);
+  });
   it('keeps the stored original and reports a failed startup refresh', async () => {
     await mount(undefined, (api) => {
       api.openFile = vi.fn(async () => {

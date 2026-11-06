@@ -106,11 +106,12 @@ export class FontManager {
     }
     return [...bundledFonts, ...(await this.managedFonts()), ...this.system];
   }
-  async managedFonts(): Promise<FontEntry[]> {
+  async managedFonts(families?: readonly string[]): Promise<FontEntry[]> {
     return this.queue.run(async () => {
       const entries = await readJson<FontEntry[]>(this.manifest, []);
       const result: FontEntry[] = [];
       for (const entry of entries) {
+        if (families && !families.includes(entry.name)) continue;
         if (!entry.path || path.dirname(path.resolve(entry.path)) !== path.resolve(this.directory))
           throw new Error('字体索引含有非法位置');
         await stat(entry.path);

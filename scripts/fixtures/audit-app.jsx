@@ -36,6 +36,8 @@ const state = {
 };
 window.auditFixture = state;
 const api = {
+  startupReady: () => {},
+  startupFileName: '',
   bootstrap: async () => ({
     settings,
     session: { tabs: [tab], activeId: tab.id },

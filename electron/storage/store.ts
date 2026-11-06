@@ -109,7 +109,7 @@ export class NoteStore {
     this.attachments = new AttachmentStore(this);
     this.moves = new MoveStore(this);
   }
-  async initialize(): Promise<void> {
+  async initialize({ deferHistoryPrune = false } = {}): Promise<void> {
     if (this.initialized) return;
     await mkdir(this.dataDirectory, { recursive: true });
     const saved = await readJson<Partial<Settings>>(
@@ -173,7 +173,7 @@ export class NoteStore {
       .max(10000)
       .parse(await readJson(path.join(this.dataDirectory, 'pending-history-saves.json'), []));
     await this.moves.initialize();
-    await this.history.prune();
+    if (!deferHistoryPrune) await this.history.prune();
     this.initialized = true;
   }
   getSettings(): Settings {

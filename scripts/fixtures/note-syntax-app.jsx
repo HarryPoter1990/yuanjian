@@ -131,6 +131,8 @@ Object.defineProperty(navigator, 'clipboard', {
   },
 });
 const api = {
+  startupReady: () => {},
+  startupFileName: '',
   bootstrap: async () => ({
     settings,
     session: { tabs: [root, openChild], activeId: root.id },

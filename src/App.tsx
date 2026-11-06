@@ -157,7 +157,10 @@ export default function App() {
     setGraphActive,
     viewOrder,
   } = workspace;
-  const active = tabs.find((tab) => tab.id === activeId) || null;
+  const selectedTab = tabs.find((tab) => tab.id === activeId) || null;
+  const checkingTab =
+    selectedTab && workspace.checkingTabs.includes(selectedTab.id) ? selectedTab : null;
+  const active = checkingTab ? null : selectedTab;
   const noteReferences = useNoteReferences(active, tabs, workspace.index);
   const [panel, setPanelState] = useState<Panel>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -329,8 +332,8 @@ export default function App() {
     setAppMenu(false);
     setTabsMenu(false);
     setFormatMenu(false);
-    if (workspace.bootstrap && !active) workspace.newDraft();
-  }, [sticky, workspace.bootstrap, activeId, Boolean(active), workspace.newDraft]);
+    if (workspace.bootstrap && !selectedTab) workspace.newDraft();
+  }, [sticky, workspace.bootstrap, activeId, Boolean(selectedTab), workspace.newDraft]);
   async function changeWindowMode(mode: 'full' | 'sticky') {
     if (windowMode.pending || workspace.closing) return;
     if (mode === 'sticky' && (busy || panel || workspace.conflict)) return;
@@ -529,7 +532,7 @@ export default function App() {
     } else if (pendingLine && activeId !== pendingLine.id) {
       setPendingLine(null);
     }
-  }, [pendingLine, activeId, graphActive, documentView]);
+  }, [pendingLine, activeId, active?.id, graphActive, documentView]);
   function cancelNavigation() {
     navigationVersion.current++;
     navigating.current = false;
@@ -1542,14 +1545,20 @@ export default function App() {
         <FileText size={34} />
         <h1>鸢笺未能打开</h1>
         <p role="alert">{workspace.loadError}</p>
-        <button onClick={() => window.location.reload()}>重新连接</button>
+        <button onClick={() => window.location.reload()}>
+          {window.notes?.startupFileName ? '重试打开' : '重新连接'}
+        </button>
       </main>
     );
   if (!settings || !workspace.bootstrap)
     return (
       <main className="startup-state">
         <span className="brand-mark">鸢笺</span>
-        <p role="status">正在恢复你的笔记…</p>
+        <p role="status">
+          {window.notes?.startupFileName
+            ? `正在打开「${window.notes.startupFileName}」…`
+            : '正在恢复你的笔记…'}
+        </p>
       </main>
     );
   const appearance = displayedAppearance!;
@@ -1940,7 +1949,11 @@ export default function App() {
             id="document-panel"
             role="tabpanel"
             aria-labelledby={
-              graphActive ? 'document-tab-graph' : active ? tabLabelId(active.id) : undefined
+              graphActive
+                ? 'document-tab-graph'
+                : selectedTab
+                  ? tabLabelId(selectedTab.id)
+                  : undefined
             }
             aria-label="笔记编辑区"
           >
@@ -1959,6 +1972,10 @@ export default function App() {
                   if (!active) workspace.newDraft();
                 }}
               />
+            ) : checkingTab ? (
+              <p className="document-heading" role="status">
+                正在检查「{checkingTab.title}」的磁盘内容…
+              </p>
             ) : (
               active && (
                 <>
@@ -2727,6 +2744,7 @@ export default function App() {
             onPreview={previewAppearance}
             onApplyAppearance={workspace.applyAppearance}
             fonts={fonts}
+            loadSystemFonts={workspace.bootstrap.fontListDeferred}
             dataDirectory={workspace.bootstrap.dataDirectory}
             version={workspace.bootstrap.version}
             onChange={changeSettings}

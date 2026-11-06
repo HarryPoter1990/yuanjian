@@ -185,23 +185,26 @@ try {
     await quick(page, 'Links');
     const expected =
       (await page.evaluate(() => window.workflowFixture.document())).indexOf('目标') + 1;
-    const point = await page.locator('.markdown-preview-block strong').evaluate((element) => {
-      const range = document.createRange();
-      range.setStart(element.firstChild, 1);
-      range.collapse(true);
-      const rect = range.getBoundingClientRect();
-      return { x: rect.x + 0.1, y: rect.y + rect.height / 2 };
-    });
+    const point = await page
+      .locator('.prototype-strong')
+      .filter({ hasText: '目标' })
+      .evaluate((element) => {
+        const range = document.createRange();
+        range.setStart(element.firstChild, 1);
+        range.collapse(true);
+        const rect = range.getBoundingClientRect();
+        return { x: rect.x + 0.1, y: rect.y + rect.height / 2 };
+      });
     await page.mouse.click(point.x, point.y);
     assert.equal(await page.evaluate(() => window.workflowFixture.cursor()), expected);
-    await page.locator('.markdown-preview-block').filter({ hasText: '尾段。' }).click();
+    await page.locator('.cm-line').filter({ hasText: '尾段。' }).click();
     await page.getByRole('link', { name: '网站', exact: true }).click();
     assert.ok(
       !(await page.evaluate(() => window.workflowFixture.opened)).includes(
         'https://example.org/path',
       ),
     );
-    await page.locator('.markdown-preview-block').filter({ hasText: '尾段。' }).click();
+    await page.locator('.cm-line').filter({ hasText: '尾段。' }).click();
     await page.getByRole('link', { name: '网站', exact: true }).click({ modifiers: ['Control'] });
     await expect
       .poll(() => page.evaluate(() => window.workflowFixture.opened))

@@ -40,7 +40,7 @@ beforeEach(async () => {
     getFontCatalog: async () => [],
     historyStats: async () => ({ count: 0, textBytes: 0, imageBytes: 0, totalBytes: 0 }),
     removeFont: removed,
-    getFonts: async () => fonts.filter((font) => font.id !== removed.mock.lastCall?.[0]),
+    getFonts: vi.fn(async () => fonts.filter((font) => font.id !== removed.mock.lastCall?.[0])),
   } as unknown as typeof window.notes;
   saved.mockClear();
   removed.mockReset();
@@ -50,12 +50,13 @@ beforeEach(async () => {
   function Harness() {
     const [settings, setSettings] = useState(structuredClone(defaultSettings));
     replaceSettings = setSettings;
-    const [available, setAvailable] = useState(fonts);
+    const [available, setAvailable] = useState(fonts.filter((font) => font.source === 'bundled'));
     current = settings;
     return (
       <SettingsPanel
         settings={settings}
         fonts={available}
+        loadSystemFonts
         dataDirectory="generated-only"
         version="fixture"
         saveState="设置已保存"
@@ -72,6 +73,7 @@ beforeEach(async () => {
     );
   }
   await act(async () => root.render(<Harness />));
+  expect(window.notes.getFonts).not.toHaveBeenCalled();
   const navigation = [...host.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(
     (button) => button.textContent?.includes('字体管理'),
   )!;
@@ -96,6 +98,7 @@ async function type(label: string, value: string) {
   return input;
 }
 it('shows bundled and managed files while keeping system previews collapsed by default', () => {
+  expect(window.notes.getFonts).toHaveBeenCalledTimes(1);
   expect(host.querySelectorAll('.font-row')).toHaveLength(6);
   expect(
     [...host.querySelectorAll('.font-row')].map((row) => row.textContent).join(' '),

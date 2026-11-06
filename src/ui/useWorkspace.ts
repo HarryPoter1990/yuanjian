@@ -31,6 +31,7 @@ export function useWorkspace(onExternalOpen?: () => void) {
   externalOpen.current = onExternalOpen;
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [checkingTabs, setCheckingTabs] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
@@ -48,6 +49,8 @@ export function useWorkspace(onExternalOpen?: () => void) {
   current.current = { tabs, activeId, settings, conflict, viewOrder, graphActive };
   const pendingSaves = useRef(new Map<string, Promise<boolean>>());
   const externalReads = useRef(new Map<string, symbol>());
+  const deferredTabs = useRef(new Set<string>());
+  const [firstFrameReady, setFirstFrameReady] = useState(() => !window.notes?.startupReady);
   const refreshGeneration = useRef(0);
   const savedSettings = useRef('');
   const settingsWrite = useRef<Promise<unknown>>(Promise.resolve());
@@ -132,6 +135,51 @@ export function useWorkspace(onExternalOpen?: () => void) {
       setTabs(next);
     },
     [],
+  );
+  const finishTabCheck = useCallback((id: string) => {
+    if (deferredTabs.current.delete(id) && mounted.current)
+      setCheckingTabs((ids) => ids.filter((item) => item !== id));
+  }, []);
+  const refreshNamedTab = useCallback(
+    async (tab: TabState) => {
+      if (!tab.path) return;
+      const { id } = tab;
+      const readId = Symbol();
+      externalReads.current.set(id, readId);
+      try {
+        const note = await window.notes.openFile(tab.path);
+        if (!note) throw new Error('文件未能读取');
+        if (mounted.current && externalReads.current.get(id) === readId)
+          updateTab(id, (latest) =>
+            latest.dirty || latest.path !== tab.path || latest.hash !== tab.hash
+              ? latest
+              : { ...latest, ...note, baseContent: note.content },
+          );
+      } catch (error) {
+        if (mounted.current && externalReads.current.get(id) === readId)
+          notify(
+            deferredTabs.current.has(id)
+              ? `恢复时未能刷新「${tab.title}」，已保留会话原文：${errorText(error)}`
+              : `外部文件更新失败：${errorText(error)}`,
+            true,
+          );
+      } finally {
+        if (externalReads.current.get(id) === readId) {
+          externalReads.current.delete(id);
+          finishTabCheck(id);
+        }
+      }
+    },
+    [finishTabCheck, notify, updateTab],
+  );
+  const checkRestoredTab = useCallback(
+    (id: string) => {
+      if (!deferredTabs.current.has(id) || externalReads.current.has(id)) return;
+      const tab = current.current.tabs.find((item) => item.id === id);
+      if (tab?.path && !tab.dirty) return refreshNamedTab(tab);
+      finishTabCheck(id);
+    },
+    [finishTabCheck, refreshNamedTab],
   );
   const persistSession = useCallback(async () => {
     const value: SessionState = {
@@ -390,36 +438,62 @@ export function useWorkspace(onExternalOpen?: () => void) {
       .bootstrap()
       .then(async (value) => {
         const failures: string[] = [];
-        const restored = value.session.tabs.length
-          ? await Promise.all(
-              value.session.tabs.map(async (tab) => {
-                if (!tab.path || tab.dirty) return tab;
-                try {
-                  const note = await window.notes.openFile(tab.path);
-                  if (!note) throw new Error('文件未能读取');
-                  return { ...tab, ...note, id: tab.id, baseContent: note.content, dirty: false };
-                } catch (error) {
-                  failures.push(
-                    `恢复时未能刷新「${tab.title}」，已保留会话原文：${errorText(error)}`,
-                  );
-                  return tab;
-                }
-              }),
-            )
-          : [makeDraft()];
+        const restored = [...value.session.tabs];
+        let order = value.session.viewOrder || [];
+        let selected = value.startupPath
+          ? restored.find((tab) => tab.path === value.startupPath)
+          : (restored.find((tab) => tab.id === value.session.activeId) ?? restored[0]);
+        const requested = value.startupPath ?? selected?.path;
+        if (requested && !selected?.dirty) {
+          try {
+            const note = await window.notes.openFile(requested);
+            if (!note) throw new Error('文件未能读取');
+            const existing = selected ?? restored.find((tab) => tab.path === note.path);
+            selected = existing?.dirty
+              ? existing
+              : existing
+                ? { ...existing, ...note, id: existing.id, baseContent: note.content, dirty: false }
+                : asTab(note);
+            if (existing) restored[restored.indexOf(existing)] = selected;
+            else {
+              restored.push(selected);
+              order = insertView(
+                reconcileViews(order, value.session.tabs),
+                { kind: 'note', id: selected.id },
+                value.session.graphActive
+                  ? 'graph'
+                  : value.session.activeId
+                    ? `note:${value.session.activeId}`
+                    : null,
+              );
+            }
+          } catch (error) {
+            if (value.startupPath) throw error;
+            failures.push(
+              `恢复时未能刷新「${selected?.title}」，已保留会话原文：${errorText(error)}`,
+            );
+          }
+        }
+        if (!selected) {
+          selected = makeDraft();
+          restored.push(selected);
+        }
         if (!alive) return;
+        deferredTabs.current = new Set(
+          restored
+            .filter((tab) => tab.id !== selected.id && tab.path && !tab.dirty)
+            .map((tab) => tab.id),
+        );
+        setCheckingTabs([...deferredTabs.current.keys()]);
         setSettings(value.settings);
         savedSettings.current = JSON.stringify(value.settings);
-        applyViews(restored, value.session.viewOrder || []);
-        setActiveId(
-          restored.some((tab) => tab.id === value.session.activeId)
-            ? value.session.activeId
-            : restored[0].id,
-        );
+        applyViews(restored, order);
+        setActiveId(selected.id);
         setGraphActive(
           Boolean(
+            !value.startupPath &&
             value.session.graphActive &&
-            value.session.viewOrder?.some((view) => view.kind === 'graph'),
+            order.some((view) => view.kind === 'graph'),
           ),
         );
         setBootstrap({ ...value, session: { ...value.session, tabs: restored } });
@@ -433,6 +507,37 @@ export function useWorkspace(onExternalOpen?: () => void) {
       mounted.current = false;
     };
   }, [applyViews, setActiveId, setGraphActive]);
+  useEffect(() => {
+    if (!window.notes?.startupReady || (!bootstrap && !loadError)) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        window.notes.startupReady?.();
+        setFirstFrameReady(true);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bootstrap, loadError]);
+  useEffect(() => {
+    if (activeId) void checkRestoredTab(activeId);
+  }, [activeId, checkRestoredTab]);
+  useEffect(() => {
+    if (!bootstrap || !firstFrameReady) return;
+    let alive = true;
+    const timer = setTimeout(
+      () =>
+        void (async () => {
+          for (const id of deferredTabs.current.keys()) {
+            if (!alive) break;
+            await checkRestoredTab(id);
+          }
+        })(),
+      500,
+    );
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [bootstrap, checkRestoredTab, firstFrameReady]);
   useEffect(() => {
     if (!settings) return;
     const serialized = JSON.stringify(settings);
@@ -458,9 +563,10 @@ export function useWorkspace(onExternalOpen?: () => void) {
     return () => clearTimeout(timer);
   }, [tabs, activeId, viewOrder, graphActive, bootstrap, persistSession, notify]);
   useEffect(() => {
-    if (!settings) return;
+    if (!settings || !firstFrameReady) return;
     void refresh().catch((error) => notify(`读取目录失败：${errorText(error)}`, true));
   }, [
+    firstFrameReady,
     settings?.roots.join('|'),
     settings?.excluded.join('|'),
     settings?.showAllFiles,
@@ -488,32 +594,15 @@ export function useWorkspace(onExternalOpen?: () => void) {
         void refresh().catch((error) => notify(errorText(error), true));
         for (const tab of current.current.tabs) {
           if (!tab.path || !paths.includes(tab.path)) continue;
-          const readId = Symbol();
-          externalReads.current.set(tab.id, readId);
           if (tab.dirty) {
+            externalReads.current.delete(tab.id);
+            finishTabCheck(tab.id);
             if (current.current.conflict?.tabId === tab.id) continue;
             if (current.current.settings?.autoSave) void saveRef.current(tab.id);
             else notify('文件在外部发生变化；自动保存已关闭，本地修改已保留。');
             continue;
           }
-          void window.notes
-            .openFile(tab.path)
-            .then((note) => {
-              if (note && mounted.current && externalReads.current.get(tab.id) === readId)
-                updateTab(tab.id, (latest) =>
-                  latest.dirty || latest.path !== tab.path || latest.hash !== tab.hash
-                    ? latest
-                    : { ...latest, ...note, baseContent: note.content },
-                );
-            })
-            .catch((error) => {
-              if (mounted.current && externalReads.current.get(tab.id) === readId)
-                notify(`外部文件更新失败：${errorText(error)}`, true);
-            })
-            .finally(() => {
-              if (externalReads.current.get(tab.id) === readId)
-                externalReads.current.delete(tab.id);
-            });
+          void refreshNamedTab(tab);
         }
       }),
       window.notes.onOpenRequested((path) => {
@@ -549,12 +638,14 @@ export function useWorkspace(onExternalOpen?: () => void) {
       }),
     ];
     return () => cleanup.forEach((dispose) => dispose());
-  }, [bootstrap, notify, open, persistSession, refresh, updateTab]);
+  }, [bootstrap, finishTabCheck, notify, open, persistSession, refresh, refreshNamedTab]);
   useEffect(() => {
     const timer = setTimeout(() => setProgress(null), 5000);
     return () => clearTimeout(timer);
   }, [progress]);
   function removeTab(id: string) {
+    externalReads.current.delete(id);
+    finishTabCheck(id);
     const previous = current.current.tabs;
     let remaining = previous.filter((tab) => tab.id !== id);
     const order = current.current.viewOrder.filter(
@@ -598,6 +689,7 @@ export function useWorkspace(onExternalOpen?: () => void) {
   return {
     bootstrap,
     loadError,
+    checkingTabs,
     settings,
     setSettings,
     applyAppearance: (appearance: Appearance, removals?: AppearanceRemovals) =>

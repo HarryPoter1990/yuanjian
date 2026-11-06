@@ -85,6 +85,8 @@ Object.defineProperty(navigator, 'clipboard', {
   },
 });
 const api = {
+  startupReady: () => {},
+  startupFileName: '',
   pendingHistory: async () => [],
   retryHistoryWork: async () => {},
   searchNotes: async (query, options) => ({

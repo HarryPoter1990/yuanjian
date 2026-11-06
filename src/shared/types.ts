@@ -213,6 +213,8 @@ export interface Bootstrap {
   settings: Settings;
   session: SessionState;
   fonts: FontEntry[];
+  startupPath?: string;
+  fontListDeferred?: boolean;
   dataDirectory: string;
   version: string;
   warnings?: string[];
@@ -304,6 +306,8 @@ export type TransferItem =
   | { kind: 'source'; name: string; source: ImportSource }
   | { kind: 'error'; name: string; message: string };
 export interface DesktopAPI {
+  startupFileName?: string;
+  startupReady?(): void;
   prepareFiles(files: File[]): Promise<TransferItem[]>;
   chooseImports(): Promise<TransferItem[]>;
   readImport(id: string, encoding: ImportEncoding): Promise<ImportSource>;

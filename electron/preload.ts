@@ -4,6 +4,11 @@ import type { DesktopAPI, TransferItem } from '../src/shared/types';
 // Fixed methods, never expose arbitrary ipcRenderer.send/invoke to rendered Markdown.
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
+  startupFileName:
+    process.argv
+      .find((arg) => arg.startsWith('--yuanjian-startup-name='))
+      ?.slice('--yuanjian-startup-name='.length) ?? '',
+  startupReady: () => ipcRenderer.send('notes:startup-ready'),
   prepareFiles: async (files) => {
     if (!Array.isArray(files) || files.length > 100) throw new Error('一次最多处理 100 个文件');
     const candidates = files.map((file) => {
