@@ -16,8 +16,16 @@ await writeFile(
   '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><base href="/"></head><body><div id="root"></div><script type="module" src="/scripts/fixtures/note-syntax-app.jsx"></script></body></html>',
 );
 const server = await createServer({
-  server: { host: '127.0.0.1', port: 0 },
-  optimizeDeps: { entries: [path.resolve(entry)] },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    watch: { ignored: ['**/artifacts/**', '**/.test-data/**'] },
+    warmup: { clientFiles: ['./scripts/fixtures/note-syntax-app.jsx'] },
+  },
+  optimizeDeps: {
+    entries: [path.resolve(entry)],
+    include: ['highlight.js/lib/common'],
+  },
 });
 await server.listen();
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
