@@ -1,14 +1,37 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { DesktopAPI, TransferItem } from '../src/shared/types';
+import type { Bootstrap, DesktopAPI, NoteDocument, TransferItem } from '../src/shared/types';
+
+const startupFileName =
+  process.argv
+    .find((arg) => arg.startsWith('--yuanjian-startup-name='))
+    ?.slice('--yuanjian-startup-name='.length) ?? '';
+
+// Begin the authorized file-association read while the renderer loads its modules.
+let earlyStartup: Promise<Bootstrap | undefined> | undefined = startupFileName
+  ? (ipcRenderer.invoke('notes:bootstrap') as Promise<Bootstrap>)
+      .catch(() => undefined) // The normal bootstrap remains available if the frame is not ready yet.
+      .then(async (value) => {
+        const path = value?.startupPath;
+        if (!value || !path || value.session.tabs.some((tab) => tab.path === path && tab.dirty))
+          return value;
+        const startupDocument = (await ipcRenderer.invoke(
+          'notes:openFile',
+          path,
+        )) as NoteDocument | null;
+        if (!startupDocument) throw new Error('文件未能读取');
+        return { ...value, startupDocument };
+      })
+  : undefined;
+void earlyStartup?.catch(() => undefined); // A read error is shown by the renderer when it awaits bootstrap.
 
 // Fixed methods, never expose arbitrary ipcRenderer.send/invoke to rendered Markdown.
 // https://www.electronjs.org/docs/latest/tutorial/context-isolation#security-considerations
 const api: DesktopAPI = {
-  startupFileName:
-    process.argv
-      .find((arg) => arg.startsWith('--yuanjian-startup-name='))
-      ?.slice('--yuanjian-startup-name='.length) ?? '',
-  startupReady: () => ipcRenderer.send('notes:startup-ready'),
+  startupFileName,
+  startupReady: () => {
+    earlyStartup = undefined;
+    ipcRenderer.send('notes:startup-ready');
+  },
   prepareFiles: async (files) => {
     if (!Array.isArray(files) || files.length > 100) throw new Error('一次最多处理 100 个文件');
     const candidates = files.map((file) => {
@@ -50,7 +73,7 @@ const api: DesktopAPI = {
     ipcRenderer.on('notes:window-mode-changed', listener);
     return () => ipcRenderer.removeListener('notes:window-mode-changed', listener);
   },
-  bootstrap: () => ipcRenderer.invoke('notes:bootstrap'),
+  bootstrap: async () => (await earlyStartup) ?? ipcRenderer.invoke('notes:bootstrap'),
   setWindowTheme: (theme) => ipcRenderer.invoke('notes:setWindowTheme', theme),
   saveSettings: (value) => ipcRenderer.invoke('notes:saveSettings', value),
   saveSession: (value) => ipcRenderer.invoke('notes:saveSession', value),

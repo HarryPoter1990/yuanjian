@@ -5,6 +5,9 @@ declare module 'turndown-plugin-gfm' {
   export const strikethrough: TurndownService.Plugin;
   export const taskListItems: TurndownService.Plugin;
 }
+declare module 'highlight.js/lib/common' {
+  export { default } from 'highlight.js';
+}
 // Match the ESM markdown-it types used by the application; upstream @types selects its CJS copy.
 declare module 'markdown-it-footnote' {
   import type MarkdownIt from 'markdown-it';

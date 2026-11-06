@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { EditorState } from '@codemirror/state';
-import { createMarkdownParser, renderMarkdown, safeImageUrl } from '../src/editor/renderer';
+import {
+  createMarkdownParser,
+  hydrateCodeHighlighting,
+  renderMarkdown,
+  safeImageUrl,
+} from '../src/editor/renderer';
 import { markdownBlocks, livePreviewField, previewConfig } from '../src/editor/live-preview';
 import {
   parseTable,
@@ -58,6 +63,20 @@ describe('safe Markdown rendering', () => {
     expect(html).toContain('hljs-keyword');
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
+  });
+  it('loads a less common code grammar on demand without changing its source or line numbers', async () => {
+    const source = 'defmodule Demo do\n  "<script>"\nend\n';
+    const root = document.createElement('div');
+    root.innerHTML = renderMarkdown(`\`\`\`elixir\n${source}\`\`\``);
+    expect(root.querySelector('code')?.dataset.highlightLanguage).toBe('elixir');
+    await hydrateCodeHighlighting(root);
+    expect(root.querySelector('code')?.dataset.highlightLanguage).toBeUndefined();
+    expect(root.querySelector('.hljs-keyword')?.textContent).toBe('defmodule');
+    expect(root.querySelectorAll('.code-line-number')).toHaveLength(3);
+    expect(root.querySelector('script')).toBeNull();
+    expect(decodeURIComponent(root.querySelector<HTMLElement>('.code-copy')!.dataset.code!)).toBe(
+      source,
+    );
   });
   it('rejects dangerous links and keeps local images inactive until authorized', () => {
     const html = renderMarkdown(

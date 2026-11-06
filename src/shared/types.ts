@@ -214,6 +214,7 @@ export interface Bootstrap {
   session: SessionState;
   fonts: FontEntry[];
   startupPath?: string;
+  startupDocument?: NoteDocument;
   fontListDeferred?: boolean;
   dataDirectory: string;
   version: string;

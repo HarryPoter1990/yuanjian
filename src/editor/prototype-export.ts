@@ -1,6 +1,6 @@
 import katexStyle from 'katex/dist/katex.min.css?inline';
 import editorStyle from './editor.css?inline';
-import { renderMarkdown } from './renderer';
+import { hydrateCodeHighlighting, renderMarkdown } from './renderer';
 import type { RenderOptions } from './types';
 
 let offlineStyle: Promise<string> | undefined;
@@ -41,7 +41,9 @@ function embeddedStyles(): Promise<string> {
 
 /** Same document is downloaded by the sample UI and printed by the headless check. */
 export async function exportPrototypeHtml(source: string, options: RenderOptions): Promise<string> {
-  const body = renderMarkdown(source, options),
-    style = await embeddedStyles();
+  const root = document.createElement('div');
+  root.innerHTML = renderMarkdown(source, options);
+  const [style] = await Promise.all([embeddedStyles(), hydrateCodeHighlighting(root)]);
+  const body = root.innerHTML;
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><title>鸢笺 · 语法示例</title><style>${style}\nhtml,body{height:auto;margin:0;background:#fff;color:#292724}body{font:17px/1.8 system-ui,sans-serif;padding:32px}main{max-width:76ch;margin:auto}img{max-width:100%;height:auto}pre{overflow:auto}h1,h2,h3{line-height:1.4}a{color:#665947}summary{cursor:pointer}.code-copy{display:none}@page{margin:18mm}@media print{body{padding:0}.note-embed-open{display:none}}</style></head><body><main class="markdown-rendered">${body}</main></body></html>`;
 }

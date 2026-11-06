@@ -446,7 +446,10 @@ export function useWorkspace(onExternalOpen?: () => void) {
         const requested = value.startupPath ?? selected?.path;
         if (requested && !selected?.dirty) {
           try {
-            const note = await window.notes.openFile(requested);
+            const note =
+              value.startupDocument?.path === requested
+                ? value.startupDocument
+                : await window.notes.openFile(requested);
             if (!note) throw new Error('文件未能读取');
             const existing = selected ?? restored.find((tab) => tab.path === note.path);
             selected = existing?.dirty

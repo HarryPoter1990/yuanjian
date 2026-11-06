@@ -4,6 +4,8 @@ await build({
   outdir: 'dist-electron',
   outExtension: { '.js': '.cjs' },
   bundle: true,
+  minify: true,
+  keepNames: true,
   platform: 'node',
   format: 'cjs',
   target: 'node22',

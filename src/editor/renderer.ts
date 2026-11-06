@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
-import hljs from 'highlight.js';
+import commonHighlighter from 'highlight.js/lib/common';
 import type { RenderOptions } from './types';
 import { installHeadingIds } from '../shared/heading-id';
 import { withoutFrontmatter } from './frontmatter';
@@ -10,6 +10,42 @@ import { installMathSyntax } from '../shared/math-syntax';
 import { wikiLinks } from '../shared/wiki';
 import { installFootnotes } from '../shared/footnotes';
 import { installNoteSyntax } from '../shared/note-syntax';
+
+let highlighter = commonHighlighter;
+let allLanguagesLoaded = false;
+let allLanguages: Promise<void> | undefined;
+
+export async function hydrateCodeHighlighting(root: HTMLElement): Promise<void> {
+  const blocks = [...root.querySelectorAll<HTMLElement>('code[data-highlight-language]')];
+  if (!blocks.length) return;
+  try {
+    allLanguages ??= import('highlight.js').then(({ default: full }) => {
+      highlighter = full;
+      allLanguagesLoaded = true;
+    });
+    await allLanguages;
+  } catch {
+    allLanguages = undefined;
+    return; // Plain code remains readable if the local language chunk cannot load.
+  }
+  for (const block of blocks) {
+    if (!root.contains(block)) continue;
+    const language = block.dataset.highlightLanguage ?? '';
+    delete block.dataset.highlightLanguage;
+    const source = block.closest('.code-container')?.querySelector<HTMLElement>('.code-copy')
+      ?.dataset.code;
+    if (source === undefined || !highlighter.getLanguage(language)) continue;
+    try {
+      const html = highlighter.highlight(decodeURIComponent(source), {
+        language,
+        ignoreIllegals: true,
+      }).value;
+      block.innerHTML = numberedCode(html, Boolean(block.querySelector('.code-line-number')));
+    } catch {
+      // Keep the original escaped code on a grammar error.
+    }
+  }
+}
 
 export const escapeHtml = (text: string): string =>
   text.replace(
@@ -74,11 +110,18 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
       return `<div class="mermaid-diagram" data-mermaid="true"><pre>${escapeHtml(token.content)}</pre></div>\n`;
     let highlighted = escapeHtml(token.content);
     let detected = language;
+    const deferredLanguage =
+      language && !allLanguagesLoaded && !highlighter.getLanguage(language)
+        ? ` data-highlight-language="${escapeHtml(language)}"`
+        : '';
     try {
-      if (language && hljs.getLanguage(language))
-        highlighted = hljs.highlight(token.content, { language, ignoreIllegals: true }).value;
+      if (language && highlighter.getLanguage(language))
+        highlighted = highlighter.highlight(token.content, {
+          language,
+          ignoreIllegals: true,
+        }).value;
       else if (!language && token.content.length < 50000) {
-        const result = hljs.highlightAuto(token.content, [
+        const result = highlighter.highlightAuto(token.content, [
           'javascript',
           'typescript',
           'java',
@@ -101,7 +144,7 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     } catch {
       /* Unknown or incomplete code stays readable. */
     }
-    const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}">${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
+    const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}"${deferredLanguage}>${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
     const fold =
       options.codeFold === false
         ? ''
@@ -252,6 +295,7 @@ export async function hydrateMarkdown(
   root: HTMLElement,
   resolveAsset?: (path: string, from?: string) => Promise<string>,
 ): Promise<void> {
+  const codeHighlighting = hydrateCodeHighlighting(root);
   const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[data-asset-src]'));
   await Promise.all(
     images.map(async (image) => {
@@ -318,4 +362,5 @@ export async function hydrateMarkdown(
       }
     });
   }
+  await codeHighlighting;
 }
