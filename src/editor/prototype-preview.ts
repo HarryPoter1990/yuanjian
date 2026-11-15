@@ -1,8 +1,10 @@
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { markdownLanguage } from '@codemirror/lang-markdown';
-import type { EditorState, Range } from '@codemirror/state';
+import type { EditorState, Range, Text } from '@codemirror/state';
+import type { Tree } from '@lezer/common';
 import { createMarkdownParser, hydrateMarkdown, mathHtml, renderParsedMarkdown } from './renderer';
 import { inCode, isEscaped } from './completion';
+import { inlineMathEnd } from '../shared/math-syntax';
 import { previewConfig, toggleNoteFold, type MarkdownBlock } from './live-preview';
 import {
   calloutPresentation,
@@ -20,6 +22,26 @@ export const textBlock = (block: MarkdownBlock) =>
     'blockquote_open',
     'note_callout_open',
   ].includes(block.type);
+const syntaxTrees = new WeakMap<Text, Tree>();
+function documentTree(state: EditorState): Tree {
+  let tree = syntaxTrees.get(state.doc);
+  if (!tree) {
+    tree = markdownLanguage.parser.parse(state.doc.toString());
+    syntaxTrees.set(state.doc, tree);
+  }
+  return tree;
+}
+
+function rangeIndex(ranges: readonly { from: number; to: number }[], from: number): number {
+  let low = 0,
+    high = ranges.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (ranges[middle].from < from) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
 const linkAttributes = (target: string) => ({
   'data-link-target': target,
   title: `${target}\nCtrl+单击或光标在链接内按 Ctrl+Enter 打开`,
@@ -186,12 +208,12 @@ class CalloutToggle extends WidgetType {
 export function prototypeMathRanges(state: EditorState) {
   const source = state.doc.toString(),
     ranges: { from: number; to: number; body: string }[] = [];
-  const re = /(?<!\$)\$(?!\$)([^\n$]+?)\$(?!\$)/g;
-  for (const match of source.matchAll(re)) {
-    const from = match.index!,
-      to = from + match[0].length;
-    if (!isEscaped(source, from) && !isEscaped(source, to - 1) && !inCode(state, from))
-      ranges.push({ from, to, body: match[1] });
+  for (let from = source.indexOf('$'); from >= 0; from = source.indexOf('$', from + 1)) {
+    if (source[from - 1] === '$' || inCode(state, from)) continue;
+    const end = inlineMathEnd(source, from);
+    if (end === null) continue;
+    ranges.push({ from, to: end + 1, body: source.slice(from + 1, end) });
+    from = end;
   }
   return ranges;
 }
@@ -217,6 +239,13 @@ export function prototypeTextDecorations(
         to: state.doc.line(Math.min(state.doc.lines, token.map![1])).to,
       })),
   );
+  const textRanges = blocks.filter(textBlock).sort((a, b) => a.from - b.from);
+  atomic.sort((a, b) => a.from - b.from);
+  const contains = (items: readonly { from: number; to: number }[], from: number, to: number) => {
+    const index = rangeIndex(items, from);
+    const item = items[index]?.from === from ? items[index] : items[index - 1];
+    return Boolean(item && from >= item.from && to <= item.to);
+  };
   const listLabels = new Map<number, number>();
   for (const block of blocks) {
     const stack: { ordered: boolean; next: number }[] = [];
@@ -237,11 +266,16 @@ export function prototypeTextDecorations(
       r.empty ? r.head >= from && r.head <= to : r.from < to && r.to > from,
     );
   const supported = (from: number, to: number) =>
-    blocks.some((b) => textBlock(b) && from >= b.from && to <= b.to) &&
-    !atomic.some((b) => from >= b.from && to <= b.to);
+    contains(textRanges, from, to) && !contains(atomic, from, to);
   const hide = (from: number, to: number, widget?: WidgetType) => {
-    if (from >= to || hidden.some((r) => from < r.to && to > r.from)) return;
-    hidden.push({ from, to });
+    const index = rangeIndex(hidden, from);
+    if (
+      from >= to ||
+      (index > 0 && hidden[index - 1].to > from) ||
+      (index < hidden.length && hidden[index].from < to)
+    )
+      return;
+    hidden.splice(index, 0, { from, to });
     ranges.push(Decoration.replace(widget ? { widget } : {}).range(from, to));
   };
   for (const range of noteCommentRanges(source)) {
@@ -362,7 +396,7 @@ export function prototypeTextDecorations(
     const marker = /[ \t]*\^[A-Za-z0-9-]+[ \t]*$/.exec(line.text);
     if (marker && !active(line.from, line.to)) hide(line.from + marker.index, line.to);
   }
-  const tree = markdownLanguage.parser.parse(state.doc.toString());
+  const tree = documentTree(state);
   const linkRanges: { from: number; to: number }[] = [];
   tree.iterate({
     enter(node) {

@@ -6,13 +6,17 @@ export function isEscaped(text: string, position: number): boolean {
   return (position - start) % 2 === 1;
 }
 
+export function inlineMathEnd(source: string, start: number): number | null {
+  if (source[start] !== '$' || source[start + 1] === '$' || isEscaped(source, start)) return null;
+  let end = start + 1;
+  while ((end = source.indexOf('$', end)) >= 0 && isEscaped(source, end)) end++;
+  return end < 0 || end === start + 1 || source.slice(start + 1, end).includes('\n') ? null : end;
+}
+
 export function installMathSyntax(md: MarkdownIt): void {
   md.inline.ruler.after('escape', 'inline_math', (state, silent) => {
-    if (state.src[state.pos] !== '$' || state.src[state.pos + 1] === '$') return false;
-    let end = state.pos + 1;
-    while ((end = state.src.indexOf('$', end)) >= 0 && isEscaped(state.src, end)) end++;
-    if (end < 0 || end === state.pos + 1 || /\n/.test(state.src.slice(state.pos + 1, end)))
-      return false;
+    const end = inlineMathEnd(state.src, state.pos);
+    if (end === null) return false;
     if (!silent) {
       const token = state.push('inline_math', 'span', 0);
       token.content = state.src.slice(state.pos + 1, end);
