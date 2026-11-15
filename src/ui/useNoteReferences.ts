@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { extractLinks } from '../shared/markdown';
-import type { NoteMeta, TabState } from '../shared/types';
+import type { NoteLink, NoteMeta, TabState } from '../shared/types';
 import type { NoteResolution } from '../shared/note-syntax';
 import {
   loadNoteReferences,
@@ -14,6 +14,7 @@ export function useNoteReferences(
   active: TabState | null | undefined,
   tabs: readonly TabState[],
   index: readonly NoteMeta[],
+  links?: readonly NoteLink[],
 ) {
   const current = useRef(active);
   current.current = active;
@@ -26,12 +27,12 @@ export function useNoteReferences(
     () =>
       active
         ? JSON.stringify(
-            extractLinks(active.content)
+            (links ?? extractLinks(active.content))
               .filter((link) => link.embedded && !link.image)
               .map((link) => link.target),
           )
         : '',
-    [active?.content],
+    [active?.content, links],
   );
   const rootPath = active ? referencePath(active) : '';
   const previousSources = useRef(new Map<string, string | undefined>()),

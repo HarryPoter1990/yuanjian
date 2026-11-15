@@ -72,7 +72,7 @@ export function normalizeTag(tag: string): string {
   return tag.trim().replace(/^#/, '');
 }
 
-function analyze(content: string) {
+export function analyzeMarkdown(content: string) {
   const front = frontmatter(content);
   const environment: FootnoteEnvironment = {};
   const tokens = markdown.parse(content.slice(front.end).replace(/^\uFEFF/, ''), environment);
@@ -149,16 +149,16 @@ function analyze(content: string) {
 }
 
 export function extractHeadings(content: string): Heading[] {
-  return analyze(content).headings;
+  return analyzeMarkdown(content).headings;
 }
 export function extractLinks(content: string): NoteLink[] {
-  return analyze(content).links;
+  return analyzeMarkdown(content).links;
 }
 export function extractTags(content: string): string[] {
-  return analyze(content).tags;
+  return analyzeMarkdown(content).tags;
 }
 export function parseNote(content: string, path: string, modifiedAt = 0): NoteMeta {
-  const result = analyze(content);
+  const result = analyzeMarkdown(content);
   const fallback =
     path
       .split(/[\\/]/)
