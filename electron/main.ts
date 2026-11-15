@@ -171,6 +171,7 @@ async function refreshWatcher() {
   const changed = new Set<string>();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   watcher.on('all', (_event, file) => {
+    store.invalidateIndex([file]);
     changed.add(file);
     clearTimeout(timeout);
     timeout = setTimeout(() => {

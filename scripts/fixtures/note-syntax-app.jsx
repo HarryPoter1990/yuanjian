@@ -145,6 +145,13 @@ const api = {
   getFonts: async () => [],
   getIndex: async () =>
     [...documents.values()].map((item) => parseNote(item.content, item.path, item.modifiedAt)),
+  getWorkspaceIndex: async () => ({
+    notes: await api.getIndex(),
+    trees: Object.fromEntries(
+      await Promise.all(settings.roots.map(async (root) => [root, await api.getTree(root)])),
+    ),
+    issues: [],
+  }),
   getTree: async () =>
     [...documents.values()].map((item) => ({
       path: item.path,

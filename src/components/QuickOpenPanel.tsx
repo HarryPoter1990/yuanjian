@@ -19,12 +19,16 @@ export function QuickOpenPanel({
   onSelect,
   onClose,
   busy = false,
+  updating = false,
+  issues = [],
 }: {
   tabs: TabState[];
   index: NoteMeta[];
   onSelect(target: QuickOpenTarget): void;
   onClose(): void;
   busy?: boolean;
+  updating?: boolean;
+  issues?: { path: string; message: string }[];
 }) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -79,6 +83,17 @@ export function QuickOpenPanel({
   return (
     <Modal title="快速打开笔记" onClose={onClose} busy={busy} pending={false}>
       <div className="quick-open">
+        {updating && <p role="status">目录索引正在更新，先显示已有结果。</p>}
+        {issues.length > 0 && (
+          <details className="index-issues">
+            <summary>结果不完整：{issues.length} 个路径未能读取</summary>
+            {issues.map((issue) => (
+              <p key={issue.path}>
+                {issue.path}：{issue.message}
+              </p>
+            ))}
+          </details>
+        )}
         <input
           ref={input}
           role="combobox"

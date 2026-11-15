@@ -35,6 +35,11 @@ export interface FileEntry {
   kind: 'directory' | 'note' | 'attachment' | 'other';
   children?: FileEntry[];
 }
+export interface WorkspaceIndex {
+  notes: NoteMeta[];
+  trees: Record<string, FileEntry[]>;
+  issues: { path: string; message: string }[];
+}
 export interface SearchHit {
   path: string;
   title: string;
@@ -278,6 +283,7 @@ export interface ResolvedLink {
   exists: boolean;
   candidates: string[];
   external?: string;
+  issues?: { path: string; message: string }[];
 }
 export interface OperationProgress {
   id: string;
@@ -329,6 +335,7 @@ export interface DesktopAPI {
   selectDirectory(): Promise<string | null>;
   getTree(root: string): Promise<FileEntry[]>;
   getIndex(): Promise<NoteMeta[]>;
+  getWorkspaceIndex?(rescan?: boolean): Promise<WorkspaceIndex>;
   search(query: string, options?: { root?: string; tag?: string }): Promise<SearchHit[]>;
   searchNotes(
     query: string,

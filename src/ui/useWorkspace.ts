@@ -38,6 +38,8 @@ export function useWorkspace(onExternalOpen?: () => void) {
   const [viewOrder, setViewOrder] = useState<ViewTab[]>([]);
   const [graphActive, setGraphActiveState] = useState(false);
   const [index, setIndex] = useState<NoteMeta[]>([]);
+  const [indexUpdating, setIndexUpdating] = useState(false);
+  const [indexIssues, setIndexIssues] = useState<{ path: string; message: string }[]>([]);
   const [trees, setTrees] = useState<Record<string, FileEntry[]>>({});
   const [notices, setNotices] = useState<Notice[]>([]);
   const [saving, setSaving] = useState<string[]>([]);
@@ -194,25 +196,39 @@ export function useWorkspace(onExternalOpen?: () => void) {
     sessionWrite.current = write;
     await write;
   }, []);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (rescan = false) => {
     const config = current.current.settings;
     if (!config) return;
     const generation = ++refreshGeneration.current;
     const source = JSON.stringify([config.roots, config.excluded, config.showAllFiles]);
-    const [notes, ...entries] = await Promise.all([
-      window.notes.getIndex(),
-      ...config.roots.map((root) => window.notes.getTree(root)),
-    ]);
-    const latest = current.current.settings;
-    if (
-      !mounted.current ||
-      generation !== refreshGeneration.current ||
-      !latest ||
-      source !== JSON.stringify([latest.roots, latest.excluded, latest.showAllFiles])
-    )
-      return;
-    setIndex(notes);
-    setTrees(Object.fromEntries(config.roots.map((root, i) => [root, entries[i]])));
+    setIndexUpdating(true);
+    try {
+      const snapshot = window.notes.getWorkspaceIndex
+        ? await window.notes.getWorkspaceIndex(rescan)
+        : await Promise.all([
+            window.notes.getIndex(),
+            ...config.roots.map((root) => window.notes.getTree(root)),
+          ]).then(([notes, ...entries]) => ({
+            notes: notes as NoteMeta[],
+            trees: Object.fromEntries(
+              config.roots.map((root, i) => [root, entries[i] as FileEntry[]]),
+            ),
+            issues: [],
+          }));
+      const latest = current.current.settings;
+      if (
+        !mounted.current ||
+        generation !== refreshGeneration.current ||
+        !latest ||
+        source !== JSON.stringify([latest.roots, latest.excluded, latest.showAllFiles])
+      )
+        return;
+      setIndex(snapshot.notes);
+      setTrees(snapshot.trees);
+      setIndexIssues(snapshot.issues);
+    } finally {
+      if (mounted.current && generation === refreshGeneration.current) setIndexUpdating(false);
+    }
   }, []);
   const persistSettings = useCallback(
     (appearance?: Appearance, removals?: AppearanceRemovals): Promise<Settings> => {
@@ -708,6 +724,8 @@ export function useWorkspace(onExternalOpen?: () => void) {
     setGraphOpen,
     setGraphActive,
     index,
+    indexUpdating,
+    indexIssues,
     trees,
     notices,
     setNotices,

@@ -196,6 +196,7 @@ export const argumentSchemas = {
   selectDirectory: z.tuple([]),
   getTree: z.tuple([file]),
   getIndex: z.tuple([]),
+  getWorkspaceIndex: z.tuple([z.boolean().optional()]),
   search: z.tuple([
     z.string().max(10000),
     z.object({ root: file.optional(), tag: short.optional() }).optional(),

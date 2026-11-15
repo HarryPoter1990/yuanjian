@@ -53,7 +53,10 @@ import { MoveStore } from './move';
 import { replaceImageTargets } from './markdown-ranges';
 import { searchDocument, sortSearchNotes } from '../../src/shared/search';
 import type { SearchPage } from '../../src/shared/types';
+import type { WorkspaceIndex } from '../../src/shared/types';
 import type { NoteResolution } from '../../src/shared/note-syntax';
+
+import { periodicVariables, renderPeriodic } from '../../src/shared/periodic';
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
 interface SavedFormat {
@@ -92,6 +95,10 @@ export class NoteStore {
   private readonly baseline = new Set<string>();
   private initialized = false;
   private activeSearch: string | null = null;
+  private indexRevision = 0;
+  private indexSnapshot?: { revision: number; value: WorkspaceIndex };
+  private indexTask?: { revision: number; promise: Promise<WorkspaceIndex> };
+  private readonly metadataCache = new Map<string, { stamp: string; note: NoteMeta }>();
   private pendingHistorySaves: { id: string; path: string; content: string; createdAt?: number }[] =
     [];
 
@@ -201,7 +208,14 @@ export class NoteStore {
     return readFile(await this.authorize(file));
   }
   changed(files: string[]): void {
+    this.invalidateIndex(files);
     this.adapters.changed?.(files);
+  }
+  invalidateIndex(files?: string[]): void {
+    this.indexRevision++;
+    this.indexSnapshot = undefined;
+    if (files) for (const file of files) this.metadataCache.delete(file);
+    else this.metadataCache.clear();
   }
   async dispose(): Promise<void> {
     await this.queue.flush();
@@ -234,6 +248,11 @@ export class NoteStore {
     return this.queue.run(async () => {
       const next = structuredClone({ ...settings, roots: [...new Set(approvedRoots)] });
       await writeJson(path.join(this.dataDirectory, 'settings.json'), next);
+      if (
+        JSON.stringify([next.roots, next.excluded, next.showAllFiles]) !==
+        JSON.stringify([this.settings.roots, this.settings.excluded, this.settings.showAllFiles])
+      )
+        this.invalidateIndex();
       this.settings = next;
       this.access.excluded = next.excluded;
       return this.getSettings();
@@ -522,30 +541,42 @@ export class NoteStore {
     });
   }
 
-  async getTree(root: string): Promise<FileEntry[]> {
+  async getTree(root: string, issues?: WorkspaceIndex['issues']): Promise<FileEntry[]> {
     root = await this.access.assertDirectory(root);
-    return this.walk(root, root);
+    return this.walk(root, root, issues);
   }
-  private async walk(directory: string, root: string): Promise<FileEntry[]> {
+  private async walk(
+    directory: string,
+    root: string,
+    issues?: WorkspaceIndex['issues'],
+  ): Promise<FileEntry[]> {
     const entries: FileEntry[] = [];
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
       if (this.access.isExcluded(root, file) || entry.isSymbolicLink()) continue;
-      const real = await canonical(file);
-      if (!within(root, real)) continue;
-      if (entry.isDirectory()) {
-        const children = await this.walk(real, root);
-        if (children.length || this.settings.showAllFiles)
-          entries.push({ path: real, name: entry.name, kind: 'directory', children });
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase();
-        const kind = noteExtensions.has(ext)
-          ? 'note'
-          : imageExtensions.has(ext) || ['.pdf', '.mp3', '.mp4', '.wav'].includes(ext)
-            ? 'attachment'
-            : 'other';
-        if (kind !== 'other' || this.settings.showAllFiles)
-          entries.push({ path: real, name: entry.name, kind });
+      try {
+        const real = await canonical(file);
+        if (!within(root, real)) continue;
+        if (entry.isDirectory()) {
+          const children = await this.walk(real, root, issues);
+          if (children.length || this.settings.showAllFiles)
+            entries.push({ path: real, name: entry.name, kind: 'directory', children });
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          const kind = noteExtensions.has(ext)
+            ? 'note'
+            : imageExtensions.has(ext) || ['.pdf', '.mp3', '.mp4', '.wav'].includes(ext)
+              ? 'attachment'
+              : 'other';
+          if (kind !== 'other' || this.settings.showAllFiles)
+            entries.push({ path: real, name: entry.name, kind });
+        }
+      } catch (error) {
+        if (!issues) throw error;
+        issues.push({
+          path: file,
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     return entries.sort(
@@ -555,29 +586,70 @@ export class NoteStore {
     );
   }
   async getIndex(): Promise<NoteMeta[]> {
+    return (await this.getWorkspaceIndex(true)).notes;
+  }
+  async getWorkspaceIndex(rescan = false): Promise<WorkspaceIndex> {
+    if (rescan) {
+      this.indexRevision++;
+      this.indexSnapshot = undefined;
+    }
+    const revision = this.indexRevision;
+    if (this.indexSnapshot?.revision === revision) return this.indexSnapshot.value;
+    if (this.indexTask?.revision === revision) return this.indexTask.promise;
+    const promise = this.scanIndex(revision);
+    this.indexTask = { revision, promise };
+    try {
+      return await promise;
+    } finally {
+      if (this.indexTask?.promise === promise) this.indexTask = undefined;
+    }
+  }
+  private async scanIndex(revision: number): Promise<WorkspaceIndex> {
+    const result: WorkspaceIndex = { notes: [], trees: {}, issues: [] };
     const files = new Set<string>();
     const collect = (entries: FileEntry[]): void => {
       for (const entry of entries)
         if (entry.kind === 'note') files.add(entry.path);
         else if (entry.children) collect(entry.children);
     };
-    for (const root of this.settings.roots) {
+    const issue = (file: string, error: unknown) =>
+      result.issues.push({
+        path: file,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    for (const root of [...this.settings.roots]) {
       try {
-        collect(await this.getTree(root));
+        const tree = await this.getTree(root, result.issues);
+        result.trees[root] = tree;
+        collect(tree);
       } catch (error) {
-        if (!isMissing(error)) throw error;
+        issue(root, error);
       }
     }
-    const result: NoteMeta[] = [];
     for (const file of files) {
       try {
-        const note = await this.readNote(file);
-        result.push(parseNote(note.content, file, note.modifiedAt));
+        const info = await stat(file);
+        const stamp = `${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
+        const cached = this.metadataCache.get(file);
+        if (cached?.stamp === stamp) result.notes.push(cached.note);
+        else {
+          const note = await this.readNote(file);
+          const metadata = parseNote(note.content, file, note.modifiedAt);
+          result.notes.push(metadata);
+          if (revision === this.indexRevision)
+            this.metadataCache.set(file, { stamp, note: metadata });
+        }
       } catch (error) {
-        if (!isMissing(error)) throw error;
+        issue(file, error);
       }
     }
-    return result;
+    if (revision === this.indexRevision) {
+      for (const file of this.metadataCache.keys())
+        if (!files.has(file)) this.metadataCache.delete(file);
+      this.indexSnapshot = { revision, value: result };
+      return result;
+    }
+    return this.getWorkspaceIndex();
   }
   async search(query: string, options: { root?: string; tag?: string } = {}): Promise<SearchHit[]> {
     const page = await this.searchNotes(query, options);
@@ -684,17 +756,25 @@ export class NoteStore {
       }
     }
     const targetKey = decoded.replace(/\\/g, '/').replace(/\.md$/i, '').toLocaleLowerCase();
-    const matches = (await this.getIndex())
-      .filter((meta) => {
-        const fileKey = meta.path.replace(/\\/g, '/').replace(/\.md$/i, '').toLocaleLowerCase();
-        return fileKey.endsWith(`/${targetKey}`);
-      })
-      .map((meta) => meta.path);
+    const snapshot = await this.getWorkspaceIndex();
+    const paths = new Set<string>();
+    const collect = (entries: FileEntry[]) => {
+      for (const entry of entries) {
+        if (entry.kind === 'note') paths.add(entry.path);
+        if (entry.children) collect(entry.children);
+      }
+    };
+    Object.values(snapshot.trees).forEach(collect);
+    const matches = [...paths].filter((file) => {
+      const fileKey = file.replace(/\\/g, '/').replace(/\.md$/i, '').toLocaleLowerCase();
+      return fileKey.endsWith(`/${targetKey}`);
+    });
     return {
       path: matches.length === 1 ? matches[0] : null,
       heading,
       exists: matches.length === 1,
       candidates: matches,
+      ...(snapshot.issues.length ? { issues: snapshot.issues } : {}),
     };
   }
 
@@ -707,7 +787,9 @@ export class NoteStore {
         error:
           resolved.candidates.length > 1
             ? `存在多个同名笔记，请填写完整路径：${target}`
-            : `目标不存在或尚未授权，请先打开原笔记：${target}`,
+            : resolved.issues?.length
+              ? `索引不完整，暂时无法确认引用目标：${target}`
+              : `目标不存在或尚未授权，请先打开原笔记：${target}`,
       };
     if (!markdownExtensions.has(path.extname(resolved.path).toLowerCase()))
       return { error: '笔记嵌入只支持 Markdown 文件' };
@@ -1065,26 +1147,8 @@ export class NoteStore {
       await this.saveSettings({ ...this.getSettings(), journalDirectory: directory });
     }
     directory = await this.access.assertDirectory(directory);
-    const actual = new Date(`${date}T12:00:00Z`);
-    const thursday = new Date(actual);
-    thursday.setUTCDate(actual.getUTCDate() + 4 - (actual.getUTCDay() || 7));
-    const weekYear = thursday.getUTCFullYear();
-    const week = Math.ceil(((thursday.getTime() - Date.UTC(weekYear, 0, 1)) / 86400_000 + 1) / 7);
-    const variables: Record<string, string> = {
-      date,
-      year: String(kind === 'weekly' ? weekYear : actual.getUTCFullYear()),
-      month: date.slice(5, 7),
-      day: date.slice(8, 10),
-      week: String(week).padStart(2, '0'),
-      title:
-        kind === 'daily'
-          ? date
-          : kind === 'weekly'
-            ? `${weekYear}-W${String(week).padStart(2, '0')}`
-            : date.slice(0, 7),
-    };
-    const render = (value: string): string =>
-      value.replace(/\{\{(\w+)\}\}/g, (whole: string, key: string) => variables[key] ?? whole);
+    const variables = periodicVariables(kind, date);
+    const render = (value: string) => renderPeriodic(value, variables);
     const pattern =
       kind === 'daily'
         ? this.settings.dailyPattern

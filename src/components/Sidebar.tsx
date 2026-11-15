@@ -17,6 +17,7 @@ import { dateKey, errorText, fileName } from '../ui/model';
 import { DropdownMenu, Empty, IconButton, tabListKeys } from './Controls';
 
 import { NoteSearch } from './NoteSearch';
+import { dailyNotePath } from '../shared/periodic';
 type View = 'files' | 'recent' | 'search' | 'tags' | 'calendar';
 interface Props {
   hidden?: boolean;
@@ -25,6 +26,9 @@ interface Props {
   settings: Settings;
   trees: Record<string, FileEntry[]>;
   index: NoteMeta[];
+  indexUpdating?: boolean;
+  indexIssues?: { path: string; message: string }[];
+  onRescan?(): void;
   activePath: string | null;
   onSettings(settings: Settings): void;
   onOpen(path: string, line?: number): void;
@@ -44,6 +48,9 @@ export function Sidebar({
   settings,
   trees,
   index,
+  indexUpdating = false,
+  indexIssues = [],
+  onRescan,
   activePath,
   onSettings,
   onOpen,
@@ -87,8 +94,12 @@ export function Sidebar({
   const [tag, setTag] = useState('');
   const [month, setMonth] = useState(new Date());
   const [selected, setSelected] = useState(dateKey(new Date()));
-  const tags = Array.from(new Set(index.flatMap((note) => note.tags))).sort((a, b) =>
-    a.localeCompare(b, 'zh-CN'),
+  const tags = useMemo(
+    () =>
+      Array.from(new Set(index.flatMap((note) => note.tags))).sort((a, b) =>
+        a.localeCompare(b, 'zh-CN'),
+      ),
+    [index],
   );
   useEffect(() => {
     const focus = () => {
@@ -144,7 +155,16 @@ export function Sidebar({
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
   const startOffset = (firstDay.getDay() + 6) % 7;
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const selectedNotes = index.filter((note) => fileName(note.path).includes(selected));
+  const journalPath = (date: string) =>
+    dailyNotePath(settings.journalDirectory, settings.dailyPattern, date);
+  const journals = useMemo(
+    () => new Map(index.map((note) => [note.path.replace(/\\/g, '/').toLowerCase(), note])),
+    [index],
+  );
+  const selectedJournal = journals.get(journalPath(selected));
+  const selectedNotes = index.filter(
+    (note) => note !== selectedJournal && fileName(note.path).includes(selected),
+  );
   return (
     <aside className="sidebar left-sidebar" aria-label="笔记导航" hidden={hidden}>
       <button
@@ -390,7 +410,7 @@ export function Sidebar({
                     onClick={() => setSelected(key)}
                   >
                     {day}
-                    {index.some((note) => fileName(note.path).includes(key)) && <i />}
+                    {journals.has(journalPath(key)) && <i />}
                   </button>
                 );
               })}
@@ -417,12 +437,25 @@ export function Sidebar({
                 打开 / 新建月记
               </button>
             )}
-            {selectedNotes.map((note) => (
-              <button className="note-row" key={note.path} onClick={() => onOpen(note.path)}>
-                <FileText size={15} />
-                {note.title}
-              </button>
-            ))}
+            <section aria-label="当日日记">
+              {selectedJournal && (
+                <button className="note-row" onClick={() => onOpen(selectedJournal.path)}>
+                  <FileText size={15} />
+                  {selectedJournal.title}
+                </button>
+              )}
+            </section>
+            {selectedNotes.length > 0 && (
+              <section aria-label="相关日期笔记">
+                <p className="eyebrow">相关日期笔记</p>
+                {selectedNotes.map((note) => (
+                  <button className="note-row" key={note.path} onClick={() => onOpen(note.path)}>
+                    <FileText size={15} />
+                    {note.title}
+                  </button>
+                ))}
+              </section>
+            )}
             {!settings.journalDirectory && (
               <p className="subtle">第一次创建时会请你选择日记文件夹。</p>
             )}
@@ -434,9 +467,23 @@ export function Sidebar({
         打开文件夹
       </button>
       <footer className="sidebar-footer">
-        <span>{index.length} 篇笔记</span>
-        <span>本地文件</span>
+        <span role="status">{indexUpdating ? '正在更新…' : `${index.length} 篇笔记`}</span>
+        {onRescan && (
+          <button disabled={indexUpdating} onClick={onRescan}>
+            重新扫描
+          </button>
+        )}
       </footer>
+      {indexIssues.length > 0 && (
+        <details className="index-issues subtle">
+          <summary>索引不完整：{indexIssues.length} 个路径未能读取</summary>
+          {indexIssues.map((issue) => (
+            <p key={issue.path}>
+              {issue.path}：{issue.message}
+            </p>
+          ))}
+        </details>
+      )}
     </aside>
   );
 }

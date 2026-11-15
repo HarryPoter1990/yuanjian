@@ -109,6 +109,13 @@ const api = {
   }),
   getIndex: async () =>
     Object.values(documents).map((note) => parseNote(note.content, note.path, 1)),
+  getWorkspaceIndex: async () => ({
+    notes: await api.getIndex(),
+    trees: Object.fromEntries(
+      await Promise.all(settings.roots.map(async (root) => [root, await api.getTree(root)])),
+    ),
+    issues: [],
+  }),
   getTree: async () => [
     ...Object.values(documents)
       .filter((note) => note.path !== nested.path)

@@ -48,9 +48,8 @@ import type {
   ViewTab,
 } from './shared/types';
 import {
-  extractHeadings,
+  analyzeMarkdown,
   extractLinks,
-  extractTags,
   noteLinkPosition,
   setFrontmatterTags,
 } from './shared/markdown';
@@ -161,7 +160,29 @@ export default function App() {
   const checkingTab =
     selectedTab && workspace.checkingTabs.includes(selectedTab.id) ? selectedTab : null;
   const active = checkingTab ? null : selectedTab;
-  const noteReferences = useNoteReferences(active, tabs, workspace.index);
+  const [metadataNote, setMetadataNote] = useState({
+    id: active?.id,
+    content: active?.content ?? '',
+  });
+  useEffect(() => {
+    if (metadataNote.id !== active?.id) {
+      setMetadataNote({ id: active?.id, content: active?.content ?? '' });
+      return;
+    }
+    const timer = setTimeout(
+      () => setMetadataNote({ id: active?.id, content: active?.content ?? '' }),
+      200,
+    );
+    return () => clearTimeout(timer);
+  }, [active?.id, active?.content]);
+  const metadataContent =
+    metadataNote.id === active?.id ? metadataNote.content : (active?.content ?? '');
+  const metadata = useMemo(() => analyzeMarkdown(metadataContent), [metadataContent]);
+  const characterCount = useMemo(
+    () => metadataContent.replace(/\s/g, '').length,
+    [metadataContent],
+  );
+  const noteReferences = useNoteReferences(active, tabs, workspace.index, metadata.links);
   const [panel, setPanelState] = useState<Panel>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [forcedPanels, setForcedPanels] = useState<{ left?: boolean; right?: boolean }>({});
@@ -407,17 +428,16 @@ export default function App() {
       resizeDispose.current?.();
     };
   }, []);
-  const headings = useMemo(() => extractHeadings(active?.content || ''), [active?.content]);
-  const tags = useMemo(() => extractTags(active?.content || ''), [active?.content]);
+  const { headings, tags } = metadata;
   const remoteImages = useMemo(
     () => [
       ...new Set(
-        extractLinks(active?.content || '')
+        metadata.links
           .filter((link) => link.image && /^https?:\/\//i.test(link.target))
           .map((link) => link.target),
       ),
     ],
-    [active?.content],
+    [metadata.links],
   );
   useEffect(() => {
     if (workspace.bootstrap) {
@@ -951,6 +971,11 @@ export default function App() {
     const leaving = positionFor();
     await run('打开链接', async () => {
       const resolved = await window.notes.resolveLink(origin, target);
+      if (resolved.issues?.length)
+        notify(
+          `链接查找范围不完整：${resolved.issues.length} 个路径未能读取，可在文件导航中查看详情或重新扫描。`,
+          true,
+        );
       if (resolved.external) {
         await window.notes.openExternal(resolved.external);
         return;
@@ -1909,6 +1934,9 @@ export default function App() {
                 settings={settings}
                 trees={workspace.trees}
                 index={workspace.index}
+                indexUpdating={workspace.indexUpdating}
+                indexIssues={workspace.indexIssues}
+                onRescan={() => void workspace.refresh(true).catch(error)}
                 activePath={active?.path || null}
                 onSettings={(value) =>
                   changeSettings({ ...value, appearance: settingsRef.current!.appearance })
@@ -2427,7 +2455,7 @@ export default function App() {
                 <div>
                   {active && (
                     <>
-                      <span>{active.content.replace(/\s/g, '').length.toLocaleString()} 字</span>
+                      <span>{characterCount.toLocaleString()} 字</span>
                       <span>行 {line}</span>
                       <span>UTF-8</span>
                       <span>Markdown</span>
@@ -2705,6 +2733,8 @@ export default function App() {
         )}
         {panel === 'quick-open' && (
           <QuickOpenPanel
+            updating={workspace.indexUpdating}
+            issues={workspace.indexIssues}
             tabs={tabs}
             index={workspace.index}
             onSelect={(target) => void chooseQuickOpen(target)}

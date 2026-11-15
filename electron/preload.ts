@@ -84,6 +84,7 @@ const api: DesktopAPI = {
   selectDirectory: () => ipcRenderer.invoke('notes:selectDirectory'),
   getTree: (value) => ipcRenderer.invoke('notes:getTree', value),
   getIndex: () => ipcRenderer.invoke('notes:getIndex'),
+  getWorkspaceIndex: (rescan) => ipcRenderer.invoke('notes:getWorkspaceIndex', rescan),
   search: (query, options) => ipcRenderer.invoke('notes:search', query, options),
   searchNotes: (query, options) => ipcRenderer.invoke('notes:searchNotes', query, options),
   cancelSearch: (id) => ipcRenderer.invoke('notes:cancelSearch', id),
