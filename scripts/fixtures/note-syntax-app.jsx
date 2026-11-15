@@ -81,7 +81,10 @@ const fixture = {
   copies: [],
   unknown: [],
   session: null,
-  view: () => EditorView.findFromDOM(document.querySelector('.cm-content')),
+  view: () => {
+    const content = document.querySelector('.cm-content');
+    return content ? EditorView.findFromDOM(content) : null;
+  },
   state: () => {
     const view = fixture.view();
     return {
