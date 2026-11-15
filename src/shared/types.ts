@@ -169,6 +169,9 @@ export interface Settings {
   codeLineNumbers: boolean;
   codeWrap: boolean;
   codeFold: boolean;
+  codeIndentSize: 2 | 4 | 8;
+  codeIndentStyle: 'spaces' | 'tabs';
+  codeAutoIndent: boolean;
   attachmentPattern: string;
   historyDays: number;
   historyLimitMB: number;

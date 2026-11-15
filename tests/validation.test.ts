@@ -3,6 +3,28 @@ import { argumentSchemas, sessionSchema, settingsSchema } from '../electron/vali
 import { defaultSettings } from '../src/shared/defaults';
 
 describe('desktop boundary validation', () => {
+  it('accepts only supported code indentation widths and characters and defaults old settings', () => {
+    const { codeIndentSize, codeIndentStyle, codeAutoIndent, ...old } = defaultSettings;
+    expect(settingsSchema.parse(old)).toMatchObject({
+      codeIndentSize: 4,
+      codeIndentStyle: 'spaces',
+      codeAutoIndent: true,
+    });
+    for (const width of [2, 4, 8])
+      expect(settingsSchema.safeParse({ ...defaultSettings, codeIndentSize: width }).success).toBe(
+        true,
+      );
+    for (const width of [0, 3, 16, '4', NaN])
+      expect(settingsSchema.safeParse({ ...defaultSettings, codeIndentSize: width }).success).toBe(
+        false,
+      );
+    expect(settingsSchema.safeParse({ ...defaultSettings, codeIndentStyle: 'mixed' }).success).toBe(
+      false,
+    );
+    expect(settingsSchema.safeParse({ ...defaultSettings, codeAutoIndent: 'false' }).success).toBe(
+      false,
+    );
+  });
   it('limits move-history retries to one nonempty operation identity', () => {
     expect(argumentSchemas.retryMoveHistory.parse(['generated-operation'])).toEqual([
       'generated-operation',

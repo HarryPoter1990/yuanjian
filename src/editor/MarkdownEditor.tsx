@@ -43,7 +43,6 @@ import {
   historyField,
   historyKeymap,
   isolateHistory,
-  indentWithTab,
   redo,
   undo,
 } from '@codemirror/commands';
@@ -82,6 +81,7 @@ import {
 } from './prototype-commands';
 import { prototypeLinks } from './prototype-preview';
 import { prototypeVertical, prototypeHorizontal } from './prototype-navigation';
+import { codeIndentation, ordinaryIndent } from './code-indentation';
 
 const codeHighlighting = HighlightStyle.define([
   { tag: [tags.keyword, tags.operatorKeyword], color: 'var(--syntax-keyword)' },
@@ -236,6 +236,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         codeLineNumbers: current.settings.codeLineNumbers,
         codeWrap: current.settings.codeWrap,
         codeFold: current.settings.codeFold,
+        codeTabSize: current.settings.codeIndentSize ?? 4,
         codeFontSize: current.settings.appearance.codeFontSize ?? 16,
         codeLineHeight: current.settings.appearance.codeLineHeight ?? 1.6,
         resolveAssetAsync: (reference, from) =>
@@ -281,6 +282,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     function featureExtensions(): Extension {
       const current = propsRef.current;
       return [
+        codeIndentation(current.settings),
+        current.settings.codeAutoIndent !== false ? indentOnInput() : [],
         current.prototypeEditing ? Prec.highest(prototypeLinks) : [],
         current.settings.codeLineNumbers
           ? lineNumbers({
@@ -305,6 +308,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             fontSize: `${current.mode === 'source' ? (current.settings.appearance.codeFontSize ?? 16) : current.settings.appearance.fontSize}px`,
             '--code-font-size': `${current.settings.appearance.codeFontSize ?? 16}px`,
             '--code-line-height': String(current.settings.appearance.codeLineHeight ?? 1.6),
+            '--code-tab-size': String(current.settings.codeIndentSize ?? 4),
           },
           '.cm-content': {
             fontFamily:
@@ -620,7 +624,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             dropCursor(),
             rectangularSelection(),
             highlightActiveLine(),
-            indentOnInput(),
             bracketMatching(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             syntaxHighlighting(codeHighlighting),
@@ -698,7 +701,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               ...historyKeymap,
               ...searchKeymap,
               ...foldKeymap,
-              indentWithTab,
+              { key: 'Tab', run: ordinaryIndent, shift: (view) => ordinaryIndent(view, true) },
             ]),
             EditorView.inputHandler.of((editor, from, to, text) => {
               if (text !== '$' || from !== to || inCode(editor.state, from)) return false;
@@ -919,6 +922,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       props.settings.codeLineNumbers,
       props.settings.codeWrap,
       props.settings.codeFold,
+      props.settings.codeIndentSize,
+      props.settings.codeIndentStyle,
+      props.settings.codeAutoIndent,
       props.notePath,
       props.prototypeEditing,
       props.resolveNote,
@@ -935,6 +941,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       props.settings.codeLineNumbers,
       props.settings.codeWrap,
       props.settings.codeFold,
+      props.settings.codeIndentSize,
+      props.settings.codeIndentStyle,
+      props.settings.codeAutoIndent,
       snippetKey,
       props.settings.appearance.fontSize,
       props.settings.appearance.lineHeight,

@@ -84,4 +84,5 @@ export interface RenderOptions extends NoteSyntaxOptions {
   codeFold?: boolean;
   codeFontSize?: number;
   codeLineHeight?: number;
+  codeTabSize?: 2 | 4 | 8;
 }
