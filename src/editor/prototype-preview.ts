@@ -1,7 +1,7 @@
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { markdownLanguage } from '@codemirror/lang-markdown';
-import type { EditorState, Range, Text } from '@codemirror/state';
-import type { Tree } from '@lezer/common';
+import type { EditorState, Range, Text, Transaction } from '@codemirror/state';
+import { TreeFragment, type Tree, type ChangedRange } from '@lezer/common';
 import { createMarkdownParser, hydrateMarkdown, mathHtml, renderParsedMarkdown } from './renderer';
 import { inCode, isEscaped } from './completion';
 import { inlineMathEnd } from '../shared/math-syntax';
@@ -23,6 +23,19 @@ export const textBlock = (block: MarkdownBlock) =>
     'note_callout_open',
   ].includes(block.type);
 const syntaxTrees = new WeakMap<Text, Tree>();
+export function updatePrototypeTree(transaction: Transaction): void {
+  const tree = syntaxTrees.get(transaction.startState.doc);
+  if (!tree || !transaction.docChanged) return;
+  const changes: ChangedRange[] = [];
+  transaction.changes.iterChangedRanges((fromA, toA, fromB, toB) =>
+    changes.push({ fromA, toA, fromB, toB }),
+  );
+  const fragments = TreeFragment.applyChanges(TreeFragment.addTree(tree), changes);
+  syntaxTrees.set(
+    transaction.newDoc,
+    markdownLanguage.parser.parse(transaction.newDoc.toString(), fragments),
+  );
+}
 function documentTree(state: EditorState): Tree {
   let tree = syntaxTrees.get(state.doc);
   if (!tree) {

@@ -22,7 +22,7 @@ import { activeMathRange } from './completion';
 import { MathPreviewWidget } from './math-preview';
 import { previewSourcePosition } from './preview-source-position';
 import { inspectFrontmatter } from './frontmatter';
-import { prototypeTextDecorations, textBlock } from './prototype-preview';
+import { prototypeTextDecorations, textBlock, updatePrototypeTree } from './prototype-preview';
 
 export interface PreviewConfig extends RenderOptions {
   prototypeEditing?: boolean;
@@ -712,6 +712,8 @@ export const livePreviewField = StateField.define<{
     )
       return value;
     const live = transaction.state.facet(previewConfig).mode === 'live';
+    if (live && transaction.state.facet(previewConfig).prototypeEditing)
+      updatePrototypeTree(transaction);
     const enteringLive = live && transaction.startState.facet(previewConfig).mode !== 'live';
     const blocks = !live
       ? []
