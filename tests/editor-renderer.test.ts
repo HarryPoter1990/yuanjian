@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import commonHighlighter from 'highlight.js/lib/common';
 import { EditorState } from '@codemirror/state';
 import {
   createMarkdownParser,
@@ -19,6 +20,39 @@ import { richTextToMarkdown } from '../src/editor/clipboard';
 import { extractHeadings } from '../src/shared/markdown';
 
 describe('safe Markdown rendering', () => {
+  it('shows unlabelled code immediately and detects once after yielding, preserving source', async () => {
+    const source = 'const uniqueDeferredValue = "中文";\n';
+    const auto = vi.spyOn(commonHighlighter, 'highlightAuto');
+    try {
+      const root = document.createElement('div');
+      const markdown = `\`\`\`\n${source}\`\`\``;
+      root.innerHTML = renderMarkdown(markdown);
+      expect(auto).not.toHaveBeenCalled();
+      expect(root.querySelector('.code-line-content')?.textContent).toContain(source.trim());
+      const toolbar = document.createElement('div');
+      toolbar.className = 'code-language-toolbar';
+      const input = document.createElement('input');
+      input.placeholder = '自动 · text';
+      toolbar.append(input);
+      root.querySelector('.code-language-label')!.replaceWith(toolbar);
+      const pending = hydrateCodeHighlighting(root);
+      expect(auto).not.toHaveBeenCalled();
+      await pending;
+      expect(auto).toHaveBeenCalledTimes(1);
+      expect(root.querySelector('.hljs-keyword')).not.toBeNull();
+      expect(input.placeholder).toBe(
+        `自动 · ${root.querySelector('code')!.className.match(/language-(\S+)/)![1]}`,
+      );
+      root.innerHTML = renderMarkdown(markdown);
+      await hydrateCodeHighlighting(root);
+      expect(auto).toHaveBeenCalledTimes(1);
+      expect(decodeURIComponent(root.querySelector<HTMLElement>('.code-copy')!.dataset.code!)).toBe(
+        source,
+      );
+    } finally {
+      auto.mockRestore();
+    }
+  });
   it('keeps code controls compact and independent font metrics without changing copied source', () => {
     const root = document.createElement('div');
     root.innerHTML = renderMarkdown('```javascript\nconst value = "中文";\n```', {

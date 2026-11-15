@@ -15,36 +15,121 @@ let highlighter = commonHighlighter;
 let allLanguagesLoaded = false;
 let allLanguages: Promise<void> | undefined;
 
-export async function hydrateCodeHighlighting(root: HTMLElement): Promise<void> {
-  const blocks = [...root.querySelectorAll<HTMLElement>('code[data-highlight-language]')];
-  if (!blocks.length) return;
-  try {
-    allLanguages ??= import('highlight.js').then(({ default: full }) => {
-      highlighter = full;
-      allLanguagesLoaded = true;
-    });
-    await allLanguages;
-  } catch {
-    allLanguages = undefined;
-    return; // Plain code remains readable if the local language chunk cannot load.
-  }
-  for (const block of blocks) {
-    if (!root.contains(block)) continue;
-    const language = block.dataset.highlightLanguage ?? '';
-    delete block.dataset.highlightLanguage;
-    const source = block.closest('.code-container')?.querySelector<HTMLElement>('.code-copy')
-      ?.dataset.code;
-    if (source === undefined || !highlighter.getLanguage(language)) continue;
-    try {
-      const html = highlighter.highlight(decodeURIComponent(source), {
-        language,
-        ignoreIllegals: true,
-      }).value;
-      block.innerHTML = numberedCode(html, Boolean(block.querySelector('.code-line-number')));
-    } catch {
-      // Keep the original escaped code on a grammar error.
+const autoLanguages = [
+  'javascript',
+  'typescript',
+  'java',
+  'python',
+  'sql',
+  'xml',
+  'css',
+  'bash',
+  'json',
+  'cpp',
+  'csharp',
+  'rust',
+  'go',
+  'kotlin',
+  'yaml',
+];
+const automaticCode = new Map<string, { value: string; language?: string }>();
+let automaticBytes = 0;
+const highlightingTasks = new WeakMap<HTMLElement, Promise<void>>();
+function autoHighlight(source: string) {
+  const cached = automaticCode.get(source);
+  if (cached) return cached;
+  const result = commonHighlighter.highlightAuto(source, autoLanguages);
+  // Bound retained source plus highlighted markup, including many different code blocks.
+  const bytes = (source.length + result.value.length) * 2;
+  if (bytes <= 2 * 1024 * 1024) {
+    while (
+      automaticCode.size &&
+      (automaticCode.size >= 64 || automaticBytes + bytes > 2 * 1024 * 1024)
+    ) {
+      const key = automaticCode.keys().next().value!;
+      automaticBytes -= (key.length + automaticCode.get(key)!.value.length) * 2;
+      automaticCode.delete(key);
     }
+    automaticCode.set(source, result);
+    automaticBytes += bytes;
   }
+  return result;
+}
+function yieldHighlighting(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function')
+      requestIdleCallback(() => resolve(), { timeout: 1000 });
+    else setTimeout(resolve, 16);
+  });
+}
+export async function hydrateCodeHighlighting(root: HTMLElement): Promise<void> {
+  const blocks = [
+    ...root.querySelectorAll<HTMLElement>(
+      'code[data-highlight-language], code[data-highlight-auto]',
+    ),
+  ];
+  await Promise.all(
+    blocks.map((block) => {
+      const pending = highlightingTasks.get(block);
+      if (pending) return pending;
+      const task = (async () => {
+        const encoded = block.closest('.code-container')?.querySelector<HTMLElement>('.code-copy')
+          ?.dataset.code;
+        if (encoded === undefined) return;
+        const language = block.dataset.highlightLanguage ?? '';
+        const automatic = block.hasAttribute('data-highlight-auto');
+        try {
+          await yieldHighlighting();
+          if (!root.contains(block)) return;
+          if (!automatic && !highlighter.getLanguage(language)) {
+            allLanguages ??= import('highlight.js')
+              .then(({ default: full }) => {
+                highlighter = full;
+                allLanguagesLoaded = true;
+              })
+              .catch((error) => {
+                allLanguages = undefined;
+                throw error;
+              });
+            await allLanguages;
+          }
+          if (
+            !root.contains(block) ||
+            block.closest('.code-container')?.querySelector<HTMLElement>('.code-copy')?.dataset
+              .code !== encoded
+          )
+            return;
+          const source = decodeURIComponent(encoded);
+          const result = automatic
+            ? autoHighlight(source)
+            : highlighter.getLanguage(language)
+              ? highlighter.highlight(source, { language, ignoreIllegals: true })
+              : null;
+          if (!result) return;
+          block.innerHTML = numberedCode(
+            result.value,
+            Boolean(block.querySelector('.code-line-number')),
+          );
+          if (automatic) {
+            const detected = result.language || 'text';
+            block.className = `hljs language-${detected}`;
+            const label = block.closest('.code-container')?.querySelector('.code-language-label');
+            if (label) label.textContent = `自动 · ${detected}`;
+            const input = block
+              .closest('.code-container')
+              ?.querySelector<HTMLInputElement>('.code-language-toolbar input');
+            if (input && !input.value) input.placeholder = `自动 · ${detected}`;
+          }
+          delete block.dataset.highlightLanguage;
+          delete block.dataset.highlightAuto;
+        } catch {
+          /* Original escaped code remains readable on any grammar or chunk failure. */
+        }
+      })();
+      highlightingTasks.set(block, task);
+      return task.finally(() => highlightingTasks.delete(block));
+    }),
+  );
 }
 
 export const escapeHtml = (text: string): string =>
@@ -109,7 +194,11 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     if (language === 'mermaid')
       return `<div class="mermaid-diagram" data-mermaid="true"><pre>${escapeHtml(token.content)}</pre></div>\n`;
     let highlighted = escapeHtml(token.content);
-    let detected = language;
+    const cachedAuto = !language ? automaticCode.get(token.content) : undefined;
+    const detected = language || cachedAuto?.language || 'text';
+    if (cachedAuto) highlighted = cachedAuto.value;
+    const deferredAuto =
+      !language && !cachedAuto && token.content.length < 50000 ? ' data-highlight-auto="true"' : '';
     const deferredLanguage =
       language && !allLanguagesLoaded && !highlighter.getLanguage(language)
         ? ` data-highlight-language="${escapeHtml(language)}"`
@@ -120,31 +209,10 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
           language,
           ignoreIllegals: true,
         }).value;
-      else if (!language && token.content.length < 50000) {
-        const result = highlighter.highlightAuto(token.content, [
-          'javascript',
-          'typescript',
-          'java',
-          'python',
-          'sql',
-          'xml',
-          'css',
-          'bash',
-          'json',
-          'cpp',
-          'csharp',
-          'rust',
-          'go',
-          'kotlin',
-          'yaml',
-        ]);
-        highlighted = result.value;
-        detected = result.language ?? 'text';
-      }
     } catch {
       /* Unknown or incomplete code stays readable. */
     }
-    const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}"${deferredLanguage}>${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
+    const body = `<div class="code-body${options.codeWrap === false ? '' : ' code-wrap'}"><pre class="code-block"><code class="hljs language-${escapeHtml(detected || 'text')}"${deferredLanguage}${deferredAuto}>${numberedCode(highlighted, options.codeLineNumbers !== false)}</code></pre></div>`;
     const fold =
       options.codeFold === false
         ? ''
