@@ -135,6 +135,7 @@ export function DocumentPreview({
           codeLineNumbers: settings.codeLineNumbers,
           codeWrap: settings.codeWrap,
           codeFold: settings.codeFold,
+          codeTabSize: settings.codeIndentSize ?? 4,
           codeFontSize: settings.appearance.codeFontSize,
           codeLineHeight: settings.appearance.codeLineHeight,
         });
@@ -179,6 +180,7 @@ export function DocumentPreview({
     settings.codeLineNumbers,
     settings.codeWrap,
     settings.codeFold,
+    settings.codeIndentSize,
     settings.appearance.codeFontSize,
     settings.appearance.codeLineHeight,
   ]);

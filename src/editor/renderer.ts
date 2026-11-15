@@ -224,7 +224,8 @@ export function createMarkdownParser(options: RenderOptions = {}): MarkdownIt {
     const lineHeight = Number.isFinite(options.codeLineHeight)
       ? Math.min(4, Math.max(1, options.codeLineHeight ?? 1.6))
       : 1.6;
-    const style = `--code-font-size:${fontSize}px;--code-line-height:${lineHeight}`;
+    const tabSize = [2, 4, 8].includes(options.codeTabSize ?? 4) ? (options.codeTabSize ?? 4) : 4;
+    const style = `--code-font-size:${fontSize}px;--code-line-height:${lineHeight};--code-tab-size:${tabSize}`;
     return options.codeFold === false
       ? `<div class="code-container" style="${style}"><div class="code-caption">${label}</div>${body}</div>`
       : `<details class="code-container" style="${style}" open><summary class="code-caption">${label}</summary>${body}</details>`;

@@ -408,7 +408,7 @@ details:not([open]) > summary.code-caption .code-fold-icon {
   font-family: var(--code-font, monospace);
   font-size: var(--code-font-size, 16px);
   line-height: var(--code-line-height, 1.6);
-  tab-size: 4;
+  tab-size: var(--code-tab-size, 4);
 }
 .markdown-rendered .code-block code {
   font-size: inherit;

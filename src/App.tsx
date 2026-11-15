@@ -1367,6 +1367,7 @@ export default function App() {
             codeLineNumbers: settings.codeLineNumbers,
             codeWrap: settings.codeWrap,
             codeFold: settings.codeFold,
+            codeTabSize: settings.codeIndentSize ?? 4,
             codeFontSize: settings.appearance.codeFontSize ?? 16,
             codeLineHeight: settings.appearance.codeLineHeight ?? 1.6,
           }
@@ -1384,6 +1385,7 @@ export default function App() {
     settings?.codeLineNumbers,
     settings?.codeWrap,
     settings?.codeFold,
+    settings?.codeIndentSize,
     settings?.appearance.codeFontSize,
     settings?.appearance.codeLineHeight,
     error,
@@ -1409,6 +1411,7 @@ export default function App() {
           codeLineNumbers: settings.codeLineNumbers,
           codeWrap: settings.codeWrap,
           codeFold: settings.codeFold,
+          codeTabSize: settings.codeIndentSize ?? 4,
           codeFontSize: settings.appearance.codeFontSize ?? 16,
           codeLineHeight: settings.appearance.codeLineHeight ?? 1.6,
         });

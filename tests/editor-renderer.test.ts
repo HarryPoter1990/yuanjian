@@ -20,6 +20,22 @@ import { richTextToMarkdown } from '../src/editor/clipboard';
 import { extractHeadings } from '../src/shared/markdown';
 
 describe('safe Markdown rendering', () => {
+  it.each([2, 4, 8] as const)(
+    'preserves literal tabs while rendering code at %i columns',
+    (size) => {
+      const root = document.createElement('div');
+      root.innerHTML = renderMarkdown('```text\n\t保留制表符\n```', { codeTabSize: size });
+      expect(
+        root
+          .querySelector<HTMLElement>('.code-container')
+          ?.style.getPropertyValue('--code-tab-size'),
+      ).toBe(String(size));
+      expect(root.querySelector('.code-line-content')?.textContent).toBe('\t保留制表符');
+      expect(decodeURIComponent(root.querySelector<HTMLElement>('.code-copy')!.dataset.code!)).toBe(
+        '\t保留制表符\n',
+      );
+    },
+  );
   it('shows unlabelled code immediately and detects once after yielding, preserving source', async () => {
     const source = 'const uniqueDeferredValue = "中文";\n';
     const auto = vi.spyOn(commonHighlighter, 'highlightAuto');
