@@ -78,6 +78,29 @@ function result(label: string) {
   return host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 }
 
+it('finds code indentation settings and updates the example without changing appearance', async () => {
+  await type('搜索设置', '代码缩进宽度');
+  await act(async () => result('编辑与文件 · 代码缩进宽度')!.click());
+  const width = host.querySelector<HTMLSelectElement>('[aria-label="代码缩进宽度"]')!;
+  expect(width.value).toBe('4');
+  const originalAppearance = structuredClone(currentSettings.appearance);
+  await act(async () => {
+    width.value = '8';
+    width.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(currentSettings.codeIndentSize).toBe(8);
+  const style = host.querySelector<HTMLSelectElement>('[aria-label="代码缩进字符"]')!;
+  await act(async () => {
+    style.value = 'tabs';
+    style.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(currentSettings.codeIndentStyle).toBe('tabs');
+  const example = host.querySelector<HTMLElement>('[aria-label="代码缩进示例"]')!;
+  expect(example.textContent).toContain('\n\tsaveNote();');
+  expect(example.style.tabSize).toBe('8');
+  expect(currentSettings.appearance).toEqual(originalAppearance);
+  expect(host.querySelector('[aria-label="代码自动缩进"]')).not.toBeNull();
+});
 it('searches concrete labels and descriptions, then focuses and highlights the matching control', async () => {
   await type('搜索设置', '自动保存');
   expect(host.textContent).toContain('未命名草稿保留在会话中');

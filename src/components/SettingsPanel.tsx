@@ -716,6 +716,54 @@ export function SettingsPanel({
                       />
                     </SettingField>
                   ))}
+                  <SettingField id="codeIndentSize">
+                    <select
+                      aria-label="代码缩进宽度"
+                      value={settings.codeIndentSize ?? 4}
+                      onChange={(event) =>
+                        patch({
+                          codeIndentSize: Number(event.target.value) as Settings['codeIndentSize'],
+                        })
+                      }
+                    >
+                      <option value={2}>2 格</option>
+                      <option value={4}>4 格（默认）</option>
+                      <option value={8}>8 格</option>
+                    </select>
+                  </SettingField>
+                  <SettingField id="codeIndentStyle">
+                    <select
+                      aria-label="代码缩进字符"
+                      value={settings.codeIndentStyle ?? 'spaces'}
+                      onChange={(event) =>
+                        patch({
+                          codeIndentStyle: event.target.value === 'tabs' ? 'tabs' : 'spaces',
+                        })
+                      }
+                    >
+                      <option value="spaces">空格</option>
+                      <option value="tabs">Tab 制表符</option>
+                    </select>
+                  </SettingField>
+                  <SettingField id="codeAutoIndent">
+                    <Toggle
+                      label="代码自动缩进"
+                      checked={settings.codeAutoIndent !== false}
+                      onChange={(codeAutoIndent) => patch({ codeAutoIndent })}
+                    />
+                  </SettingField>
+                  <p className="subtle">
+                    缩进示例：
+                    {settings.codeIndentStyle === 'tabs'
+                      ? `Tab，显示宽度 ${settings.codeIndentSize ?? 4} 列`
+                      : `每级 ${settings.codeIndentSize ?? 4} 个空格`}
+                    。已有代码和粘贴内容保留原缩进。
+                  </p>
+                  <pre
+                    className="code-indent-example"
+                    aria-label="代码缩进示例"
+                    style={{ tabSize: settings.codeIndentSize ?? 4 }}
+                  >{`if (ready) {\n${settings.codeIndentStyle === 'tabs' ? '\t' : ' '.repeat(settings.codeIndentSize ?? 4)}saveNote();\n}`}</pre>
                   <SettingField id="showAllFiles">
                     <Toggle
                       label="显示其他文件"
