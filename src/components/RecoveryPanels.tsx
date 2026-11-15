@@ -19,6 +19,7 @@ export function HistoryPanel({
   const [selected, setSelected] = useState<HistoryEntry | null>(null);
   const [content, setContent] = useState('');
   const [busy, setBusy] = useState(true);
+  const [pinning, setPinning] = useState(false);
   const [failure, setFailure] = useState('');
   const [pending, setPending] = useState<{ id: string; label: string }[]>([]);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
@@ -55,7 +56,7 @@ export function HistoryPanel({
     }
   }
   return (
-    <Modal title={`版本历史 · ${tab.title}`} onClose={onClose} busy={busy} wide>
+    <Modal title={`版本历史 · ${tab.title}`} onClose={onClose} busy={busy || pinning} wide>
       {pending.length > 0 && (
         <div aria-label="未完成历史补记">
           {pending.map((item) => (
@@ -105,23 +106,30 @@ export function HistoryPanel({
               <div className="history-actions">
                 <span>{new Date(selected.createdAt).toLocaleString('zh-CN')}</span>
                 <button
-                  disabled={busy}
+                  disabled={busy || pinning}
                   onClick={() => {
-                    setBusy(true);
+                    const { id, pinned } = selected;
+                    setPinning(true);
                     void window.notes
-                      .pinHistory(selected.id, !selected.pinned)
+                      .pinHistory(id, !pinned)
                       .then(() => {
-                        setSelected({ ...selected, pinned: !selected.pinned });
-                        return load();
+                        setEntries((items) =>
+                          items.map((item) =>
+                            item.id === id ? { ...item, pinned: !pinned } : item,
+                          ),
+                        );
+                        setSelected((current) =>
+                          current?.id === id ? { ...current, pinned: !pinned } : current,
+                        );
                       })
                       .catch((error) => onError(errorText(error)))
-                      .finally(() => setBusy(false));
+                      .finally(() => setPinning(false));
                   }}
                 >
                   <Pin size={14} />
                   {selected.pinned ? '取消固定' : '固定此版本'}
                 </button>
-                <button disabled={busy} onClick={() => setRestoreConfirm(true)}>
+                <button disabled={busy || pinning} onClick={() => setRestoreConfirm(true)}>
                   <RotateCcw size={14} />
                   恢复此版本
                 </button>
@@ -140,7 +148,7 @@ export function HistoryPanel({
                 <div className="inline-confirm">
                   <p>恢复前会保存当前状态为历史。尚未命名的草稿需要先另存。</p>
                   <button
-                    disabled={busy}
+                    disabled={busy || pinning}
                     onClick={() => {
                       setBusy(true);
                       void onRestore(selected.id)

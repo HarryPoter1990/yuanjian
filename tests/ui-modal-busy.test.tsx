@@ -53,6 +53,57 @@ afterEach(async () => {
 });
 
 describe('modal operations in progress', () => {
+  it('keeps the preview and restore target together when pinning completes after another selection', async () => {
+    const entries: HistoryEntry[] = [0, 1].map((i) => ({
+      id: `history-${i}`,
+      path: 'D:/fixture.md',
+      createdAt: i + 1,
+      pinned: false,
+      reason: `saved-${i}`,
+      textBytes: 10,
+      imageBytes: 0,
+    }));
+    const pin = deferred<void>();
+    const onRestore = vi.fn(async () => {});
+    window.notes = {
+      listHistory: async () => entries,
+      pendingHistory: async () => [],
+      readHistory: async (id: string) => ({
+        entry: entries.find((entry) => entry.id === id)!,
+        content: `正文-${id}`,
+      }),
+      pinHistory: () => pin.promise,
+    } as unknown as typeof window.notes;
+    await act(async () =>
+      root.render(
+        <HistoryPanel
+          tab={asTab({
+            id: 'note',
+            path: entries[0].path,
+            title: 'fixture.md',
+            content: '当前正文',
+            hash: 'a',
+            modifiedAt: 1,
+          })}
+          onClose={() => {}}
+          onRestore={onRestore}
+          onError={vi.fn()}
+        />,
+      ),
+    );
+    const rows = () => host.querySelectorAll<HTMLButtonElement>('.history-list button');
+    await act(async () => rows()[0].click());
+    await act(async () => button('固定此版本').click());
+    await act(async () => rows()[1].click());
+    await act(async () => pin.resolve());
+    expect(rows()[1].classList.contains('active')).toBe(true);
+    expect(host.querySelector<HTMLTextAreaElement>('[aria-label="历史版本正文"]')?.value).toBe(
+      '正文-history-1',
+    );
+    await act(async () => button('恢复此版本').click());
+    await act(async () => button('保存当前状态并恢复').click());
+    expect(onRestore).toHaveBeenCalledWith('history-1');
+  });
   it.each(['local', 'context'] as const)(
     'rechecks %s busy state after the discard prompt was already opened',
     async (source) => {
