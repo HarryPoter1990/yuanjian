@@ -70,7 +70,13 @@ export class HistoryStore {
     this.durablePrepared = new Set(this.prepared.map((entry) => entry.id));
   }
 
-  async snapshot(file: string, content: string, reason: string, coalesce = false, createdAt?: number): Promise<void> {
+  async snapshot(
+    file: string,
+    content: string,
+    reason: string,
+    coalesce = false,
+    createdAt?: number,
+  ): Promise<void> {
     const contentHash = hash(content);
     const prepared = this.prepared.find(
       (entry) => entry.path === file && entry.contentHash === contentHash,
@@ -158,14 +164,19 @@ export class HistoryStore {
       try {
         await writeJson(path.join(this.directory, 'pending-snapshots.json'), this.prepared);
         this.durablePrepared = new Set(this.prepared.map((item) => item.id));
-      } catch { /* The caller reports that only the in-memory capture is available. */ }
+      } catch {
+        /* The caller reports that only the in-memory capture is available. */
+      }
       throw error;
     }
     if (replace) await rm(this.textPath(replace.id), { force: true }).catch(() => undefined);
   }
   hasPrepared(file: string, content: string): boolean {
     return this.prepared.some(
-      (entry) => entry.path === file && entry.contentHash === hash(content) && this.durablePrepared.has(entry.id),
+      (entry) =>
+        entry.path === file &&
+        entry.contentHash === hash(content) &&
+        this.durablePrepared.has(entry.id),
     );
   }
   private async clearPrepared(entry: StoredEntry): Promise<void> {
@@ -251,16 +262,20 @@ export class HistoryStore {
     const cutoff = this.options.now() - settings.historyDays * 86400_000;
     const deletedCutoff = this.options.now() - Math.min(settings.historyDays, 30) * 86400_000;
     const latest = new Map<string, string>();
+    const existing = new Map<string, boolean>();
     for (const entry of [...next].sort((a, b) => a.createdAt - b.createdAt)) {
-      try {
-        if ((await stat(entry.path)).isFile()) {
-          delete entry.deletedAt;
-          latest.set(entry.path, entry.id);
+      if (!existing.has(entry.path)) {
+        try {
+          existing.set(entry.path, (await stat(entry.path)).isFile());
+        } catch (error) {
+          if (!isMissing(error)) throw error;
+          existing.set(entry.path, false);
         }
-      } catch (error) {
-        if (!isMissing(error)) throw error;
-        entry.deletedAt ??= this.options.now();
       }
+      if (existing.get(entry.path)) {
+        delete entry.deletedAt;
+        latest.set(entry.path, entry.id);
+      } else entry.deletedAt ??= this.options.now();
     }
     const protectedEntry = (entry: StoredEntry): boolean =>
       !entry.deletedAt && (entry.pinned || latest.get(entry.path) === entry.id);
@@ -273,19 +288,30 @@ export class HistoryStore {
       return !expired;
     });
     const limit = settings.historyLimitMB * 1024 * 1024;
+    const blobs = new Map<string, { count: number; bytes: number }>();
+    let bytes = next.reduce((sum, item) => sum + item.textBytes, 0);
+    for (const entry of next)
+      for (const image of entry.images) {
+        const blob = blobs.get(image.blob);
+        if (blob) blob.count++;
+        else {
+          blobs.set(image.blob, { count: 1, bytes: image.bytes });
+          bytes += image.bytes;
+        }
+      }
+    const evicted = new Set<string>();
     for (const entry of [...next].sort((a, b) => a.createdAt - b.createdAt)) {
-      const bytes =
-        next.reduce((sum, item) => sum + item.textBytes, 0) +
-        [
-          ...new Map(
-            next.flatMap((item) => item.images.map((image) => [image.blob, image.bytes] as const)),
-          ).values(),
-        ].reduce((sum, size) => sum + size, 0);
       if (bytes <= limit) break;
       if (protectedEntry(entry)) continue;
-      next = next.filter((item) => item.id !== entry.id);
+      evicted.add(entry.id);
+      bytes -= entry.textBytes;
+      for (const image of entry.images) {
+        const blob = blobs.get(image.blob)!;
+        if (--blob.count === 0) bytes -= blob.bytes;
+      }
       removed.push(entry);
     }
+    next = next.filter((entry) => !evicted.has(entry.id));
     // Persist references before deleting blobs so an interrupted prune cannot orphan a live entry.
     await this.persist(next);
     for (const entry of removed) await rm(this.textPath(entry.id), { force: true });
