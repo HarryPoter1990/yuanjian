@@ -4,7 +4,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { languages } from '@codemirror/language-data';
 import { LanguageDescription } from '@codemirror/language';
-import { markdownLanguage } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { EditorView } from '@codemirror/view';
+import { codeIndentation } from '../src/editor/code-indentation';
+import {
+  autocompletion,
+  selectedCompletion,
+  snippet,
+  startCompletion,
+} from '@codemirror/autocomplete';
 import { MarkdownEditor } from '../src/editor/MarkdownEditor';
 import type { MarkdownEditorHandle } from '../src/editor/types';
 import { defaultSettings } from '../src/shared/defaults';
@@ -197,4 +205,49 @@ it('joins code lines normally when Backspace is pressed at column zero', async (
   await mount('```text\nfirst\n¦second\n```');
   await key('Backspace');
   expect(marked()).toBe('```text\nfirst¦second\n```');
+});
+it('accepts the selected completion with Tab before inserting indentation', async () => {
+  const view = new EditorView({
+    parent: host,
+    doc: '```text\nre\n```',
+    selection: { anchor: 10 },
+    extensions: [
+      markdown(),
+      codeIndentation(defaultSettings),
+      autocompletion({
+        override: [
+          (context) => ({
+            from: context.pos - 2,
+            options: [{ label: 'recordValue', type: 'function' }],
+          }),
+        ],
+        interactionDelay: 0,
+      }),
+    ],
+  });
+  try {
+    view.focus();
+    startCompletion(view);
+    await vi.waitFor(() => expect(selectedCompletion(view.state)?.label).toBe('recordValue'));
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    );
+    expect(view.state.doc.toString()).toBe('```text\nrecordValue\n```');
+    expect(view.state.selection.main.head).toBe(19);
+  } finally {
+    view.destroy();
+  }
+});
+it('moves through snippet parameters before changing indentation', async () => {
+  const view = await mount('```text\n¦\n```');
+  await act(async () => snippet('call(${first}, ${second})${}')(view, null, 8, 8));
+  await key('Tab');
+  expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+    'second',
+  );
+  await key('Tab', true);
+  expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+    'first',
+  );
+  expect(view.state.doc.toString()).toBe('```text\ncall(first, second)\n```');
 });
