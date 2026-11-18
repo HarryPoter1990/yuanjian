@@ -206,6 +206,26 @@ it('joins code lines normally when Backspace is pressed at column zero', async (
   await key('Backspace');
   expect(marked()).toBe('```text\nfirst¦second\n```');
 });
+it.each(['live', 'source'] as const)(
+  'keeps structural Markdown whitespace and literal fences in %s',
+  async (mode) => {
+    await mount('- ~~~text\n  ¦record();\n  ~~~', {}, mode);
+    await key('Tab', true);
+    expect(marked()).toBe('- ~~~text\n  ¦record();\n  ~~~');
+  },
+);
+it('preserves the four structural spaces of an indented code block', async () => {
+  await mount('    ¦record();');
+  await key('Tab', true);
+  expect(marked()).toBe('    ¦record();');
+  await key('Backspace');
+  expect(marked()).toBe('    ¦record();');
+});
+it('treats a shorter fence as editable code inside a longer fence', async () => {
+  await mount('````text\n```¦\ntext\n````');
+  await key('Tab');
+  expect(marked()).toBe('````text\n``` ¦\ntext\n````');
+});
 it('accepts the selected completion with Tab before inserting indentation', async () => {
   const view = new EditorView({
     parent: host,

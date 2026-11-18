@@ -4,6 +4,7 @@ import {
   EditorState,
   Prec,
   countColumn,
+  findColumn,
   type ChangeSpec,
   type Extension,
 } from '@codemirror/state';
@@ -17,11 +18,13 @@ import type { SyntaxNode } from '@lezer/common';
 
 function codeBlock(state: EditorState, position: number): SyntaxNode | null {
   const line = state.doc.lineAt(position);
-  for (let node = syntaxTree(state).resolve(position, -1); node;) {
+  for (let node = syntaxTree(state).resolve(line.to, -1); node;) {
     if (node.name === 'CodeBlock') return node;
     if (node.name === 'FencedCode') {
       const opening = state.doc.lineAt(node.from);
-      return line.number > opening.number && !/^\s*(?:`{3,}|~{3,})\s*$/.test(line.text)
+      const closing = node.lastChild;
+      return line.number > opening.number &&
+        !(closing?.name === 'CodeMark' && state.doc.lineAt(closing.from).number === line.number)
         ? node
         : null;
     }
@@ -32,13 +35,19 @@ function codeBlock(state: EditorState, position: number): SyntaxNode | null {
 }
 function containerPrefix(state: EditorState, position: number): string {
   const block = codeBlock(state, position);
-  if (!block || block.parent?.name === 'Document') return '';
+  if (!block || (block.name === 'FencedCode' && block.parent?.name === 'Document')) return '';
   const opening = state.doc.lineAt(block.from),
     line = state.doc.lineAt(position);
-  const prefix = opening.text.slice(0, block.from - opening.from);
+  // A list marker on the opening line becomes whitespace on its continuation lines.
+  const prefix = opening.text.slice(0, block.from - opening.from).replace(/[^>\t ]/g, ' ');
   if (line.text.startsWith(prefix)) return prefix;
-  if (/^[\t ]*$/.test(prefix)) return /^[\t ]*/.exec(line.text)![0].slice(0, prefix.length);
-  return /^(?:[\t ]*>[\t ]?)+/.exec(line.text)?.[0] ?? '';
+  const quoteCount = prefix.split('>').length - 1;
+  const quote = quoteCount
+    ? (new RegExp(`^(?:[\\t ]*>){${quoteCount}}`).exec(line.text)?.[0] ?? '')
+    : '';
+  const remainder = /^[\t ]*/.exec(line.text.slice(quote.length))![0];
+  const columns = countColumn(prefix.slice(prefix.lastIndexOf('>') + 1), 4);
+  return quote + remainder.slice(0, findColumn(remainder, columns, 4));
 }
 function codeSelection(state: EditorState): boolean {
   return state.selection.ranges.every((range) => {
@@ -81,7 +90,7 @@ function indentLines(
   const changes: ChangeSpec[] = [];
   for (const n of lines) {
     const line = state.doc.line(n);
-    const base = code ? containerPrefix(state, line.from) : '';
+    const base = code || out ? containerPrefix(state, line.from) : '';
     const prefix = /^[\t ]*/.exec(line.text.slice(base.length))![0];
     const columns = countColumn(prefix, state.tabSize);
     const next = whitespace(Math.max(0, columns + (out ? -width : width)), width, tabs);
@@ -166,14 +175,13 @@ export function codeIndentation(settings: Settings): Extension {
     view.dispatch(
       state.changeByRange((range) => {
         const line = state.doc.lineAt(range.head);
-        const column = countColumn(
-          state.sliceDoc(line.from + containerPrefix(state, range.head).length, range.head),
-          width,
-        );
+        const start = line.from + containerPrefix(state, range.head).length;
+        const from = Math.max(range.head, start);
+        const column = countColumn(state.sliceDoc(start, from), width);
         const insert = tabs ? '\t' : ' '.repeat(width - (column % width));
         return {
-          changes: { from: range.head, insert },
-          range: range.map(state.changes({ from: range.head, insert }), 1),
+          changes: { from, insert },
+          range: EditorSelection.cursor(from + insert.length),
         };
       }),
       { userEvent: 'input.indent', annotations: isolateHistory.of('full') },
@@ -194,8 +202,8 @@ export function codeIndentation(settings: Settings): Extension {
         const base = containerPrefix(state, range.head);
         const from = state.doc.lineAt(range.head).from + base.length;
         return (
-          (range.head > from || base.length > 0) &&
-          /^[\t ]*$/.test(state.sliceDoc(from, range.head))
+          (range.head > from && /^[\t ]*$/.test(state.sliceDoc(from, range.head))) ||
+          (range.head <= from && base.length > 0)
         );
       })
     )
@@ -204,6 +212,7 @@ export function codeIndentation(settings: Settings): Extension {
       state.changeByRange((range) => {
         const line = state.doc.lineAt(range.head);
         const from = line.from + containerPrefix(state, range.head).length;
+        if (range.head <= from) return { range };
         const columns = countColumn(state.sliceDoc(from, range.head), width);
         const insert = whitespace(
           Math.max(0, Math.floor((columns - 1) / width) * width),
