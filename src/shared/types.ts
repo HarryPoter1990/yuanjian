@@ -29,6 +29,11 @@ export interface NoteMeta {
   links: NoteLink[];
   modifiedAt: number;
 }
+export interface DailyNoteEntry {
+  date: string;
+  path: string;
+  title: string;
+}
 export interface FileEntry {
   path: string;
   name: string;
@@ -372,6 +377,7 @@ export interface DesktopAPI {
   pinHistory(id: string, pinned: boolean): Promise<void>;
   historyStats(): Promise<HistoryStats>;
   pruneHistory(): Promise<HistoryStats>;
+  getDailyNotes?(month: string): Promise<DailyNoteEntry[]>;
   periodicNote(
     kind: 'daily' | 'weekly' | 'monthly',
     date: string,

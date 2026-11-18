@@ -109,6 +109,7 @@ const api: DesktopAPI = {
   pinHistory: (id, pinned) => ipcRenderer.invoke('notes:pinHistory', id, pinned),
   historyStats: () => ipcRenderer.invoke('notes:historyStats'),
   pruneHistory: () => ipcRenderer.invoke('notes:pruneHistory'),
+  getDailyNotes: (month) => ipcRenderer.invoke('notes:getDailyNotes', month),
   periodicNote: (kind, date, template, additional) =>
     ipcRenderer.invoke('notes:periodicNote', kind, date, template, additional),
   getFonts: (refresh) => ipcRenderer.invoke('notes:getFonts', refresh),

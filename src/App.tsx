@@ -1939,6 +1939,7 @@ export default function App() {
                 index={workspace.index}
                 indexUpdating={workspace.indexUpdating}
                 indexIssues={workspace.indexIssues}
+                journalSettingsReady={workspace.settingsState === '设置已保存'}
                 onRescan={() => void workspace.refresh(true).catch(error)}
                 activePath={active?.path || null}
                 onSettings={(value) =>

@@ -17,6 +17,7 @@ import { defaultSettings } from '../../src/shared/defaults';
 import { extractLinks, parseNote, setFrontmatterTags } from '../../src/shared/markdown';
 import type {
   AttachmentCandidate,
+  DailyNoteEntry,
   FileEntry,
   HistoryEntry,
   HistoryStats,
@@ -59,6 +60,12 @@ import type { NoteResolution } from '../../src/shared/note-syntax';
 import { periodicVariables, renderPeriodic } from '../../src/shared/periodic';
 
 const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
+function periodicFile(directory: string, relative: string): string {
+  const candidate = path.resolve(directory, relative);
+  if (!within(directory, candidate) || !noteExtensions.has(path.extname(candidate).toLowerCase()))
+    throw new Error('周期笔记路径必须在日记目录内，且以 .md 结尾');
+  return candidate;
+}
 interface SavedFormat {
   bom: boolean;
   newline: '\r\n' | '\n';
@@ -284,7 +291,10 @@ export class NoteStore {
     file = await this.authorize(file);
     if (!noteExtensions.has(path.extname(file).toLowerCase()))
       throw new Error('请选择 Markdown 文件');
-    return this.readNote(file);
+    const note = await this.readNote(file);
+    // Keep the exact opened file available for saving if a later index rule excludes its folder.
+    if (note.path) this.access.files.add(note.path);
+    return note;
   }
   async readNote(file: string): Promise<NoteDocument> {
     file = await this.authorize(file);
@@ -1122,6 +1132,39 @@ export class NoteStore {
       return this.readNote(file);
     });
   }
+  async getDailyNotes(month: string): Promise<DailyNoteEntry[]> {
+    if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) throw new Error('月份格式必须为有效的 YYYY-MM');
+    const { journalDirectory, dailyPattern } = this.settings;
+    if (!journalDirectory) return [];
+    const directory = await this.access.assertDirectory(journalDirectory);
+    const end = new Date(`${month}-01T12:00:00Z`);
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+    const entries = await Promise.all(
+      Array.from({ length: end.getUTCDate() }, async (_, day) => {
+        const date = `${month}-${String(day + 1).padStart(2, '0')}`;
+        const candidate = periodicFile(
+          directory,
+          renderPeriodic(dailyPattern, periodicVariables('daily', date)),
+        );
+        const file = await canonical(candidate);
+        if (!within(directory, file)) return null;
+        try {
+          const authorized = await this.authorize(file);
+          if ((await stat(authorized)).isFile())
+            return {
+              date,
+              path: authorized,
+              title: path.basename(authorized, path.extname(authorized)),
+            };
+        } catch (error) {
+          if (!isMissing(error)) throw error;
+        }
+        return null;
+      }),
+    );
+    return entries.filter((entry) => entry !== null);
+  }
+
   async periodicNote(
     kind: 'daily' | 'weekly' | 'monthly',
     date: string,
@@ -1155,9 +1198,7 @@ export class NoteStore {
         : kind === 'weekly'
           ? this.settings.weeklyPattern
           : this.settings.monthlyPattern;
-    const baseFile = path.resolve(directory, render(pattern));
-    if (!within(directory, baseFile) || !noteExtensions.has(path.extname(baseFile).toLowerCase()))
-      throw new Error('周期笔记路径必须在日记目录内，且以 .md 结尾');
+    const baseFile = periodicFile(directory, render(pattern));
     await this.authorize(baseFile);
     const template =
       this.settings.templates.find((item) => item.id === templateId) ??

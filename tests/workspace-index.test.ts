@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { NoteStore } from '../electron/storage/store';
+import { asTab } from '../src/ui/model';
 let directory: string;
 let root: string;
 let store: NoteStore;
@@ -14,6 +15,44 @@ beforeEach(async () => {
   await store.initialize();
   await store.approveDirectory(root);
   await store.saveSettings({ ...store.getSettings(), roots: [root] });
+});
+it('continues saving an already opened note and its draft after excluding its folder', async () => {
+  const first = path.join(root, 'sub', 'opened.md');
+  const second = path.join(root, 'sub', 'unopened.md');
+  await writeFile(first, '# First');
+  await writeFile(second, '# Second');
+  const doc = (await store.openFile(first))!;
+  const tab = { ...asTab(doc), content: '# Updated', dirty: true };
+  await store.saveSettings({ ...store.getSettings(), excluded: ['sub'] });
+  await expect(store.saveSession({ tabs: [tab], activeId: tab.id })).resolves.toBeUndefined();
+  const saved = await store.saveFile({
+    path: first,
+    content: tab.content,
+    title: doc.title,
+    baseContent: doc.content,
+    hash: doc.hash,
+  });
+  expect(saved.status).toBe('saved');
+  expect(await readFile(first, 'utf8')).toBe('# Updated');
+  expect((await store.getWorkspaceIndex()).notes).toEqual([]);
+  await expect(store.openFile(second)).rejects.toThrow('未经授权');
+});
+it('looks up only configured journal dates in an independent directory', async () => {
+  const journal = path.join(directory, 'journals');
+  await mkdir(journal);
+  await store.approveDirectory(journal);
+  await store.saveSettings({
+    ...store.getSettings(),
+    journalDirectory: journal,
+    dailyPattern: '{{year}}/{{month}}/{{day}}.md',
+  });
+  const entry = (await store.periodicNote('daily', '2024-02-29'))!;
+  await writeFile(path.join(journal, 'unrelated-2024-02-28.md'), '# Not a journal');
+  expect(await store.getDailyNotes('2024-02')).toEqual([
+    { date: '2024-02-29', path: entry.path, title: entry.title },
+  ]);
+  expect(await store.getDailyNotes('2024-03')).toEqual([]);
+  expect((await store.getWorkspaceIndex()).notes).toEqual([]);
 });
 afterEach(async () => {
   await store.dispose();

@@ -12,7 +12,7 @@ import {
   Search,
   X,
 } from '../ui/icons';
-import type { FileEntry, NoteMeta, TabState, Settings } from '../shared/types';
+import type { DailyNoteEntry, FileEntry, NoteMeta, TabState, Settings } from '../shared/types';
 import { dateKey, errorText, fileName } from '../ui/model';
 import { DropdownMenu, Empty, IconButton, tabListKeys } from './Controls';
 
@@ -28,6 +28,7 @@ interface Props {
   index: NoteMeta[];
   indexUpdating?: boolean;
   indexIssues?: { path: string; message: string }[];
+  journalSettingsReady?: boolean;
   onRescan?(): void;
   activePath: string | null;
   onSettings(settings: Settings): void;
@@ -50,6 +51,7 @@ export function Sidebar({
   index,
   indexUpdating = false,
   indexIssues = [],
+  journalSettingsReady = true,
   onRescan,
   activePath,
   onSettings,
@@ -94,6 +96,11 @@ export function Sidebar({
   const [tag, setTag] = useState('');
   const [month, setMonth] = useState(new Date());
   const [selected, setSelected] = useState(dateKey(new Date()));
+  const [dailyLookup, setDailyLookup] = useState<{
+    key: string;
+    entries: DailyNoteEntry[];
+    error?: string;
+  }>();
   const tags = useMemo(
     () =>
       Array.from(new Set(index.flatMap((note) => note.tags))).sort((a, b) =>
@@ -155,15 +162,70 @@ export function Sidebar({
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
   const startOffset = (firstDay.getDay() + 6) % 7;
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const visibleMonth = dateKey(firstDay).slice(0, 7);
+  const selectedMonth = selected.slice(0, 7);
+  const journalKey = JSON.stringify([
+    settings.journalDirectory,
+    settings.dailyPattern,
+    visibleMonth,
+    selectedMonth,
+  ]);
+  useEffect(() => {
+    const api = window.notes;
+    if (
+      view !== 'calendar' ||
+      hidden ||
+      !settings.journalDirectory ||
+      !journalSettingsReady ||
+      !api ||
+      !('getDailyNotes' in api) ||
+      !api.getDailyNotes
+    )
+      return;
+    const getDailyNotes = api.getDailyNotes;
+    let current = true;
+    const refresh = () => {
+      void Promise.all(
+        [...new Set([visibleMonth, selectedMonth])].map((month) => getDailyNotes(month)),
+      )
+        .then((entries) => {
+          if (current) setDailyLookup({ key: journalKey, entries: entries.flat() });
+        })
+        .catch((error) => {
+          if (current) setDailyLookup({ key: journalKey, entries: [], error: errorText(error) });
+        });
+    };
+    refresh();
+    return () => {
+      current = false;
+    };
+  }, [
+    view,
+    hidden,
+    journalSettingsReady,
+    journalKey,
+    settings.journalDirectory,
+    visibleMonth,
+    selectedMonth,
+    index,
+  ]);
   const journalPath = (date: string) =>
     dailyNotePath(settings.journalDirectory, settings.dailyPattern, date);
   const journals = useMemo(
     () => new Map(index.map((note) => [note.path.replace(/\\/g, '/').toLowerCase(), note])),
     [index],
   );
-  const selectedJournal = journals.get(journalPath(selected));
+  const hydratedDaily = dailyLookup?.key === journalKey ? dailyLookup : undefined;
+  const entriesByDate = new Map(hydratedDaily?.entries.map((entry) => [entry.date, entry]));
+  const journalOn = (date: string) => {
+    const indexed = journals.get(journalPath(date));
+    if (!hydratedDaily || hydratedDaily.error) return indexed;
+    const entry = entriesByDate.get(date);
+    return entry && (indexed ?? entry);
+  };
+  const selectedJournal = journalOn(selected);
   const selectedNotes = index.filter(
-    (note) => note !== selectedJournal && fileName(note.path).includes(selected),
+    (note) => note.path !== selectedJournal?.path && fileName(note.path).includes(selected),
   );
   return (
     <aside className="sidebar left-sidebar" aria-label="笔记导航" hidden={hidden}>
@@ -410,7 +472,7 @@ export function Sidebar({
                     onClick={() => setSelected(key)}
                   >
                     {day}
-                    {journals.has(journalPath(key)) && <i />}
+                    {journalOn(key) && <i />}
                   </button>
                 );
               })}
@@ -438,6 +500,11 @@ export function Sidebar({
               </button>
             )}
             <section aria-label="当日日记">
+              {hydratedDaily?.error && (
+                <p className="subtle" role="status">
+                  日记日期读取未完成：{hydratedDaily.error}
+                </p>
+              )}
               {selectedJournal && (
                 <button className="note-row" onClick={() => onOpen(selectedJournal.path)}>
                   <FileText size={15} />
