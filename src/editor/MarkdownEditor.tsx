@@ -54,7 +54,7 @@ import {
   nextSnippetField,
   prevSnippetField,
 } from '@codemirror/autocomplete';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { searchKeymap } from '@codemirror/search';
 import { livePreviewField, previewConfig } from './live-preview';
 import { inCode, inMath, isEscaped, mathCompletion } from './completion';
 import { compoundClipboardToMarkdown, convertRichText } from './clipboard';
@@ -630,7 +630,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             markdown({ codeLanguages: languages, addKeymap: false }),
             closeBrackets(),
             compactSearch,
-            highlightSelectionMatches(),
             keymap.of([
               ...(propsRef.current.prototypeEditing
                 ? [
