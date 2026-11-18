@@ -6,7 +6,7 @@
 
 **Windows x64 · 预览版 · MIT**
 
-[下载](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.11.3) · [使用说明](docs/usage.md) · [反馈问题](https://github.com/HarryPoter1990/yuanjian/issues) · [更新记录](CHANGELOG.md)
+[下载](https://github.com/HarryPoter1990/yuanjian/releases/latest) · [使用说明](docs/usage.md) · [反馈问题](https://github.com/HarryPoter1990/yuanjian/issues) · [更新记录](CHANGELOG.md)
 
 ## 功能
 
@@ -22,7 +22,7 @@
 
 ## 下载与开始使用
 
-在 [0.11.3 下载页](https://github.com/HarryPoter1990/yuanjian/releases/tag/v0.11.3) 的 **Assets** 中下载 `Yuanjian-Setup-0.11.3-x64.exe`。同页的 `SHA256SUMS.txt` 可用于核对文件完整性。“Source code” 是源码归档，安装软件请选择 `.exe` 文件。
+在 [最新版本下载页](https://github.com/HarryPoter1990/yuanjian/releases/latest) 的 **Assets** 中选择 Windows x64 安装包 `Yuanjian-Setup-…-x64.exe`。同页的 `SHA256SUMS.txt` 可用于核对文件完整性。“Source code” 是源码归档，供下载源码或自行构建使用。
 
 目前提供 Windows x64 安装包，尚未签名，暂不支持自动更新。
 
